@@ -111,18 +111,18 @@ export default function LandlordDetailPage() {
             </div>
             <div>
               <dt className="text-sm font-medium text-gray-500">Properties</dt>
-              <dd className="text-sm text-gray-900">{landlord.properties.length}</dd>
+              <dd className="text-sm text-gray-900">{(landlord.properties ?? []).length}</dd>
             </div>
           </dl>
         </div>
 
         <div className="bg-white p-6 rounded-lg shadow">
           <h2 className="text-lg font-semibold mb-4">Properties</h2>
-          {landlord.properties.length === 0 ? (
+          {(landlord.properties ?? []).length === 0 ? (
             <p className="text-gray-500">No properties assigned</p>
           ) : (
             <div className="space-y-3">
-              {landlord.properties.map(property => (
+              {(landlord.properties ?? []).map(property => (
                 <div key={property.id} className="border-b pb-2 last:border-b-0">
                   <h3 className="font-medium">{property.name}</h3>
                   <p className="text-sm text-gray-600">{property.address}</p>
