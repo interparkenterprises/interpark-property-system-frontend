@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useState, useEffect } from 'react'
 
 const navigation = [
   { 
@@ -54,7 +55,6 @@ const navigation = [
       </svg>
     )
   },
-  
   { 
     name: 'To-Dos', 
     href: '/todos',
@@ -77,16 +77,74 @@ const navigation = [
 
 export default function Sidebar() {
   const pathname = usePathname()
+  const [isOpen, setIsOpen] = useState(false)
+
+  const toggleSidebar = () => {
+    setIsOpen(!isOpen)
+  }
+
+  const closeSidebar = () => {
+    setIsOpen(false)
+  }
+
+  // Close sidebar when route changes
+  useEffect(() => {
+    setIsOpen(false)
+  }, [pathname])
+
+  // Prevent body scroll when sidebar is open on mobile
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden'
+    } else {
+      document.body.style.overflow = 'auto'
+    }
+
+    return () => {
+      document.body.style.overflow = 'auto'
+    }
+  }, [isOpen])
 
   return (
     <>
+      {/* Hamburger Menu Button */}
+      <button
+        onClick={toggleSidebar}
+        className="md:hidden fixed top-4 left-4 z-70 p-2 rounded-lg bg-white shadow-lg hover:bg-gray-100 transition-colors duration-200 border border-gray-200"
+        aria-label="Toggle menu"
+      >
+        <div className="w-6 h-5 flex flex-col justify-between">
+          <span
+            className={`block h-0.5 w-full bg-[#005478] transform transition-all duration-300 ease-in-out ${
+              isOpen ? 'rotate-45 translate-y-2' : ''
+            }`}
+          />
+          <span
+            className={`block h-0.5 w-full bg-[#005478] transition-all duration-300 ease-in-out ${
+              isOpen ? 'opacity-0' : 'opacity-100'
+            }`}
+          />
+          <span
+            className={`block h-0.5 w-full bg-[#005478] transform transition-all duration-300 ease-in-out ${
+              isOpen ? '-rotate-45 -translate-y-2' : ''
+            }`}
+          />
+        </div>
+      </button>
+
       {/* Mobile Overlay */}
-      <div className="fixed inset-0 bg-black bg-opacity-50 z-40 md:hidden" id="sidebar-overlay" style={{ display: 'none' }} />
-      
+      <div
+        className={`fixed inset-0 bg-black transition-opacity duration-300 ease-in-out z-40 md:hidden ${
+          isOpen ? 'opacity-50 pointer-events-auto' : 'opacity-0 pointer-events-none'
+        }`}
+        onClick={closeSidebar}
+      />
+
       {/* Sidebar */}
-      <div 
-        className="bg-gray-900 text-white w-64 space-y-2 py-6 px-3 fixed inset-y-0 left-0 transform -translate-x-full md:relative md:translate-x-0 transition-all duration-300 ease-in-out z-50 shadow-xl"
-        id="sidebar"
+      <div
+        className={`bg-gray-900 text-white w-64 space-y-2 py-6 px-3 fixed inset-y-0 left-0 transform transition-transform duration-300 ease-in-out z-50 shadow-xl ${
+          isOpen ? 'translate-x-0' : '-translate-x-full'
+        } md:relative md:translate-x-0`}
       >
         {/* Logo/Brand Area */}
         <div className="px-4 py-4 border-b border-gray-700 mb-4">
@@ -114,13 +172,15 @@ export default function Sidebar() {
                     : 'text-gray-300 hover:bg-gray-800 hover:text-white'
                 }`}
               >
-                <div className={`mr-3 transition-colors duration-200 ${
-                  isActive ? 'text-white' : 'text-gray-400 group-hover:text-white'
-                }`}>
+                <div
+                  className={`mr-3 transition-colors duration-200 ${
+                    isActive ? 'text-white' : 'text-gray-400 group-hover:text-white'
+                  }`}
+                >
                   {item.icon}
                 </div>
                 <span className="flex-1">{item.name}</span>
-                
+
                 {/* Active indicator */}
                 {isActive && (
                   <div className="w-1.5 h-1.5 bg-white rounded-full ml-2 animate-pulse" />
