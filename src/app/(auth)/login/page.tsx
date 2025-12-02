@@ -15,7 +15,7 @@ export default function LoginPage() {
     setError('')
 
     try {
-      const res = await fetch('http://api.interparkpropertysystem.co.ke/api/auth/login', {
+      const res = await fetch('https://api.interparkpropertysystem.co.ke/api/auth/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
