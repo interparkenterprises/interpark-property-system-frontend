@@ -16,7 +16,7 @@ export default function RegisterPage() {
     setError('')
 
     try {
-      const res = await fetch('http://api.interparkpropertysystem.co.ke/api/auth/register', {
+      const res = await fetch('https://api.interparkpropertysystem.co.ke/api/auth/register', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
