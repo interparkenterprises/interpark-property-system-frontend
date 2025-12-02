@@ -79,22 +79,7 @@ export async function exportArrearsToPDF(
   const totalPaid = arrearsData.summary.totalPaid;
   const totalArrears = arrearsData.summary.totalArrears;
 
-  // Create footer row - exactly like the image
-  const footerRow = [
-    '', // Empty for the numbering column
-    '', // Empty for Tenant Name
-    '', // Empty for Unit Type
-    '', // Empty for Unit No
-    '', // Empty for Floor
-    '', // Empty for Invoice No
-    'Total', // "Total" text in the Type column
-    `Ksh ${totalExpected.toLocaleString()}`, // Total Expected
-    `Ksh ${totalPaid.toLocaleString()}`, // Total Paid
-    `Ksh ${totalArrears.toLocaleString()}`, // Total Balance (Arrears)
-    '', // Empty for Status
-  ];
-
-  // Generate table using autoTable with footer
+  // Generate table using autoTable WITHOUT footer
   autoTable(doc, {
     startY: 70,
     head: [
@@ -113,7 +98,6 @@ export async function exportArrearsToPDF(
       ],
     ],
     body: tableData,
-    foot: [footerRow], // Add the footer row
     theme: 'striped',
     headStyles: {
       fillColor: [0, 102, 178],
@@ -125,12 +109,6 @@ export async function exportArrearsToPDF(
     bodyStyles: {
       fontSize: 8,
       textColor: [0, 0, 0],
-    },
-    footStyles: {
-      fontSize: 8,
-      textColor: [0, 0, 0],
-      fontStyle: 'bold',
-      fillColor: [249, 249, 249], // Light gray background for footer
     },
     alternateRowStyles: {
       fillColor: [249, 249, 249],
@@ -148,47 +126,74 @@ export async function exportArrearsToPDF(
       9: { cellWidth: 25, halign: 'right', fontStyle: 'bold', textColor: [220, 53, 69] },
       10: { cellWidth: 20, halign: 'center' },
     },
-    // Special styling for footer cells
-    didDrawCell: (data) => {
-      // If this is a footer cell
-      if (data.section === 'foot') {
-        // Style for "Total" cell (column 6)
-        if (data.column.index === 6) {
-          doc.setTextColor(0, 0, 0);
-          doc.setFont('helvetica', 'bold');
-        }
-        // Style for total amount cells (columns 7, 8, 9)
-        if ([7, 8, 9].includes(data.column.index)) {
-          doc.setTextColor(0, 0, 0);
-          doc.setFont('helvetica', 'bold');
-        }
-      }
-    },
     margin: { left: 14, right: 14 },
     styles: { overflow: 'linebreak' },
-    // Add a line above the footer for visual separation
-    didParseCell: (data) => {
-      if (data.section === 'foot') {
-        data.cell.styles.lineWidth = 0.5;
-        data.cell.styles.lineColor = [150, 150, 150];
-        data.cell.styles.valign = 'middle';
-      }
-    },
   });
 
   // Get the final Y position of the table
   const finalY = (doc as any).lastAutoTable?.finalY ?? 70;
 
+  // Add spacing after table
+  const totalsSectionY = finalY + 5;
+
+  // Draw separator line above totals
+  const lineStartX = 14;
+  const lineEndX = pageWidth - 14;
+  doc.setDrawColor(150, 150, 150);
+  doc.setLineWidth(0.5);
+  doc.line(lineStartX, totalsSectionY, lineEndX, totalsSectionY);
+
+  // Add custom totals section (without table cells)
+  const totalsY = totalsSectionY + 8;
+  
+  // Calculate positions based on the table column positions
+  const totalLabelX = 14 + 15 + 35 + 25 + 20 + 15 + 30; // Sum of previous column widths
+  const expectedX = totalLabelX + 30; // After "Type" column
+  const paidX = expectedX + 25; // After "Expected" column
+  const balanceX = paidX + 25; // After "Paid" column
+
+  // Set font style for totals
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(0, 0, 0);
+
+  // Draw "Total" label
+  doc.text('Total', totalLabelX + 15, totalsY, { align: 'center' });
+
+  // Draw total expected amount (right-aligned)
+  doc.text(`Ksh ${totalExpected.toLocaleString()}`, expectedX + 23, totalsY, { align: 'right' });
+
+  // Draw total paid amount (right-aligned)
+  doc.text(`Ksh ${totalPaid.toLocaleString()}`, paidX + 23, totalsY, { align: 'right' });
+
+  // Draw total balance/arrears (right-aligned, in red)
+  doc.setTextColor(220, 53, 69); // Red color for balance
+  doc.text(`Ksh ${totalArrears.toLocaleString()}`, balanceX + 23, totalsY, { align: 'right' });
+
   // Add footer to all pages
   const pageCount = doc.getNumberOfPages();
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i);
+    
+    // Check if content is too close to the bottom
+    const contentBottomY = i === pageCount ? totalsY + 10 : finalY;
+    const minFooterY = pageHeight - 20; // Minimum position for footer
+    
+    // If content is close to footer area, add a new page
+    if (i === pageCount && contentBottomY > minFooterY - 10) {
+      doc.addPage();
+      doc.setPage(doc.getNumberOfPages());
+    }
+    
     // Use 10pt for footer company name, 8pt for page number
     doc.setFontSize(10);
     doc.setTextColor(0, 102, 178); // Blue color for company name
+    doc.setFont('helvetica', 'bold');
     doc.text('INTERPARK ENTERPRISES LIMITED', pageWidth / 2, pageHeight - 15, { align: 'center' });
+    
     doc.setFontSize(8);
     doc.setTextColor(0, 0, 0); // Black color for page number
+    doc.setFont('helvetica', 'normal');
     doc.text(`Page ${i}`, pageWidth / 2, pageHeight - 10, { align: 'center' });
   }
 
