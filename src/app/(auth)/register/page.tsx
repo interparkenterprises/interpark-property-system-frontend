@@ -9,18 +9,18 @@ export default function RegisterPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
   const router = useRouter()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
+    setLoading(true)
 
     try {
       const res = await fetch('https://api.interparkpropertysystem.co.ke/api/auth/register', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, email, password }),
       })
 
@@ -30,86 +30,101 @@ export default function RegisterPage() {
         localStorage.setItem('token', data.token)
         router.push('/dashboard')
       } else {
-        setError(data.message)
+        setError(data.message || 'Registration failed.')
       }
     } catch (err) {
-      setError('An error occurred. Please try again.')
+      setError('Network error. Please try again.')
+    } finally {
+      setLoading(false)
     }
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8">
+    <div className="min-h-screen flex items-center justify-center px-4 relative
+                    bg-linear-to-br from-[#005478] to-[#1C2B3A]">
+      
+      {/* Soft overlay */}
+      <div className="absolute inset-0 bg-black/40"></div>
+
+      <div className="max-w-md w-full space-y-8 relative z-10 bg-white/10 backdrop-blur-xl p-8
+                      rounded-2xl shadow-lg border border-white/20">
         <div>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-            Create your account
+          <h2 className="text-center text-3xl font-extrabold text-white drop-shadow-md">
+            Create Your Account
           </h2>
+          <p className="mt-2 text-center text-sm text-gray-200">
+            Join Interpark Property Management System
+          </p>
         </div>
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          <div>
-            <label htmlFor="name" className="sr-only">
-              Full Name
-            </label>
-            <input
-              id="name"
-              name="name"
-              type="text"
-              autoComplete="name"
-              required
-              className="appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-              placeholder="Full Name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </div>
-          <div>
-            <label htmlFor="email" className="sr-only">
-              Email address
-            </label>
-            <input
-              id="email"
-              name="email"
-              type="email"
-              autoComplete="email"
-              required
-              className="appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-              placeholder="Email address"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-          </div>
-          <div>
-            <label htmlFor="password" className="sr-only">
-              Password
-            </label>
-            <input
-              id="password"
-              name="password"
-              type="password"
-              autoComplete="new-password"
-              required
-              className="appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-              placeholder="Password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </div>
+
+        <form className="space-y-6" onSubmit={handleSubmit}>
+          <input
+            id="name"
+            type="text"
+            placeholder="Full Name"
+            required
+            autoComplete="name"
+            className="w-full rounded-lg px-4 py-2 bg-white/90 border border-gray-300
+                      text-gray-900 shadow-sm focus:outline-none focus:ring-2
+                      focus:ring-[#00A8C6] focus:border-[#00A8C6]"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+
+          <input
+            id="email"
+            type="email"
+            placeholder="Email Address"
+            required
+            autoComplete="email"
+            className="w-full rounded-lg px-4 py-2 bg-white/90 border border-gray-300
+                      text-gray-900 shadow-sm focus:outline-none focus:ring-2
+                      focus:ring-[#00A8C6] focus:border-[#00A8C6]"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+
+          <input
+            id="password"
+            type="password"
+            placeholder="Password"
+            required
+            autoComplete="new-password"
+            className="w-full rounded-lg px-4 py-2 bg-white/90 border border-gray-300
+                      text-gray-900 shadow-sm focus:outline-none focus:ring-2
+                      focus:ring-[#00A8C6] focus:border-[#00A8C6]"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
 
           {error && (
-            <div className="text-red-500 text-sm text-center">{error}</div>
+            <div className="text-red-400 text-sm text-center font-medium">{error}</div>
           )}
 
-          <div>
-            <button
-              type="submit"
-              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-            >
-              Sign up
-            </button>
-          </div>
+          <button
+            type="submit"
+            disabled={loading}
+            className={`group relative w-full flex justify-center py-3 px-4 text-sm font-semibold
+                      rounded-lg transition-all duration-300 shadow-lg
+                      text-white bg-[#00A8C6] hover:bg-[#E6F8FA] hover:text-[#005478]
+                      focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#00A8C6]
+                      disabled:opacity-70 disabled:cursor-not-allowed`}
+          >
+            {loading ? (
+              <div className="flex gap-2 items-center">
+                {/* Unique modern loading indicator */}
+                <span className="w-1.5 h-1.5 bg-white rounded-full animate-bounce"></span>
+                <span className="w-1.5 h-1.5 bg-white rounded-full animate-bounce delay-150"></span>
+                <span className="w-1.5 h-1.5 bg-white rounded-full animate-bounce delay-300"></span>
+                <span>Creating...</span>
+              </div>
+            ) : (
+              'Sign Up'
+            )}
+          </button>
 
           <div className="text-center">
-            <Link href="/login" className="text-indigo-600 hover:text-indigo-500">
+            <Link href="/login" className="text-sm font-semibold text-white! hover:text-white/80 transition-colors">
               Already have an account? Sign in
             </Link>
           </div>
