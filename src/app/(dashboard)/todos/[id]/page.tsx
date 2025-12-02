@@ -142,7 +142,7 @@ export default function TodoDetailPage() {
 
           <div>
             <h2 className="text-sm font-medium text-gray-500">Assigned To</h2>
-            <p className="text-sm text-gray-900 mt-1">{todo.user.name}</p>
+            <p className="text-sm text-gray-900 mt-1">{todo.user?.name ?? 'Unassigned'}</p>
           </div>
         </div>
       </div>
