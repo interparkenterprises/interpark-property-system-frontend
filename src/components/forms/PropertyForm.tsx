@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, forwardRef } from 'react';
+import { useState, useEffect, forwardRef, ChangeEvent } from 'react';
 import { Property, Landlord, PropertyForm as PropertyFormType, UsageType } from '@/types';
 import { propertiesAPI, landlordsAPI } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -26,7 +26,7 @@ const PropertyForm = forwardRef<HTMLFormElement, PropertyFormProps>(
       landlordAddress: '',
       landlordIdNumber: '',
       commissionFee: 0,
-      image: '',
+      imageFile: null as File | null, // Changed from image URL to File
       // Bank details
       accountNo: '',
       accountName: '',
@@ -38,6 +38,7 @@ const PropertyForm = forwardRef<HTMLFormElement, PropertyFormProps>(
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [landlordMode, setLandlordMode] = useState<'existing' | 'new'>('existing');
+    const [imagePreview, setImagePreview] = useState<string | null>(null);
 
     useEffect(() => {
       fetchLandlords();
@@ -56,7 +57,7 @@ const PropertyForm = forwardRef<HTMLFormElement, PropertyFormProps>(
           landlordAddress: property.landlord?.address || '',
           landlordIdNumber: property.landlord?.idNumber || '',
           commissionFee: property.commissionFee || 0,
-          image: property.image || '',
+          imageFile: null, // Keep as null since we can't get File from URL
           // Bank details
           accountNo: property.accountNo || '',
           accountName: property.accountName || '',
@@ -64,6 +65,11 @@ const PropertyForm = forwardRef<HTMLFormElement, PropertyFormProps>(
           branch: property.branch || '',
           branchCode: property.branchCode || '',
         });
+        
+        // If property has an image URL, set it as preview
+        if (property.image) {
+          setImagePreview(property.image);
+        }
       }
     }, [property]);
 
@@ -95,6 +101,49 @@ const PropertyForm = forwardRef<HTMLFormElement, PropertyFormProps>(
       }
     };
 
+    const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      // Validate file type
+      const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
+      if (!validTypes.includes(file.type)) {
+        setError('Please select a valid image file (JPEG, PNG, WebP, GIF).');
+        return;
+      }
+
+      // Validate file size (max 5MB)
+      const maxSize = 5 * 1024 * 1024; // 5MB
+      if (file.size > maxSize) {
+        setError('Image size should be less than 5MB.');
+        return;
+      }
+
+      // Update form data
+      setFormData(prev => ({
+        ...prev,
+        imageFile: file
+      }));
+
+      // Create preview
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+
+      // Clear any previous errors
+      setError('');
+    };
+
+    const removeImage = () => {
+      setFormData(prev => ({
+        ...prev,
+        imageFile: null
+      }));
+      setImagePreview(null);
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
       e.preventDefault();
       setLoading(true);
@@ -119,38 +168,47 @@ const PropertyForm = forwardRef<HTMLFormElement, PropertyFormProps>(
       }
 
       try {
-        const payload: any = {
-          name: formData.name,
-          address: formData.address,
-          lrNumber: formData.lrNumber || null,
-          form: formData.form,
-          usage: formData.usage,
-          commissionFee: formData.commissionFee || null,
-          image: formData.image || null,
-          // Bank details
-          accountNo: formData.accountNo || null,
-          accountName: formData.accountName || null,
-          bank: formData.bank || null,
-          branch: formData.branch || null,
-          branchCode: formData.branchCode || null,
-        };
+        // Create FormData for file upload
+        const formDataToSend = new FormData();
+        
+        // Add text fields
+        formDataToSend.append('name', formData.name);
+        formDataToSend.append('address', formData.address);
+        if (formData.lrNumber) formDataToSend.append('lrNumber', formData.lrNumber);
+        formDataToSend.append('form', formData.form);
+        formDataToSend.append('usage', formData.usage);
+        if (formData.commissionFee) formDataToSend.append('commissionFee', formData.commissionFee.toString());
+        
+        // Add bank details
+        if (formData.accountNo) formDataToSend.append('accountNo', formData.accountNo);
+        if (formData.accountName) formDataToSend.append('accountName', formData.accountName);
+        if (formData.bank) formDataToSend.append('bank', formData.bank);
+        if (formData.branch) formDataToSend.append('branch', formData.branch);
+        if (formData.branchCode) formDataToSend.append('branchCode', formData.branchCode);
 
+        // Add image file if selected
+        if (formData.imageFile) {
+          formDataToSend.append('image', formData.imageFile);
+        }
+
+        // Add landlord data
         if (landlordMode === 'existing') {
-          payload.landlordId = formData.landlordId;
+          formDataToSend.append('landlordId', formData.landlordId);
         } else {
-          payload.landlord = {
+          const landlordData = {
             name: formData.landlordName.trim(),
             email: formData.landlordEmail.trim() || null,
             phone: formData.landlordPhone.trim() || null,
             address: formData.landlordAddress.trim() || null,
             idNumber: formData.landlordIdNumber.trim() || null,
           };
+          formDataToSend.append('landlord', JSON.stringify(landlordData));
         }
 
         if (property) {
-          await propertiesAPI.update(property.id, payload);
+          await propertiesAPI.update(property.id, formDataToSend);
         } else {
-          await propertiesAPI.create(payload);
+          await propertiesAPI.create(formDataToSend);
         }
 
         onSuccess?.();
@@ -171,6 +229,7 @@ const PropertyForm = forwardRef<HTMLFormElement, PropertyFormProps>(
         onSubmit={handleSubmit}
         className="space-y-5"
         noValidate
+        encType="multipart/form-data"
       >
         {/* Error Banner */}
         {error && (
@@ -299,23 +358,82 @@ const PropertyForm = forwardRef<HTMLFormElement, PropertyFormProps>(
           </p>
         </div>
 
-        {/* Image URL */}
+        {/* Image Upload */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Image URL (Optional)
+            Property Image (Optional)
           </label>
-          <input
-            type="url"
-            name="image"
-            value={formData.image}
-            onChange={handleChange}
-            placeholder="https://example.com/property-image.jpg"
-            disabled={loading}
-            className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary placeholder:text-black placeholder:opacity-70 text-black"
-          />
-          <p className="mt-1 text-xs text-gray-500">
-            URL or path to property image
-          </p>
+          
+          {/* Image Preview */}
+          {imagePreview && (
+            <div className="mb-3">
+              <div className="relative inline-block">
+                <img
+                  src={imagePreview}
+                  alt="Property preview"
+                  className="w-40 h-40 object-cover rounded-lg border border-gray-300"
+                />
+                <button
+                  type="button"
+                  onClick={removeImage}
+                  className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center hover:bg-red-600 transition-colors"
+                  title="Remove image"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* File Input */}
+          <div className="relative">
+            <input
+              type="file"
+              id="imageFile"
+              accept="image/*"
+              onChange={handleFileChange}
+              disabled={loading}
+              className="hidden"
+            />
+            <label
+              htmlFor="imageFile"
+              className="flex items-center justify-center w-full px-3.5 py-2.5 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-primary hover:bg-gray-50 transition-colors"
+            >
+              <div className="text-center">
+                <svg
+                  className="mx-auto h-8 w-8 text-gray-400 mb-1"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                  />
+                </svg>
+                <span className="text-sm font-medium text-gray-700">
+                  {formData.imageFile 
+                    ? `Selected: ${formData.imageFile.name}` 
+                    : 'Click to upload image'}
+                </span>
+                <p className="text-xs text-gray-500 mt-1">
+                  Supports JPG, PNG, WebP, GIF • Max 5MB
+                </p>
+              </div>
+            </label>
+          </div>
+          
+          {/* If editing and there's an existing image URL but no new file */}
+          {property?.image && !imagePreview && (
+            <div className="mt-2 p-2 bg-gray-50 rounded border border-gray-200">
+              <p className="text-xs text-gray-600">
+                <strong>Current image:</strong> Using previously uploaded image. 
+                Upload a new image to replace it.
+              </p>
+            </div>
+          )}
         </div>
 
         {/* BANK DETAILS SECTION */}
@@ -522,31 +640,6 @@ const PropertyForm = forwardRef<HTMLFormElement, PropertyFormProps>(
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Phone (Optional)
                 </label>
-                <input
-                  type="text"
-                  name="landlordPhone"
-                  value={formData.landlordPhone}
-                  onChange={handleChange}
-                  placeholder="+254 7XX XXX XXX"
-                  disabled={loading}
-                  className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary placeholder:text-black placeholder:opacity-70 text-black"
-                />
-              </div>
-
-              {/* Landlord Address */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Address (Optional)
-                </label>
-                <input
-                  type="text"
-                  name="landlordAddress"
-                  value={formData.landlordAddress}
-                  onChange={handleChange}
-                  placeholder="Street, City"
-                  disabled={loading}
-                  className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary placeholder:text-black placeholder:opacity-70 text-black"
-                />
               </div>
             </div>
           )}
