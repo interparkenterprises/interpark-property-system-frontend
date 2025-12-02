@@ -1,26 +1,93 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* ================================
+   INTERPARK GLOBAL THEME
+   ================================ */
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+:root {
+  /* Brand Colors */
+  --color-dark-aqua: #005478;
+  --color-black: #231F20;
+  --color-blue-gray: #58595B;
+
+  /* Light Mode */
+  --background: #ffffff;
+  --foreground: var(--color-black);
+  --heading-color: var(--color-dark-aqua);
+  --text-color: var(--color-blue-gray);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
+    /* Dark Mode */
     --background: #0a0a0a;
     --foreground: #ededed;
+    --heading-color: #00a3d7; /* lighter aqua accent */
+    --text-color: #cccccc;
   }
 }
 
-body {
-  background: var(--background);
+@theme inline {
+  /* Map custom CSS variables to Tailwind tokens */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--color-dark-aqua);
+  --color-secondary: var(--color-blue-gray);
+  --color-text: var(--text-color);
+
+  /* Typography */
+  --font-sans: "Myriad Pro", "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-condensed: "Myriad Pro Condensed", "Arial Narrow", sans-serif;
+}
+
+/* ================================
+   GLOBAL STYLES
+   ================================ */
+
+html, body {
+  background-color: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
+  margin: 0;
+  padding: 0;
+}
+
+/* Headings */
+h1, h2, h3, h4, h5, h6 {
+  color: var(--heading-color);
+  font-family: var(--font-condensed);
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+/* Paragraphs */
+p {
+  color: var(--text-color);
+  line-height: 1.6;
+}
+
+
+
+/* Links */
+a {
+  color: var(--color-dark-aqua);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/* Utility helpers */
+.text-primary {
+  color: var(--color-dark-aqua);
+}
+
+.bg-primary {
+  background-color: var(--color-dark-aqua);
+}
+
+.border-primary {
+  border-color: var(--color-dark-aqua);
 }
