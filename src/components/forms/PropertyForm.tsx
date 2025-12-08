@@ -88,7 +88,17 @@ const PropertyForm = forwardRef<HTMLFormElement, PropertyFormProps>(
     ) => {
       const { name, value, type } = e.target;
       
-      if (type === 'number') {
+      // Special handling for phone number fields
+      if (name === 'landlordPhone' || name === 'accountNo') {
+        const numericValue = value.replace(/[^0-9]/g, '');
+        const maxLength = name === 'accountNo' ? 20 : 10;
+        if (numericValue.length <= maxLength) {
+          setFormData(prev => ({
+            ...prev,
+            [name]: numericValue
+          }));
+        }
+      } else if (type === 'number') {
         setFormData(prev => ({
           ...prev,
           [name]: value === '' ? 0 : parseFloat(value)
@@ -640,6 +650,36 @@ const PropertyForm = forwardRef<HTMLFormElement, PropertyFormProps>(
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Phone (Optional)
                 </label>
+                <input
+                  type="tel"
+                  name="landlordPhone"
+                  value={formData.landlordPhone}
+                  onChange={handleChange}
+                  placeholder="1234567890"
+                  disabled={loading}
+                  className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary placeholder:text-black placeholder:opacity-70 text-black"
+                  maxLength={10}
+                />
+                {formData.landlordPhone && formData.landlordPhone.length !== 10 && (
+                  <p className="mt-1 text-xs text-red-500">Phone number must be exactly 10 digits</p>
+                )}
+                <p className="mt-1 text-xs text-gray-700">Format: 10 digits without spaces or dashes</p>
+              </div>
+
+              {/* Landlord Address */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Address (Optional)
+                </label>
+                <input
+                  type="text"
+                  name="landlordAddress"
+                  value={formData.landlordAddress}
+                  onChange={handleChange}
+                  placeholder="Landlord's address"
+                  disabled={loading}
+                  className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary placeholder:text-black placeholder:opacity-70 text-black"
+                />
               </div>
             </div>
           )}

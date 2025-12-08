@@ -9,6 +9,7 @@ import PropertyForm from '@/components/forms/PropertyForm';
 import UnitForm from '@/components/forms/UnitForm';
 import ServiceProviderForm from '@/components/forms/ServiceProviderForm';
 import TenantForm from '@/components/forms/TenantForm';
+import Image from 'next/image';
 
 type TabType = 'overview' | 'units' | 'tenants' | 'providers';
 
@@ -29,12 +30,16 @@ export default function PropertyDetailPage() {
   const [editingTenant, setEditingTenant] = useState<Tenant | null>(null);
   const [deletingTenantId, setDeletingTenantId] = useState<string | null>(null);
   const [propertyTenants, setPropertyTenants] = useState<Tenant[]>([]);
+  const [propertyImageUrl, setPropertyImageUrl] = useState<string | null>(null);
+  const [showImageModal, setShowImageModal] = useState(false);
+  const [imageLoading, setImageLoading] = useState(false);
 
   const propertyId = params.id as string;
 
   useEffect(() => {
     fetchProperty();
     fetchPropertyTenants();
+    fetchPropertyImage();
   }, [propertyId]);
 
   const fetchProperty = async () => {
@@ -45,6 +50,20 @@ export default function PropertyDetailPage() {
       console.error('Error fetching property:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchPropertyImage = async () => {
+    try {
+      setImageLoading(true);
+      const imageBlob = await propertiesAPI.getPropertyImage(propertyId);
+      const imageUrl = URL.createObjectURL(imageBlob);
+      setPropertyImageUrl(imageUrl);
+    } catch (error) {
+      console.error('Error fetching property image:', error);
+      setPropertyImageUrl(null);
+    } finally {
+      setImageLoading(false);
     }
   };
 
@@ -75,6 +94,7 @@ export default function PropertyDetailPage() {
   const handleUpdateSuccess = () => {
     setEditing(false);
     fetchProperty();
+    fetchPropertyImage(); // Refresh image in case it was updated
   };
 
   const handleUnitSuccess = () => {
@@ -189,6 +209,15 @@ export default function PropertyDetailPage() {
     router.push(`/properties/${propertyId}/details`);
   };
 
+  // Cleanup blob URL on unmount
+  useEffect(() => {
+    return () => {
+      if (propertyImageUrl) {
+        URL.revokeObjectURL(propertyImageUrl);
+      }
+    };
+  }, [propertyImageUrl]);
+
   // Animation variants - Fixed typing issues
   const containerVariants: Variants = {
     hidden: { opacity: 0 },
@@ -226,6 +255,26 @@ export default function PropertyDetailPage() {
     exit: {
       opacity: 0,
       x: 20,
+      transition: {
+        duration: 0.2,
+      },
+    },
+  };
+
+  const modalVariants: Variants = {
+    hidden: { opacity: 0, scale: 0.8 },
+    visible: {
+      opacity: 1,
+      scale: 1,
+      transition: {
+        type: "spring" as const,
+        stiffness: 300,
+        damping: 25,
+      },
+    },
+    exit: {
+      opacity: 0,
+      scale: 0.8,
       transition: {
         duration: 0.2,
       },
@@ -318,6 +367,55 @@ export default function PropertyDetailPage() {
       variants={containerVariants}
       className="space-y-8 p-6 md:p-8"
     >
+      {/* Image Modal */}
+      <AnimatePresence>
+        {showImageModal && propertyImageUrl && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+            onClick={() => setShowImageModal(false)}
+          >
+            <motion.div
+              variants={modalVariants}
+              initial="hidden"
+              animate="visible"
+              exit="exit"
+              className="relative max-w-6xl max-h-[90vh] w-full"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Close Button */}
+              <button
+                onClick={() => setShowImageModal(false)}
+                className="absolute -top-12 right-0 text-white hover:text-gray-300 transition-colors"
+              >
+                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+              
+              {/* Image Container */}
+              <div className="relative w-full h-full bg-white rounded-2xl overflow-hidden shadow-2xl">
+                <div className="relative w-full h-full flex items-center justify-center p-4">
+                  <img
+                    src={propertyImageUrl}
+                    alt={property.name}
+                    className="max-w-full max-h-[80vh] object-contain rounded-lg"
+                  />
+                </div>
+                
+                {/* Image Info Overlay */}
+                <div className="absolute bottom-0 left-0 right-0 bg-linear-to-t from-black/70 to-transparent p-6">
+                  <h3 className="text-white text-2xl font-bold mb-1">{property.name}</h3>
+                  <p className="text-gray-200 text-sm">{property.address}</p>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Back Button and Action Buttons Row */}
       <motion.div variants={itemVariants} className="flex items-center justify-between">
         {/* Back Button */}
@@ -369,40 +467,85 @@ export default function PropertyDetailPage() {
         </div>
       </motion.div>
 
-      {/* Header Section */}
+      {/* Header Section with Property Image */}
       <motion.div
         variants={itemVariants}
         className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6 pb-6 border-b-2 border-gray-100"
       >
-        <div className="flex-1">
-          <div className="flex items-center gap-4 mb-3">
-            <motion.div
-              whileHover={{ scale: 1.05, rotate: 5 }}
-              className="w-16 h-16 bg-linear-to-br from-primary/20 to-primary/10 rounded-xl flex items-center justify-center shrink-0"
-            >
-              <svg className="w-8 h-8 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
-                />
-              </svg>
-            </motion.div>
-            <div>
-              <h1 className="text-3xl md:text-4xl font-bold text-heading-color">{property.name}</h1>
-              <p className="text-gray-500 flex items-center gap-2 mt-1">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="flex-1 flex items-start gap-6">
+          {/* Property Image */}
+          <motion.div
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            className="relative shrink-0 cursor-pointer group"
+            onClick={() => propertyImageUrl && setShowImageModal(true)}
+          >
+            {imageLoading ? (
+              <div className="w-24 h-24 md:w-32 md:h-32 bg-gray-200 rounded-2xl flex items-center justify-center animate-pulse">
+                <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     strokeWidth={2}
-                    d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+                    d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
                   />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
-                {property.address}
-              </p>
+              </div>
+            ) : propertyImageUrl ? (
+              <div className="relative w-24 h-24 md:w-32 md:h-32 rounded-2xl overflow-hidden shadow-lg border-4 border-white ring-2 ring-primary/20 group-hover:ring-primary/40 transition-all duration-300">
+                <img
+                  src={propertyImageUrl}
+                  alt={property.name}
+                  className="w-full h-full object-cover"
+                />
+                {/* Overlay on hover */}
+                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
+                  <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7"
+                    />
+                  </svg>
+                </div>
+                {/* Badge */}
+                <div className="absolute top-2 right-2 bg-primary text-white text-xs px-2 py-1 rounded-full font-semibold shadow-lg">
+                  Click to view
+                </div>
+              </div>
+            ) : (
+              <div className="w-24 h-24 md:w-32 md:h-32 bg-linear-to-br from-primary/20 to-primary/10 rounded-2xl flex items-center justify-center shadow-lg border-4 border-white ring-2 ring-primary/20">
+                <svg className="w-12 h-12 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
+                  />
+                </svg>
+              </div>
+            )}
+          </motion.div>
+
+          {/* Property Info */}
+          <div className="flex-1">
+            <div className="flex items-center gap-4 mb-3">
+              <div>
+                <h1 className="text-3xl md:text-4xl font-bold text-heading-color">{property.name}</h1>
+                <p className="text-gray-500 flex items-center gap-2 mt-1">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+                    />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  {property.address}
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -529,7 +672,7 @@ export default function PropertyDetailPage() {
         </div>
       </motion.div>
 
-      {/* Tab Content */}
+      {/* Tab Content - Keep the rest of your existing tab content here */}
       <AnimatePresence mode="wait">
         {activeTab === 'overview' && (
           <motion.div
