@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Lead, Property } from '@/types';
 import { leadsAPI, propertiesAPI } from '@/lib/api';
-import { Input } from '@/components/ui/input';
+//import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 
 interface LeadFormProps {
@@ -109,81 +109,118 @@ export default function LeadForm({ lead, onSuccess, onCancel }: LeadFormProps) {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Input
-          label="Name *"
-          name="name"
-          value={formData.name}
-          onChange={handleChange}
-          required
-          placeholder="Full name"
-        />
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            Name *
+          </label>
+          <input
+            name="name"
+            value={formData.name}
+            onChange={handleChange}
+            required
+            placeholder="Full name"
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
+          />
+        </div>
 
-        <Input
-          label="Phone *"
-          name="phone"
-          value={formData.phone}
-          onChange={handleChange}
-          required
-          placeholder="+254 7XX XXX XXX"
-        />
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            Phone *
+          </label>
+          <input
+            name="phone"
+            value={formData.phone}
+            onChange={handleChange}
+            required
+            placeholder="+254 7XX XXX XXX"
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
+          />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Input
-          label="Email"
-          name="email"
-          type="email"
-          value={formData.email}
-          onChange={handleChange}
-          placeholder="name@example.com"
-        />
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            Email
+          </label>
+          <input
+            name="email"
+            type="email"
+            value={formData.email}
+            onChange={handleChange}
+            placeholder="name@example.com"
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
+          />
+        </div>
 
-        <Input
-          label="ID Number"
-          name="idNumber"
-          value={formData.idNumber}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            ID Number
+          </label>
+          <input
+            name="idNumber"
+            value={formData.idNumber}
+            onChange={handleChange}
+            placeholder="National ID number"
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
+          />
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          Company Name
+        </label>
+        <input
+          name="companyName"
+          value={formData.companyName}
           onChange={handleChange}
-          placeholder="National ID number"
+          placeholder="Company name (if applicable)"
+          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
         />
       </div>
 
-      <Input
-        label="Company Name"
-        name="companyName"
-        value={formData.companyName}
-        onChange={handleChange}
-        placeholder="Company name (if applicable)"
-      />
-
-      <Input
-        label="Address"
-        name="address"
-        value={formData.address}
-        onChange={handleChange}
-        placeholder="Street, City, County"
-      />
-
-      <Input
-        label="Nature of Lead"
-        name="natureOfLead"
-        value={formData.natureOfLead}
-        onChange={handleChange}
-        placeholder="e.g., Rental inquiry, Property viewing, Commercial lease, etc."
-      />
+      <div>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          Address
+        </label>
+        <input
+          name="address"
+          value={formData.address}
+          onChange={handleChange}
+          placeholder="Street, City, County"
+          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
+        />
+      </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          Nature of Lead
+        </label>
+        <input
+          name="natureOfLead"
+          value={formData.natureOfLead}
+          onChange={handleChange}
+          placeholder="e.g., Rental inquiry, Property viewing, Commercial lease, etc."
+          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
+        />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
           Property
         </label>
         <select
           name="propertyId"
           value={formData.propertyId}
           onChange={handleChange}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
         >
-          <option value="">Select Property (Optional)</option>
+          <option value="" className="text-gray-500 dark:text-gray-400">
+            Select Property (Optional)
+          </option>
           {properties.map(property => (
-            <option key={property.id} value={property.id}>
+            <option key={property.id} value={property.id} className="text-gray-900 dark:text-gray-100">
               {property.name}
             </option>
           ))}
@@ -191,7 +228,7 @@ export default function LeadForm({ lead, onSuccess, onCancel }: LeadFormProps) {
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
           Notes
         </label>
         <textarea
@@ -200,7 +237,7 @@ export default function LeadForm({ lead, onSuccess, onCancel }: LeadFormProps) {
           onChange={handleChange}
           rows={4}
           placeholder="Additional notes about the lead..."
-          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
         />
       </div>
 

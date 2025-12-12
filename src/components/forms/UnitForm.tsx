@@ -90,30 +90,57 @@ export default function UnitForm({ unit, onSuccess, onCancel, defaultPropertyId 
       return;
     }
 
+    // Validate size and rent amount
+    if (formData.sizeSqFt <= 0) {
+      setError('Size must be greater than 0.');
+      setLoading(false);
+      return;
+    }
+
+    if (formData.rentAmount <= 0) {
+      setError('Rent amount must be greater than 0.');
+      setLoading(false);
+      return;
+    }
+
+    // For residential units, validate bedrooms and bathrooms
+    if (formData.unitType === 'RESIDENTIAL') {
+      if (formData.bedrooms < 0 || formData.bathrooms < 0) {
+        setError('Bedrooms and bathrooms must be 0 or greater.');
+        setLoading(false);
+        return;
+      }
+    }
+
     try {
-      // Prepare payload with proper undefined values instead of null
-      const payload: Partial<Unit> = {
+      // Prepare payload with correct data types
+      const payload: any = {
         propertyId: formData.propertyId,
-        unitNo: formData.unitNo || undefined,
-        floor: formData.floor || undefined,
-        unitType: formData.unitType,
-        usage: formData.usage || undefined,
-        sizeSqFt: formData.sizeSqFt,
-        type: formData.type || undefined,
-        status: formData.status,
+        sizeSqFt: Number(formData.sizeSqFt),
         rentType: formData.rentType,
-        rentAmount: formData.rentAmount,
+        rentAmount: Number(formData.rentAmount),
+        unitType: formData.unitType,
+        status: formData.status,
       };
 
-      // Only include bedrooms and bathrooms for residential units
+      // Add optional fields only if they have values
+      if (formData.unitNo) payload.unitNo = formData.unitNo;
+      if (formData.floor) payload.floor = formData.floor;
+      if (formData.type) payload.type = formData.type;
+
+      // Handle unit type specific fields
       if (formData.unitType === 'RESIDENTIAL') {
-        payload.bedrooms = formData.bedrooms || undefined;
-        payload.bathrooms = formData.bathrooms || undefined;
-      } else {
-        // For commercial units, explicitly set to undefined
+        payload.bedrooms = Number(formData.bedrooms);
+        payload.bathrooms = Number(formData.bathrooms);
+        // For residential units, usage should not be sent
+      } else if (formData.unitType === 'COMMERCIAL') {
+        if (formData.usage) payload.usage = formData.usage;
+        // For commercial units, bedrooms and bathrooms should not be sent
         payload.bedrooms = undefined;
         payload.bathrooms = undefined;
       }
+
+      console.log('Submitting payload:', payload); // Debug log
 
       if (unit) {
         await unitsAPI.update(unit.id, payload);
@@ -122,7 +149,8 @@ export default function UnitForm({ unit, onSuccess, onCancel, defaultPropertyId 
       }
       onSuccess?.();
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to save unit');
+      console.error('Error saving unit:', err);
+      setError(err.message || 'Failed to save unit');
     } finally {
       setLoading(false);
     }
@@ -222,7 +250,6 @@ export default function UnitForm({ unit, onSuccess, onCancel, defaultPropertyId 
             className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all duration-200 text-gray-900"
           >
             <option value="VACANT">Vacant</option>
-            <option value="OCCUPIED">Occupied</option>
           </select>
         </div>
       </div>

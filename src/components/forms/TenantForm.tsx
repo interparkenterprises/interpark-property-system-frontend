@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Tenant, Unit, ServiceCharge, VATType } from '@/types';
+import { useState, useEffect, useMemo } from 'react';
+import { Tenant, Unit, VATType } from '@/types';
 import { tenantsAPI, unitsAPI } from '@/lib/api';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -10,7 +10,7 @@ interface TenantFormProps {
   tenant?: Tenant;
   onSuccess?: () => void;
   onCancel?: () => void;
-  propertyId?: string;
+  propertyId: string; // REQUIRED - propertyId must always be provided
 }
 
 interface ServiceChargeFormData {
@@ -23,6 +23,7 @@ interface ServiceChargeFormData {
 interface TenantFormData {
   fullName: string;
   contact: string;
+  email: string; // Added email field
   KRAPin: string;
   POBox: string;
   unitId: string;
@@ -43,6 +44,7 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
   const [formData, setFormData] = useState<TenantFormData>({
     fullName: '',
     contact: '',
+    email: '', // Initialize email field
     KRAPin: '',
     POBox: '',
     unitId: '',
@@ -62,57 +64,149 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [selectedUnit, setSelectedUnit] = useState<Unit | null>(null);
+  const [fetchingUnits, setFetchingUnits] = useState(false);
+
+  // Create stable dependency array to prevent useEffect warnings
+  const effectDependencies = useMemo(() => {
+    return [tenant?.id, propertyId];
+  }, [tenant?.id, propertyId]);
 
   useEffect(() => {
-    fetchUnits();
-    if (tenant) {
-      setFormData({
-        fullName: tenant.fullName,
-        contact: tenant.contact,
-        KRAPin: tenant.KRAPin,
-        POBox: tenant.POBox || '',
-        unitId: tenant.unitId,
-        leaseTerm: tenant.leaseTerm,
-        rent: tenant.rent,
-        escalationRate: tenant.escalationRate || 0,
-        escalationFrequency: tenant.escalationFrequency || undefined,
-        termStart: tenant.termStart.split('T')[0],
-        rentStart: tenant.rentStart.split('T')[0],
-        deposit: tenant.deposit,
-        vatRate: tenant.vatRate || 0,
-        vatType: tenant.vatType,
-        paymentPolicy: tenant.paymentPolicy,
-        serviceCharge: tenant.serviceCharge ? {
-          type: tenant.serviceCharge.type,
-          fixedAmount: tenant.serviceCharge.fixedAmount || 0,
-          percentage: tenant.serviceCharge.percentage || 0,
-          perSqFtRate: tenant.serviceCharge.perSqFtRate || 0
-        } : undefined
-      });
-      // Set selected unit when editing tenant
-      if (tenant.unit) {
-        setSelectedUnit(tenant.unit);
-      }
+    // Early return if no propertyId
+    if (!propertyId) {
+      console.warn('Property ID is required for TenantForm');
+      setError('Property ID is required to load units.');
+      setUnits([]);
+      return;
     }
-  }, [tenant]);
+
+    const initializeForm = async () => {
+      await fetchUnits();
+      
+      if (tenant) {
+        // Set form data for existing tenant
+        setFormData({
+          fullName: tenant.fullName,
+          contact: tenant.contact,
+          email: tenant.email || '', // Set email from tenant
+          KRAPin: tenant.KRAPin,
+          POBox: tenant.POBox || '',
+          unitId: tenant.unitId,
+          leaseTerm: tenant.leaseTerm,
+          rent: tenant.rent,
+          escalationRate: tenant.escalationRate || 0,
+          escalationFrequency: tenant.escalationFrequency || undefined,
+          termStart: tenant.termStart.split('T')[0],
+          rentStart: tenant.rentStart.split('T')[0],
+          deposit: tenant.deposit,
+          vatRate: tenant.vatRate || 0,
+          vatType: tenant.vatType,
+          paymentPolicy: tenant.paymentPolicy,
+          serviceCharge: tenant.serviceCharge ? {
+            type: tenant.serviceCharge.type,
+            fixedAmount: tenant.serviceCharge.fixedAmount || 0,
+            percentage: tenant.serviceCharge.percentage || 0,
+            perSqFtRate: tenant.serviceCharge.perSqFtRate || 0
+          } : undefined
+        });
+        
+        // Set selected unit when editing tenant
+        if (tenant.unit) {
+          setSelectedUnit(tenant.unit);
+        }
+      } else {
+        // Reset form for new tenant
+        resetForm();
+      }
+    };
+
+    initializeForm();
+  }, effectDependencies);
+
+  const resetForm = () => {
+    setFormData({
+      fullName: '',
+      contact: '',
+      email: '', // Reset email field
+      KRAPin: '',
+      POBox: '',
+      unitId: '',
+      leaseTerm: '',
+      rent: 0,
+      escalationRate: 0,
+      escalationFrequency: undefined,
+      termStart: '',
+      rentStart: '',
+      deposit: 0,
+      vatRate: 0,
+      vatType: 'NOT_APPLICABLE',
+      paymentPolicy: 'MONTHLY',
+      serviceCharge: undefined
+    });
+    setSelectedUnit(null);
+    setError('');
+  };
 
   const fetchUnits = async () => {
+    // Don't fetch if no propertyId
+    if (!propertyId) {
+      console.warn('Cannot fetch units without propertyId');
+      setUnits([]);
+      return;
+    }
+    
     try {
-      const data = await unitsAPI.getAll();
+      setFetchingUnits(true);
+      setError('');
       
-      // Filter units by property first if propertyId is provided
-      let filteredUnits = propertyId 
-        ? data.filter(unit => unit.propertyId === propertyId)
-        : data;
+      // Build params object - propertyId is always required
+      const params: any = {
+        propertyId: propertyId,
+      };
       
-      // Then filter by availability when creating a new tenant
+      // When creating a new tenant, only show vacant units
       if (!tenant) {
-        filteredUnits = filteredUnits.filter(unit => unit.status === 'VACANT');
+        params.status = 'VACANT';
       }
       
-      setUnits(filteredUnits);
+      // Fetch units with the appropriate filters
+      const data = await unitsAPI.getAll(params);
+      
+      // Additional client-side filtering for when we're editing a tenant
+      if (tenant && tenant.unit) {
+        // Check if the current tenant's unit is from the current property
+        if (tenant.unit.propertyId !== propertyId) {
+          setError(`Warning: This tenant belongs to a different property. Current property ID: ${propertyId}, Tenant's property ID: ${tenant.unit.propertyId}`);
+        }
+        
+        // Ensure the current tenant's unit is in the list
+        const currentUnit = data.find(u => u.id === tenant.unitId);
+        if (!currentUnit) {
+          // If current unit not in filtered list, fetch it specifically
+          try {
+            const specificUnit = await unitsAPI.getById(tenant.unitId);
+            // Only add it if it belongs to the current property
+            if (specificUnit.propertyId === propertyId) {
+              setUnits([specificUnit, ...data]);
+            } else {
+              setUnits(data);
+            }
+          } catch (error) {
+            console.error('Error fetching specific unit:', error);
+            setUnits(data);
+          }
+        } else {
+          setUnits(data);
+        }
+      } else {
+        setUnits(data);
+      }
     } catch (error) {
       console.error('Error fetching units:', error);
+      setError('Failed to load units. Please try again.');
+      setUnits([]);
+    } finally {
+      setFetchingUnits(false);
     }
   };
 
@@ -240,6 +334,7 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
       const submitData: Partial<Tenant> = {
         fullName: formData.fullName,
         contact: formData.contact,
+        email: formData.email.trim() || undefined, // Add email to submit data
         KRAPin: formData.KRAPin,
         POBox: formData.POBox || undefined,
         unitId: formData.unitId,
@@ -254,6 +349,49 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
         vatType: formData.vatType,
         paymentPolicy: formData.paymentPolicy,
       };
+
+      // Validate required fields
+      if (!submitData.fullName?.trim()) {
+        throw new Error('Full name is required');
+      }
+      if (!submitData.contact?.trim()) {
+        throw new Error('Contact information is required');
+      }
+      if (!submitData.KRAPin?.trim()) {
+        throw new Error('KRA PIN is required');
+      }
+      if (!submitData.unitId) {
+        throw new Error('Please select a unit');
+      }
+      if (!submitData.leaseTerm?.trim()) {
+        throw new Error('Lease term is required');
+      }
+      if (!submitData.rent || submitData.rent <= 0) {
+        throw new Error('Valid rent amount is required');
+      }
+      if (!submitData.termStart) {
+        throw new Error('Lease start date is required');
+      }
+      if (!submitData.rentStart) {
+        throw new Error('Rent start date is required');
+      }
+      if (!submitData.deposit || submitData.deposit < 0) {
+        throw new Error('Valid deposit amount is required');
+      }
+
+      // Validate email format if provided
+      if (submitData.email) {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(submitData.email)) {
+          throw new Error('Please enter a valid email address');
+        }
+      }
+
+      // Validate that selected unit belongs to the current property
+      const selectedUnitObj = units.find(u => u.id === submitData.unitId);
+      if (selectedUnitObj && selectedUnitObj.propertyId !== propertyId) {
+        throw new Error('Selected unit does not belong to this property');
+      }
 
       if (tenant) {
         // For updates, first update the tenant basic info
@@ -278,7 +416,36 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
       
       onSuccess?.();
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to save tenant');
+      // Enhanced error handling
+      console.error('Error saving tenant:', err);
+      
+      // Check for different error formats
+      let errorMessage = 'Failed to save tenant';
+      
+      if (err instanceof Error) {
+        errorMessage = err.message;
+      } else if (err.response?.data?.message) {
+        errorMessage = err.response.data.message;
+      } else if (err.response?.data?.error) {
+        errorMessage = err.response.data.error;
+      } else if (typeof err === 'string') {
+        errorMessage = err;
+      }
+      
+      // Provide more specific error messages for common issues
+      if (errorMessage.includes('KRA Pin')) {
+        errorMessage = 'A tenant with this KRA PIN already exists. Please use a different KRA PIN.';
+      } else if (errorMessage.includes('unit is already occupied')) {
+        errorMessage = 'The selected unit is already occupied. Please choose a vacant unit.';
+      } else if (errorMessage.includes('Access denied')) {
+        errorMessage = 'You do not have permission to perform this action.';
+      } else if (errorMessage.includes('does not belong to this property')) {
+        errorMessage = 'The selected unit is not part of this property. Please select a unit from this property.';
+      } else if (errorMessage.includes('email')) {
+        errorMessage = 'A tenant with this email already exists. Please use a different email.';
+      }
+      
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -286,18 +453,15 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
 
   // Helper function to get unit display name
   const getUnitDisplayName = (unit: Unit): string => {
-    const propertyName = unit.property?.name || 'Unknown Property';
     const unitType = unit.type || 'Unit';
-    const bedrooms = unit.bedrooms;
-    const bathrooms = unit.bathrooms;
-    const occupancyStatus = unit.status === 'OCCUPIED' ? ' - Currently Occupied' : '';
+    const unitNo = unit.unitNo ? ` #${unit.unitNo}` : '';
+    const floor = unit.floor ? `, Floor ${unit.floor}` : '';
+    const bedrooms = unit.bedrooms ? `, ${unit.bedrooms} bed` : '';
+    const bathrooms = unit.bathrooms ? ` / ${unit.bathrooms} bath` : '';
+    const size = unit.sizeSqFt ? ` (${unit.sizeSqFt} sq.ft)` : '';
+    const rentType = unit.rentType ? ` [${unit.rentType.replace(/_/g, ' ').toLowerCase()}]` : '';
     
-    // Only show property name if propertyId is not provided
-    if (propertyId) {
-      return `${unitType} (${bedrooms} bed / ${bathrooms} bath)${occupancyStatus}`;
-    } else {
-      return `${propertyName} - ${unitType} (${bedrooms} bed / ${bathrooms} bath)${occupancyStatus}`;
-    }
+    return `${unitType}${unitNo}${floor}${bedrooms}${bathrooms}${size}${rentType}`;
   };
 
   // Helper function to format currency
@@ -312,7 +476,7 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded">
+        <div className={`px-4 py-3 rounded ${error.includes('Warning') ? 'bg-amber-50 border border-amber-200 text-amber-600' : 'bg-red-50 border border-red-200 text-red-600'}`}>
           {error}
         </div>
       )}
@@ -325,6 +489,7 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
         required
         placeholder="John Doe"
         className="text-gray-900 placeholder:text-gray-500"
+        disabled={loading}
       />
 
       <Input
@@ -333,8 +498,20 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
         value={formData.contact}
         onChange={handleChange}
         required
-        placeholder="0712 345 678 or john@example.com"
+        placeholder="0712 345 678"
         className="text-gray-900 placeholder:text-gray-500"
+        disabled={loading}
+      />
+
+      <Input
+        label="Email Address (Optional)"
+        name="email"
+        type="email"
+        value={formData.email}
+        onChange={handleChange}
+        placeholder="john@example.com"
+        className="text-gray-900 placeholder:text-gray-500"
+        disabled={loading}
       />
 
       <Input
@@ -345,6 +522,7 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
         required
         placeholder="P051234567X"
         className="text-gray-900 placeholder:text-gray-500"
+        disabled={loading}
       />
 
       <Input
@@ -354,6 +532,7 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
         onChange={handleChange}
         placeholder="P.O. Box 12345-00100"
         className="text-gray-900 placeholder:text-gray-500"
+        disabled={loading}
       />
 
       <div>
@@ -363,26 +542,43 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
         <select
           name="unitId"
           value={formData.unitId}
-          onChange={handleUnitChange} // Updated to use handleUnitChange
+          onChange={handleUnitChange}
           required
-          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 text-gray-900"
+          disabled={loading || fetchingUnits}
+          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 text-gray-900 disabled:bg-gray-100 disabled:cursor-not-allowed"
         >
           <option value="" className="text-gray-500">Select Unit</option>
-          {units.length === 0 ? (
+          
+          {fetchingUnits ? (
             <option value="" disabled className="text-gray-500">
-              {propertyId ? 'No available units in this property' : 'No available units'}
+              Loading units for this property...
+            </option>
+          ) : units.length === 0 ? (
+            <option value="" disabled className="text-gray-500">
+              {tenant 
+                ? 'No units available in this property'
+                : 'No vacant units available in this property. Please add units first.'
+              }
             </option>
           ) : (
             units.map(unit => (
-              <option key={unit.id} value={unit.id} className="text-gray-900">
+              <option 
+                key={unit.id} 
+                value={unit.id} 
+                className="text-gray-900"
+                disabled={!tenant && unit.status !== 'VACANT'}
+              >
                 {getUnitDisplayName(unit)}
+                {!tenant && unit.status !== 'VACANT' && ' (Occupied)'}
+                {unit.status === 'VACANT' && ' (Vacant)'}
               </option>
             ))
           )}
         </select>
-        {propertyId && units.length === 0 && (
+        
+        {!fetchingUnits && units.length === 0 && !tenant && (
           <p className="mt-1 text-sm text-gray-500">
-            No vacant units available in this property. Please add units or select a different property.
+            No vacant units available in this property. Please add units first.
           </p>
         )}
         
@@ -397,9 +593,15 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
                 </span>
               )}
             </p>
-            <p className="text-xs text-blue-600 mt-1">
-              This rent amount has been auto-populated. You can adjust it based on the negotiated rate with the tenant.
-            </p>
+            {selectedUnit.status === 'VACANT' ? (
+              <p className="text-xs text-green-600 mt-1">
+                ✓ This unit is currently vacant and available for occupancy.
+              </p>
+            ) : (
+              <p className="text-xs text-amber-600 mt-1">
+                ⚠ This unit is currently occupied. {tenant ? 'You are editing the current tenant.' : 'Cannot assign to new tenant.'}
+              </p>
+            )}
           </div>
         )}
       </div>
@@ -412,12 +614,13 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
         required
         placeholder="e.g., 12 months"
         className="text-gray-900 placeholder:text-gray-500"
+        disabled={loading}
       />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
           <Input
-            label="Rent (Ksh)" // Changed from "Monthly Rent (Ksh)" to "Rent (Ksh)"
+            label="Rent (Ksh)"
             name="rent"
             type="number"
             step="0.01"
@@ -427,6 +630,7 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
             min="0"
             placeholder="15000"
             className="text-gray-900 placeholder:text-gray-500"
+            disabled={loading}
           />
           {selectedUnit && formData.rent !== selectedUnit.rentAmount && (
             <p className="mt-1 text-xs text-amber-600">
@@ -445,6 +649,7 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
           min="0"
           placeholder="3.0"
           className="text-gray-900 placeholder:text-gray-500"
+          disabled={loading}
         />
       </div>
 
@@ -458,7 +663,8 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
             value={formData.escalationFrequency}
             onChange={handleChange}
             required={formData.escalationRate > 0}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 text-gray-900"
+            disabled={loading}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 text-gray-900 disabled:bg-gray-100 disabled:cursor-not-allowed"
           >
             <option value="" className="text-gray-500">Select Frequency</option>
             <option value="ANNUALLY" className="text-gray-900">Annually</option>
@@ -476,6 +682,7 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
           onChange={handleChange}
           required
           className="text-gray-900"
+          disabled={loading}
         />
 
         <Input
@@ -486,6 +693,7 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
           onChange={handleChange}
           required
           className="text-gray-900"
+          disabled={loading}
         />
       </div>
 
@@ -500,6 +708,7 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
         min="0"
         placeholder="20000"
         className="text-gray-900 placeholder:text-gray-500"
+        disabled={loading}
       />
 
       {/* VAT Configuration Section */}
@@ -516,7 +725,8 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
               value={formData.vatType}
               onChange={handleChange}
               required
-              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 text-gray-900"
+              disabled={loading}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 text-gray-900 disabled:bg-gray-100 disabled:cursor-not-allowed"
             >
               <option value="NOT_APPLICABLE">Not Applicable</option>
               <option value="INCLUSIVE">VAT Inclusive</option>
@@ -537,6 +747,7 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
               max="100"
               placeholder="16.0"
               className="text-gray-900 placeholder:text-gray-500"
+              disabled={loading}
             />
           )}
         </div>
@@ -562,7 +773,8 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
           value={formData.paymentPolicy}
           onChange={handleChange}
           required
-          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 text-gray-900"
+          disabled={loading}
+          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 text-gray-900 disabled:bg-gray-100 disabled:cursor-not-allowed"
         >
           <option value="MONTHLY">Monthly</option>
           <option value="QUARTERLY">Quarterly</option>
@@ -580,6 +792,7 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
               variant="secondary"
               size="sm"
               onClick={handleRemoveServiceCharge}
+              disabled={loading}
             >
               Remove Service Charge
             </Button>
@@ -593,6 +806,7 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
               type="button"
               variant="outline"
               onClick={() => handleServiceChargeTypeChange({ target: { value: 'FIXED' } } as any)}
+              disabled={loading}
             >
               Add Service Charge
             </Button>
@@ -607,7 +821,8 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
                 name="serviceChargeType"
                 value={formData.serviceCharge.type}
                 onChange={handleServiceChargeTypeChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 text-gray-900"
+                disabled={loading}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 text-gray-900 disabled:bg-gray-100 disabled:cursor-not-allowed"
               >
                 <option value="FIXED">Fixed Amount</option>
                 <option value="PERCENTAGE">Percentage of Rent</option>
@@ -626,6 +841,7 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
                 min="0"
                 placeholder="1000"
                 className="text-gray-900 placeholder:text-gray-500"
+                disabled={loading}
               />
             )}
 
@@ -641,6 +857,7 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
                 max="100"
                 placeholder="5.0"
                 className="text-gray-900 placeholder:text-gray-500"
+                disabled={loading}
               />
             )}
 
@@ -655,6 +872,7 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
                 min="0"
                 placeholder="2.5"
                 className="text-gray-900 placeholder:text-gray-500"
+                disabled={loading}
               />
             )}
           </div>
@@ -667,13 +885,14 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
             type="button"
             variant="secondary"
             onClick={onCancel}
+            disabled={loading}
           >
             Cancel
           </Button>
         )}
         <Button
           type="submit"
-          disabled={loading}
+          disabled={loading || fetchingUnits}
           className="px-6 py-2"
         >
           {loading ? (

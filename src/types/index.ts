@@ -173,6 +173,7 @@ export interface Tenant {
   contact: string;
   KRAPin: string;
   POBox?: string;
+  email?: string; // Added email field
   unitId: string;
   unit?: Unit;
   leaseTerm: string;

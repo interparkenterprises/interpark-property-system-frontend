@@ -37,7 +37,18 @@ export default function LeadsPage() {
   };
 
   if (loading) {
-    return <div>Loading...</div>;
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] p-8">
+        <div className="relative">
+          <div className="h-16 w-16 rounded-full border-4 border-gray-300 dark:border-gray-600 border-t-primary-600 dark:border-t-primary-400 animate-spin"></div>
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="h-8 w-8 rounded-full bg-primary-100 dark:bg-primary-900"></div>
+          </div>
+        </div>
+        <p className="mt-6 text-xl font-semibold text-gray-900 dark:text-gray-100">Loading all leads Information</p>
+        <p className="mt-2 text-gray-600 dark:text-gray-400">Fetching details from the server...</p>
+      </div>
+    );
   }
 
   return (

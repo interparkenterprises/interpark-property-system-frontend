@@ -12,7 +12,7 @@ export default function CreateLeadPage() {
   const handleSuccess = () => {
     setSuccess(true);
     setTimeout(() => {
-      router.push('/dashboard/leads');
+      router.push('/leads');
     }, 2000);
   };
 

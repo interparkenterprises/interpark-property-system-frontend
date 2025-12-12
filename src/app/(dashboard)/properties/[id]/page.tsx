@@ -1385,6 +1385,7 @@ export default function PropertyDetailPage() {
                   serviceProvider={editingProvider || undefined}
                   onSuccess={handleProviderSuccess}
                   onCancel={handleCancelProviderForm}
+                  propertyId={propertyId} 
                 />
               </motion.div>
             ) : (

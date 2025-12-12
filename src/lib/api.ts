@@ -204,10 +204,29 @@ export const propertiesAPI = {
         responseType: 'blob',
       });
       return response.data;
-    } catch (error) {
-      return handleApiError(error);
+    } catch (error: any) {
+      // Special handling for blob error responses
+      if (error.response && error.response.data instanceof Blob) {
+        try {
+          const errorText = await error.response.data.text();
+          const errorData = JSON.parse(errorText);
+          throw new Error(errorData.message || 'Failed to fetch property image');
+        } catch {
+          throw new Error('Failed to fetch property image');
+        }
+      }
+      
+      // For non-blob errors
+      if (error.response) {
+        throw new Error(error.response.data.message || 'API request failed');
+      } else if (error.request) {
+        throw new Error('No response from server. Please check your connection.');
+      } else {
+        throw new Error('An unexpected error occurred');
+      }
     }
   },
+
 
   delete: async (id: string): Promise<void> => {
     try {
@@ -219,8 +238,16 @@ export const propertiesAPI = {
 };
 
 export const unitsAPI = {
-  getAll: async (): Promise<Unit[]> => {
+ getAll: async (params?: { propertyId?: string; status?: string; }): Promise<Unit[]> => {
     try {
+      if (params?.propertyId) {
+        // Use property-specific endpoint with optional status filter
+        const response = await api.get(`/units/property/${params.propertyId}`, {
+          params: params.status ? { status: params.status } : {}
+        });
+        return response.data;
+      }
+      // Fallback to regular endpoint
       const response = await api.get('/units');
       return response.data;
     } catch (error) {
@@ -243,20 +270,36 @@ export const unitsAPI = {
       return handleApiError(error);
     }
   },
-  create: async (data: Partial<Unit>): Promise<Unit> => {
+ create: async (data: Partial<Unit>): Promise<Unit> => {
     try {
       const response = await api.post('/units', data);
-      return response.data;
-    } catch (error) {
-      return handleApiError(error);
+      // Check the response structure
+      if (response.data && response.data.id) {
+        return response.data;
+      } else {
+        throw new Error('Invalid response from server');
+      }
+    } catch (error: any) {
+      // Get detailed error message from backend
+      const message = error.response?.data?.message || 
+                     error.message || 
+                     'Failed to save unit';
+      throw new Error(message);
     }
   },
   update: async (id: string, data: Partial<Unit>): Promise<Unit> => {
     try {
       const response = await api.put(`/units/${id}`, data);
-      return response.data;
-    } catch (error) {
-      return handleApiError(error);
+      if (response.data && response.data.id) {
+        return response.data;
+      } else {
+        throw new Error('Invalid response from server');
+      }
+    } catch (error: any) {
+      const message = error.response?.data?.message || 
+                     error.message || 
+                     'Failed to update unit';
+      throw new Error(message);
     }
   },
   delete: async (id: string): Promise<void> => {
