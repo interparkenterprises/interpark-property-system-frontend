@@ -28,16 +28,14 @@ export default function OffersPage() {
   const fetchOffers = async () => {
     try {
       setLoading(true);
-      let data: SetStateAction<OfferLetter[]>;
+      let data: OfferLetter[];
       
-      // If user is ADMIN, fetch all offers
-      // If user is MANAGER, fetch only their own offers
-      if (user?.role === 'ADMIN') {
-        data = await offerLettersAPI.getAll();
-      } else if (user?.role === 'MANAGER' && userId) {
-        data = await offerLettersAPI.getByUser(userId);
-      } else {
-        data = [];
+      // Fetch all offers, then filter on client side
+      data = await offerLettersAPI.getAll();
+      
+      // If user is MANAGER, filter by createdById
+      if (user?.role === 'MANAGER' && userId) {
+        data = data.filter(offer => offer.createdById === userId);
       }
       
       setOffers(data);
