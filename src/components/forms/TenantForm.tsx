@@ -23,7 +23,7 @@ interface ServiceChargeFormData {
 interface TenantFormData {
   fullName: string;
   contact: string;
-  email: string; // Added email field
+  email: string;
   KRAPin: string;
   POBox: string;
   unitId: string;
@@ -40,11 +40,21 @@ interface TenantFormData {
   serviceCharge?: ServiceChargeFormData;
 }
 
+// Draft storage key generator
+const getDraftKey = (tenantId?: string, propertyId?: string) => {
+  if (tenantId) {
+    return `tenant_form_draft_${tenantId}`;
+  } else if (propertyId) {
+    return `tenant_form_draft_new_${propertyId}`;
+  }
+  return 'tenant_form_draft_new';
+};
+
 export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: TenantFormProps) {
   const [formData, setFormData] = useState<TenantFormData>({
     fullName: '',
     contact: '',
-    email: '', // Initialize email field
+    email: '',
     KRAPin: '',
     POBox: '',
     unitId: '',
@@ -65,6 +75,45 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
   const [error, setError] = useState('');
   const [selectedUnit, setSelectedUnit] = useState<Unit | null>(null);
   const [fetchingUnits, setFetchingUnits] = useState(false);
+  const [hasDraft, setHasDraft] = useState(false);
+
+  // Load draft from localStorage
+  const loadDraft = () => {
+    try {
+      const draftKey = getDraftKey(tenant?.id, propertyId);
+      const savedDraft = localStorage.getItem(draftKey);
+      if (savedDraft) {
+        const parsedDraft = JSON.parse(savedDraft);
+        setFormData(parsedDraft);
+        setHasDraft(true);
+        return true;
+      }
+    } catch (error) {
+      console.error('Error loading draft:', error);
+    }
+    return false;
+  };
+
+  // Save draft to localStorage
+  const saveDraft = (data: TenantFormData) => {
+    try {
+      const draftKey = getDraftKey(tenant?.id, propertyId);
+      localStorage.setItem(draftKey, JSON.stringify(data));
+    } catch (error) {
+      console.error('Error saving draft:', error);
+    }
+  };
+
+  // Clear draft from localStorage
+  const clearDraft = () => {
+    try {
+      const draftKey = getDraftKey(tenant?.id, propertyId);
+      localStorage.removeItem(draftKey);
+      setHasDraft(false);
+    } catch (error) {
+      console.error('Error clearing draft:', error);
+    }
+  };
 
   // Create stable dependency array to prevent useEffect warnings
   const effectDependencies = useMemo(() => {
@@ -83,12 +132,15 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
     const initializeForm = async () => {
       await fetchUnits();
       
-      if (tenant) {
-        // Set form data for existing tenant
+      // Try to load draft first
+      const draftLoaded = loadDraft();
+      
+      if (!draftLoaded && tenant) {
+        // No draft found, use tenant data for editing
         setFormData({
           fullName: tenant.fullName,
           contact: tenant.contact,
-          email: tenant.email || '', // Set email from tenant
+          email: tenant.email || '',
           KRAPin: tenant.KRAPin,
           POBox: tenant.POBox || '',
           unitId: tenant.unitId,
@@ -114,8 +166,8 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
         if (tenant.unit) {
           setSelectedUnit(tenant.unit);
         }
-      } else {
-        // Reset form for new tenant
+      } else if (!draftLoaded && !tenant) {
+        // No draft and not editing - start fresh
         resetForm();
       }
     };
@@ -127,7 +179,7 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
     setFormData({
       fullName: '',
       contact: '',
-      email: '', // Reset email field
+      email: '',
       KRAPin: '',
       POBox: '',
       unitId: '',
@@ -214,10 +266,19 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
     const unitId = e.target.value;
     
     // Update the unitId in form data
-    setFormData(prev => ({
-      ...prev,
+    const newFormData = {
+      ...formData,
       unitId
-    }));
+    };
+    
+    setFormData(newFormData);
+    
+    // Auto-save draft on change
+    saveDraft(newFormData);
+    
+    if (!hasDraft) {
+      setHasDraft(true);
+    }
 
     // If no unit selected, clear the selected unit and rent
     if (!unitId) {
@@ -235,76 +296,109 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
       setSelectedUnit(unit);
       
       // Auto-populate the rent field with the unit's rentAmount
-      setFormData(prev => ({
-        ...prev,
+      const updatedFormData = {
+        ...newFormData,
         rent: unit.rentAmount
-      }));
+      };
+      
+      setFormData(updatedFormData);
+      saveDraft(updatedFormData);
     }
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
     
-    if (type === 'number') {
-      setFormData(prev => ({
-        ...prev,
-        [name]: parseFloat(value) || 0
-      }));
-    } else {
-      setFormData(prev => ({
-        ...prev,
-        [name]: value
-      }));
+    const newFormData = {
+      ...formData,
+      [name]: type === 'number' ? (parseFloat(value) || 0) : value
+    };
+    
+    setFormData(newFormData);
+    
+    // Auto-save draft on every change
+    saveDraft(newFormData);
+    
+    // Mark as having draft data
+    if (!hasDraft) {
+      setHasDraft(true);
     }
   };
 
   const handleServiceChargeChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
     
-    setFormData(prev => ({
-      ...prev,
+    const newFormData = {
+      ...formData,
       serviceCharge: {
-        ...prev.serviceCharge!,
-        [name]: type === 'number' ? parseFloat(value) || 0 : value
+        ...formData.serviceCharge!,
+        [name]: type === 'number' ? (parseFloat(value) || 0) : value
       }
-    }));
+    };
+    
+    setFormData(newFormData);
+    saveDraft(newFormData);
+    
+    if (!hasDraft) {
+      setHasDraft(true);
+    }
   };
 
   const handleServiceChargeTypeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const { value } = e.target;
     const serviceChargeType = value as 'FIXED' | 'PERCENTAGE' | 'PER_SQ_FT';
     
+    let newFormData: TenantFormData;
+    
     // Initialize service charge if it doesn't exist
     if (!formData.serviceCharge) {
-      setFormData(prev => ({
-        ...prev,
+      newFormData = {
+        ...formData,
         serviceCharge: {
           type: serviceChargeType,
           fixedAmount: 0,
           percentage: 0,
           perSqFtRate: 0
         }
-      }));
+      };
     } else {
-      setFormData(prev => ({
-        ...prev,
+      newFormData = {
+        ...formData,
         serviceCharge: {
-          ...prev.serviceCharge!,
+          ...formData.serviceCharge!,
           type: serviceChargeType,
           // Reset other fields when type changes
-          fixedAmount: serviceChargeType === 'FIXED' ? prev.serviceCharge!.fixedAmount : 0,
-          percentage: serviceChargeType === 'PERCENTAGE' ? prev.serviceCharge!.percentage : 0,
-          perSqFtRate: serviceChargeType === 'PER_SQ_FT' ? prev.serviceCharge!.perSqFtRate : 0
+          fixedAmount: serviceChargeType === 'FIXED' ? formData.serviceCharge!.fixedAmount : 0,
+          percentage: serviceChargeType === 'PERCENTAGE' ? formData.serviceCharge!.percentage : 0,
+          perSqFtRate: serviceChargeType === 'PER_SQ_FT' ? formData.serviceCharge!.perSqFtRate : 0
         }
-      }));
+      };
+    }
+    
+    setFormData(newFormData);
+    saveDraft(newFormData);
+    
+    if (!hasDraft) {
+      setHasDraft(true);
     }
   };
 
   const handleRemoveServiceCharge = () => {
-    setFormData(prev => ({
-      ...prev,
+    const newFormData = {
+      ...formData,
       serviceCharge: undefined
-    }));
+    };
+    
+    setFormData(newFormData);
+    saveDraft(newFormData);
+    
+    if (!hasDraft) {
+      setHasDraft(true);
+    }
+  };
+
+  const handleAddServiceCharge = () => {
+    handleServiceChargeTypeChange({ target: { value: 'FIXED' } } as any);
   };
 
   const hasServiceChargeValue = (): boolean => {
@@ -324,6 +418,46 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
     }
   };
 
+  const handleClearDraft = () => {
+    if (confirm('Are you sure you want to clear the saved draft? This action cannot be undone.')) {
+      if (tenant) {
+        // Reset to original tenant data
+        setFormData({
+          fullName: tenant.fullName,
+          contact: tenant.contact,
+          email: tenant.email || '',
+          KRAPin: tenant.KRAPin,
+          POBox: tenant.POBox || '',
+          unitId: tenant.unitId,
+          leaseTerm: tenant.leaseTerm,
+          rent: tenant.rent,
+          escalationRate: tenant.escalationRate || 0,
+          escalationFrequency: tenant.escalationFrequency || undefined,
+          termStart: tenant.termStart.split('T')[0],
+          rentStart: tenant.rentStart.split('T')[0],
+          deposit: tenant.deposit,
+          vatRate: tenant.vatRate || 0,
+          vatType: tenant.vatType,
+          paymentPolicy: tenant.paymentPolicy,
+          serviceCharge: tenant.serviceCharge ? {
+            type: tenant.serviceCharge.type,
+            fixedAmount: tenant.serviceCharge.fixedAmount || 0,
+            percentage: tenant.serviceCharge.percentage || 0,
+            perSqFtRate: tenant.serviceCharge.perSqFtRate || 0
+          } : undefined
+        });
+        
+        if (tenant.unit) {
+          setSelectedUnit(tenant.unit);
+        }
+      } else {
+        // Clear form for new tenant
+        resetForm();
+      }
+      clearDraft();
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -334,7 +468,7 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
       const submitData: Partial<Tenant> = {
         fullName: formData.fullName,
         contact: formData.contact,
-        email: formData.email.trim() || undefined, // Add email to submit data
+        email: formData.email.trim() || undefined,
         KRAPin: formData.KRAPin,
         POBox: formData.POBox || undefined,
         unitId: formData.unitId,
@@ -414,6 +548,9 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
         }
       }
       
+      // Clear draft after successful submission
+      clearDraft();
+      
       onSuccess?.();
     } catch (err: any) {
       // Enhanced error handling
@@ -475,8 +612,33 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      {error && (
-        <div className={`px-4 py-3 rounded ${error.includes('Warning') ? 'bg-amber-50 border border-amber-200 text-amber-600' : 'bg-red-50 border border-red-200 text-red-600'}`}>
+      {/* Draft Banner */}
+      {hasDraft && (
+        <div className="bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 rounded flex justify-between items-center">
+          <span className="flex items-center gap-2">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <span>Draft saved - Your changes are being automatically saved</span>
+          </span>
+          <button
+            type="button"
+            onClick={handleClearDraft}
+            className="text-sm text-blue-600 hover:text-blue-800 underline"
+          >
+            Clear Draft
+          </button>
+        </div>
+      )}
+
+      {error && !error.includes('Warning') && (
+        <div className="px-4 py-3 rounded bg-red-50 border border-red-200 text-red-600">
+          {error}
+        </div>
+      )}
+
+      {error && error.includes('Warning') && (
+        <div className="px-4 py-3 rounded bg-amber-50 border border-amber-200 text-amber-600">
           {error}
         </div>
       )}
@@ -805,7 +967,7 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
             <Button
               type="button"
               variant="outline"
-              onClick={() => handleServiceChargeTypeChange({ target: { value: 'FIXED' } } as any)}
+              onClick={handleAddServiceCharge}
               disabled={loading}
             >
               Add Service Charge

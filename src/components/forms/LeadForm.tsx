@@ -12,6 +12,10 @@ interface LeadFormProps {
   onCancel?: () => void;
 }
 
+// Draft storage key generator
+const getDraftKey = (leadId?: string) => 
+  leadId ? `lead_form_draft_${leadId}` : 'lead_form_draft_new';
+
 export default function LeadForm({ lead, onSuccess, onCancel }: LeadFormProps) {
   const [formData, setFormData] = useState({
     name: '',
@@ -27,21 +31,70 @@ export default function LeadForm({ lead, onSuccess, onCancel }: LeadFormProps) {
   const [properties, setProperties] = useState<Property[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [hasDraft, setHasDraft] = useState(false);
+
+  // Load draft from localStorage
+  const loadDraft = () => {
+    try {
+      const draftKey = getDraftKey(lead?.id);
+      const savedDraft = localStorage.getItem(draftKey);
+      if (savedDraft) {
+        const parsedDraft = JSON.parse(savedDraft);
+        setFormData(parsedDraft);
+        setHasDraft(true);
+        return true;
+      }
+    } catch (error) {
+      console.error('Error loading draft:', error);
+    }
+    return false;
+  };
+
+  // Save draft to localStorage
+  const saveDraft = (data: typeof formData) => {
+    try {
+      const draftKey = getDraftKey(lead?.id);
+      localStorage.setItem(draftKey, JSON.stringify(data));
+    } catch (error) {
+      console.error('Error saving draft:', error);
+    }
+  };
+
+  // Clear draft from localStorage
+  const clearDraft = () => {
+    try {
+      const draftKey = getDraftKey(lead?.id);
+      localStorage.removeItem(draftKey);
+      setHasDraft(false);
+    } catch (error) {
+      console.error('Error clearing draft:', error);
+    }
+  };
 
   useEffect(() => {
     fetchProperties();
+    
     if (lead) {
-      setFormData({
-        name: lead.name,
-        email: lead.email || '',
-        phone: lead.phone,
-        address: lead.address || '',
-        idNumber: lead.idNumber || '',
-        companyName: lead.companyName || '',
-        natureOfLead: lead.natureOfLead || '',
-        notes: lead.notes || '',
-        propertyId: lead.propertyId || '',
-      });
+      // Editing existing lead - check for draft first
+      const draftLoaded = loadDraft();
+      
+      if (!draftLoaded) {
+        // No draft found, use lead data
+        setFormData({
+          name: lead.name,
+          email: lead.email || '',
+          phone: lead.phone,
+          address: lead.address || '',
+          idNumber: lead.idNumber || '',
+          companyName: lead.companyName || '',
+          natureOfLead: lead.natureOfLead || '',
+          notes: lead.notes || '',
+          propertyId: lead.propertyId || '',
+        });
+      }
+    } else {
+      // Creating new lead - try to load draft
+      loadDraft();
     }
   }, [lead]);
 
@@ -55,10 +108,20 @@ export default function LeadForm({ lead, onSuccess, onCancel }: LeadFormProps) {
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    setFormData(prev => ({
-      ...prev,
+    const newFormData = {
+      ...formData,
       [e.target.name]: e.target.value
-    }));
+    };
+    
+    setFormData(newFormData);
+    
+    // Auto-save draft on every change
+    saveDraft(newFormData);
+    
+    // Mark as having draft data
+    if (!hasDraft) {
+      setHasDraft(true);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -92,6 +155,10 @@ export default function LeadForm({ lead, onSuccess, onCancel }: LeadFormProps) {
       } else {
         await leadsAPI.create(payload);
       }
+      
+      // Clear draft after successful submission
+      clearDraft();
+      
       onSuccess?.();
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to save lead');
@@ -100,8 +167,59 @@ export default function LeadForm({ lead, onSuccess, onCancel }: LeadFormProps) {
     }
   };
 
+  const handleClearDraft = () => {
+    if (confirm('Are you sure you want to clear the saved draft? This action cannot be undone.')) {
+      // Reset to original data
+      if (lead) {
+        setFormData({
+          name: lead.name,
+          email: lead.email || '',
+          phone: lead.phone,
+          address: lead.address || '',
+          idNumber: lead.idNumber || '',
+          companyName: lead.companyName || '',
+          natureOfLead: lead.natureOfLead || '',
+          notes: lead.notes || '',
+          propertyId: lead.propertyId || '',
+        });
+      } else {
+        // Clear form for new lead
+        setFormData({
+          name: '',
+          email: '',
+          phone: '',
+          address: '',
+          idNumber: '',
+          companyName: '',
+          natureOfLead: '',
+          notes: '',
+          propertyId: '',
+        });
+      }
+      clearDraft();
+    }
+  };
+
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {hasDraft && (
+        <div className="bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 rounded flex justify-between items-center">
+          <span className="flex items-center gap-2">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <span>Draft saved - Your changes are being automatically saved</span>
+          </span>
+          <button
+            type="button"
+            onClick={handleClearDraft}
+            className="text-sm text-blue-600 hover:text-blue-800 underline"
+          >
+            Clear Draft
+          </button>
+        </div>
+      )}
+
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded">
           {error}

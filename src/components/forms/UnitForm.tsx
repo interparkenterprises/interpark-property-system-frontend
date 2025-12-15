@@ -12,7 +12,18 @@ interface UnitFormProps {
   defaultPropertyId?: string;
 }
 
-export default function UnitForm({ unit, onSuccess, onCancel, defaultPropertyId }: UnitFormProps) {
+// Draft storage key generator
+const getDraftKey = (unitId?: string, defaultPropertyId?: string) => 
+  unitId 
+    ? `unit_form_draft_${unitId}` 
+    : `unit_form_draft_new_${defaultPropertyId || 'default'}`;
+
+export default function UnitForm({ 
+  unit, 
+  onSuccess, 
+  onCancel, 
+  defaultPropertyId 
+}: UnitFormProps) {
   const [formData, setFormData] = useState({
     propertyId: defaultPropertyId || '',
     unitNo: '',
@@ -30,26 +41,119 @@ export default function UnitForm({ unit, onSuccess, onCancel, defaultPropertyId 
   const [properties, setProperties] = useState<Property[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [hasDraft, setHasDraft] = useState(false);
+
+  // Load draft from localStorage
+  const loadDraft = (): boolean => {
+    try {
+      const draftKey = getDraftKey(unit?.id, defaultPropertyId);
+      const savedDraft = localStorage.getItem(draftKey);
+      if (savedDraft) {
+        const parsedDraft = JSON.parse(savedDraft);
+        setFormData(parsedDraft);
+        setHasDraft(true);
+        return true;
+      }
+    } catch (error) {
+      console.error('Error loading draft:', error);
+    }
+    return false;
+  };
+
+  // Save draft to localStorage
+  const saveDraft = (data: typeof formData) => {
+    try {
+      const draftKey = getDraftKey(unit?.id, defaultPropertyId);
+      localStorage.setItem(draftKey, JSON.stringify(data));
+    } catch (error) {
+      console.error('Error saving draft:', error);
+    }
+  };
+
+  // Clear draft from localStorage
+  const clearDraft = () => {
+    try {
+      const draftKey = getDraftKey(unit?.id, defaultPropertyId);
+      localStorage.removeItem(draftKey);
+      setHasDraft(false);
+    } catch (error) {
+      console.error('Error clearing draft:', error);
+    }
+  };
+
+  // Reset form to default values
+  const resetForm = () => {
+    setFormData({
+      propertyId: defaultPropertyId || '',
+      unitNo: '',
+      floor: '',
+      unitType: 'RESIDENTIAL' as UnitType,
+      usage: '',
+      bedrooms: 0,
+      bathrooms: 0,
+      sizeSqFt: 0,
+      type: '',
+      status: 'VACANT' as UnitStatus,
+      rentType: 'FIXED' as RentType,
+      rentAmount: 0,
+    });
+    setError('');
+  };
+
+  // Handle clear draft confirmation
+  const handleClearDraft = () => {
+    if (confirm('Are you sure you want to clear the saved draft? This action cannot be undone.')) {
+      if (unit) {
+        // Reset to unit data
+        setFormData({
+          propertyId: unit.propertyId,
+          unitNo: unit.unitNo || '',
+          floor: unit.floor || '',
+          unitType: unit.unitType,
+          usage: unit.usage || '',
+          bedrooms: unit.bedrooms || 0,
+          bathrooms: unit.bathrooms || 0,
+          sizeSqFt: unit.sizeSqFt || 0,
+          type: unit.type || '',
+          status: unit.status,
+          rentType: unit.rentType,
+          rentAmount: unit.rentAmount || 0,
+        });
+      } else {
+        resetForm();
+      }
+      clearDraft();
+    }
+  };
 
   useEffect(() => {
     if (!defaultPropertyId) {
       fetchProperties();
     }
+    
     if (unit) {
-      setFormData({
-        propertyId: unit.propertyId,
-        unitNo: unit.unitNo || '',
-        floor: unit.floor || '',
-        unitType: unit.unitType,
-        usage: unit.usage || '',
-        bedrooms: unit.bedrooms || 0,
-        bathrooms: unit.bathrooms || 0,
-        sizeSqFt: unit.sizeSqFt,
-        type: unit.type || '',
-        status: unit.status,
-        rentType: unit.rentType,
-        rentAmount: unit.rentAmount,
-      });
+      // Editing existing unit - check for draft first
+      const draftLoaded = loadDraft();
+      if (!draftLoaded) {
+        // No draft found, use unit data
+        setFormData({
+          propertyId: unit.propertyId,
+          unitNo: unit.unitNo || '',
+          floor: unit.floor || '',
+          unitType: unit.unitType,
+          usage: unit.usage || '',
+          bedrooms: unit.bedrooms || 0,
+          bathrooms: unit.bathrooms || 0,
+          sizeSqFt: unit.sizeSqFt || 0,
+          type: unit.type || '',
+          status: unit.status,
+          rentType: unit.rentType,
+          rentAmount: unit.rentAmount || 0,
+        });
+      }
+    } else {
+      // Creating new unit - try to load draft
+      loadDraft();
     }
   }, [unit, defaultPropertyId]);
 
@@ -64,18 +168,21 @@ export default function UnitForm({ unit, onSuccess, onCancel, defaultPropertyId 
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
+    const newFormData = type === 'number' 
+      ? { ...formData, [name]: value ? parseFloat(value) : 0 }
+      : { ...formData, [name]: value };
     
-    if (type === 'number') {
-      setFormData(prev => ({
-        ...prev,
-        [name]: value === '' ? 0 : parseFloat(value)
-      }));
-    } else {
-      setFormData(prev => ({
-        ...prev,
-        [name]: value
-      }));
+    setFormData(newFormData);
+    
+    // Auto-save draft on every change
+    saveDraft(newFormData);
+    
+    // Mark as having draft data
+    if (!hasDraft) {
+      setHasDraft(true);
     }
+    
+    setError('');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -84,19 +191,16 @@ export default function UnitForm({ unit, onSuccess, onCancel, defaultPropertyId 
     setError('');
 
     // Validate required fields
-    if (!formData.propertyId || !formData.sizeSqFt || !formData.rentAmount) {
-      setError('Property, size, and rent amount are required.');
+    if (!formData.propertyId) {
+      setError('Property is required.');
       setLoading(false);
       return;
     }
-
-    // Validate size and rent amount
     if (formData.sizeSqFt <= 0) {
       setError('Size must be greater than 0.');
       setLoading(false);
       return;
     }
-
     if (formData.rentAmount <= 0) {
       setError('Rent amount must be greater than 0.');
       setLoading(false);
@@ -132,25 +236,25 @@ export default function UnitForm({ unit, onSuccess, onCancel, defaultPropertyId 
       if (formData.unitType === 'RESIDENTIAL') {
         payload.bedrooms = Number(formData.bedrooms);
         payload.bathrooms = Number(formData.bathrooms);
-        // For residential units, usage should not be sent
       } else if (formData.unitType === 'COMMERCIAL') {
         if (formData.usage) payload.usage = formData.usage;
-        // For commercial units, bedrooms and bathrooms should not be sent
         payload.bedrooms = undefined;
         payload.bathrooms = undefined;
       }
-
-      console.log('Submitting payload:', payload); // Debug log
 
       if (unit) {
         await unitsAPI.update(unit.id, payload);
       } else {
         await unitsAPI.create(payload);
       }
+      
+      // Clear draft after successful submission
+      clearDraft();
+      
       onSuccess?.();
     } catch (err: any) {
       console.error('Error saving unit:', err);
-      setError(err.message || 'Failed to save unit');
+      setError(err.response?.data?.message || err.message || 'Failed to save unit');
     } finally {
       setLoading(false);
     }
@@ -158,10 +262,28 @@ export default function UnitForm({ unit, onSuccess, onCancel, defaultPropertyId 
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
+      {hasDraft && (
+        <div className="bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 rounded flex justify-between items-center">
+          <span className="flex items-center gap-2">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <span>Draft saved - Your changes are being automatically saved</span>
+          </span>
+          <button
+            type="button"
+            onClick={handleClearDraft}
+            className="text-sm text-blue-600 hover:text-blue-800 underline"
+          >
+            Clear Draft
+          </button>
+        </div>
+      )}
+
       {error && (
         <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded">
           <div className="flex items-center gap-3">
-            <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5 text-red-500 fill-none stroke-current" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             <p className="text-red-700 font-medium">{error}</p>
@@ -174,7 +296,7 @@ export default function UnitForm({ unit, onSuccess, onCancel, defaultPropertyId 
           <label className="block text-sm font-semibold text-gray-700 mb-2">
             Property <span className="text-red-500">*</span>
           </label>
-          <select
+          <select 
             name="propertyId"
             value={formData.propertyId}
             onChange={handleChange}
@@ -196,7 +318,7 @@ export default function UnitForm({ unit, onSuccess, onCancel, defaultPropertyId 
           <label className="block text-sm font-semibold text-gray-700 mb-2">
             Unit Number
           </label>
-          <input
+          <input 
             type="text"
             name="unitNo"
             value={formData.unitNo}
@@ -210,7 +332,7 @@ export default function UnitForm({ unit, onSuccess, onCancel, defaultPropertyId 
           <label className="block text-sm font-semibold text-gray-700 mb-2">
             Floor
           </label>
-          <input
+          <input 
             type="text"
             name="floor"
             value={formData.floor}
@@ -226,7 +348,7 @@ export default function UnitForm({ unit, onSuccess, onCancel, defaultPropertyId 
           <label className="block text-sm font-semibold text-gray-700 mb-2">
             Unit Type <span className="text-red-500">*</span>
           </label>
-          <select
+          <select 
             name="unitType"
             value={formData.unitType}
             onChange={handleChange}
@@ -242,7 +364,7 @@ export default function UnitForm({ unit, onSuccess, onCancel, defaultPropertyId 
           <label className="block text-sm font-semibold text-gray-700 mb-2">
             Status <span className="text-red-500">*</span>
           </label>
-          <select
+          <select 
             name="status"
             value={formData.status}
             onChange={handleChange}
@@ -250,6 +372,7 @@ export default function UnitForm({ unit, onSuccess, onCancel, defaultPropertyId 
             className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all duration-200 text-gray-900"
           >
             <option value="VACANT">Vacant</option>
+            <option value="OCCUPIED">Occupied</option>
           </select>
         </div>
       </div>
@@ -259,7 +382,7 @@ export default function UnitForm({ unit, onSuccess, onCancel, defaultPropertyId 
           <label className="block text-sm font-semibold text-gray-700 mb-2">
             Business Usage Type
           </label>
-          <input
+          <input 
             type="text"
             name="usage"
             value={formData.usage}
@@ -267,9 +390,7 @@ export default function UnitForm({ unit, onSuccess, onCancel, defaultPropertyId 
             placeholder="e.g., Boutique, Cosmetic shop, Bank, Restaurant"
             className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all duration-200 text-gray-900 placeholder:text-gray-500"
           />
-          <p className="mt-1 text-xs text-gray-500">
-            Type of business for commercial units
-          </p>
+          <p className="mt-1 text-xs text-gray-500">Type of business for commercial units</p>
         </div>
       )}
 
@@ -279,12 +400,12 @@ export default function UnitForm({ unit, onSuccess, onCancel, defaultPropertyId 
             <label className="block text-sm font-semibold text-gray-700 mb-2">
               Bedrooms
             </label>
-            <input
+            <input 
               type="number"
               name="bedrooms"
               value={formData.bedrooms}
               onChange={handleChange}
-              min="0"
+              min={0}
               placeholder="1"
               className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all duration-200 text-gray-900 placeholder:text-gray-500"
             />
@@ -294,13 +415,13 @@ export default function UnitForm({ unit, onSuccess, onCancel, defaultPropertyId 
             <label className="block text-sm font-semibold text-gray-700 mb-2">
               Bathrooms
             </label>
-            <input
+            <input 
               type="number"
               name="bathrooms"
               value={formData.bathrooms}
               onChange={handleChange}
-              min="0"
-              step="0.5"
+              min={0}
+              step={0.5}
               placeholder="1"
               className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all duration-200 text-gray-900 placeholder:text-gray-500"
             />
@@ -313,13 +434,13 @@ export default function UnitForm({ unit, onSuccess, onCancel, defaultPropertyId 
           <label className="block text-sm font-semibold text-gray-700 mb-2">
             Size (Sq Ft) <span className="text-red-500">*</span>
           </label>
-          <input
+          <input 
             type="number"
             name="sizeSqFt"
             value={formData.sizeSqFt}
             onChange={handleChange}
             required
-            min="0"
+            min={0}
             placeholder="500"
             className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all duration-200 text-gray-900 placeholder:text-gray-500"
           />
@@ -329,7 +450,7 @@ export default function UnitForm({ unit, onSuccess, onCancel, defaultPropertyId 
           <label className="block text-sm font-semibold text-gray-700 mb-2">
             Unit Type Description
           </label>
-          <input
+          <input 
             type="text"
             name="type"
             value={formData.type}
@@ -345,15 +466,15 @@ export default function UnitForm({ unit, onSuccess, onCancel, defaultPropertyId 
           <label className="block text-sm font-semibold text-gray-700 mb-2">
             Rent Type <span className="text-red-500">*</span>
           </label>
-          <select
+          <select 
             name="rentType"
             value={formData.rentType}
             onChange={handleChange}
             required
             className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all duration-200 text-gray-900"
           >
-            <option value="FIXED">Fixed (Total Amount)</option>
-            <option value="PER_SQFT">Per Sq Ft</option>
+            <option value="FIXED">Fixed Total Amount</option>
+            <option value="PER_SQ_FT">Per Sq Ft</option>
             <option value="MONTHLY">Monthly</option>
             <option value="ANNUAL">Annual</option>
             <option value="PER_ROOM">Per Room</option>
@@ -374,14 +495,14 @@ export default function UnitForm({ unit, onSuccess, onCancel, defaultPropertyId 
           <label className="block text-sm font-semibold text-gray-700 mb-2">
             Rent Amount (Ksh) <span className="text-red-500">*</span>
           </label>
-          <input
+          <input 
             type="number"
             name="rentAmount"
             step="0.01"
             value={formData.rentAmount}
             onChange={handleChange}
             required
-            min="0"
+            min={0}
             placeholder="15000"
             className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all duration-200 text-gray-900 placeholder:text-gray-500"
           />
@@ -395,6 +516,7 @@ export default function UnitForm({ unit, onSuccess, onCancel, defaultPropertyId 
             variant="secondary"
             onClick={onCancel}
             className="px-6 py-3"
+            disabled={loading}
           >
             Cancel
           </Button>
@@ -402,22 +524,22 @@ export default function UnitForm({ unit, onSuccess, onCancel, defaultPropertyId 
         <Button
           type="submit"
           disabled={loading}
-          className="px-8 py-3 bg-primary text-white hover:bg-primary/90 transition-all duration-300 shadow-md hover:shadow-lg rounded-lg font-semibold disabled:opacity-50"
+          className="px-8 py-3 bg-primary text-white hover:bg-primary-90 transition-all duration-300 shadow-md hover:shadow-lg rounded-lg font-semibold disabled:opacity-50"
         >
           {loading ? (
-            <span className="flex items-center gap-2">
-              <svg className="animate-spin w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <>
+              <svg className="animate-spin w-5 h-5 mr-2 fill-none stroke-current" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
               {unit ? 'Updating...' : 'Creating...'}
-            </span>
+            </>
           ) : (
-            <span className="flex items-center gap-2">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <>
+              <svg className="w-5 h-5 mr-2 fill-none stroke-current" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
               {unit ? 'Update Unit' : 'Create Unit'}
-            </span>
+            </>
           )}
         </Button>
       </div>

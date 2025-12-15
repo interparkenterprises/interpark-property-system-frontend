@@ -1072,6 +1072,16 @@ export const offerLettersAPI = {
       return handleApiError(error);
     }
   },
+  // Get offer letters by specific user ID - FIXED to use api instance
+  getByUser: async (userId: string): Promise<OfferLetter[]> => {
+    try {
+      const response = await api.get(`/offer-letters/user/${userId}`);
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
 
   getById: async (id: string): Promise<OfferLetter> => {
     try {

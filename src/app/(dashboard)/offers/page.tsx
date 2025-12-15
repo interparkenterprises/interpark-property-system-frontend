@@ -1,30 +1,49 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, SetStateAction } from 'react';
 import { useRouter } from 'next/navigation';
 import { offerLettersAPI } from '@/lib/api';
 import type { OfferLetter, OfferStatus } from '@/types';
 import OfferLetterForm from '@/components/forms/OfferLetterForm';
+import { useAuth } from '@/context/AuthContext';
 
 export default function OffersPage() {
   const router = useRouter();
+  const { user, userId } = useAuth();
   const [offers, setOffers] = useState<OfferLetter[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [filterStatus, setFilterStatus] = useState<OfferStatus | 'ALL'>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
+  const [generatingPdf, setGeneratingPdf] = useState<string | null>(null);
+  const [downloadingPdf, setDownloadingPdf] = useState<string | null>(null);
+  const [deletingOffer, setDeletingOffer] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchOffers();
-  }, []);
+    if (user) {
+      fetchOffers();
+    }
+  }, [user]);
 
   const fetchOffers = async () => {
     try {
       setLoading(true);
-      const data = await offerLettersAPI.getAll();
+      let data: SetStateAction<OfferLetter[]>;
+      
+      // If user is ADMIN, fetch all offers
+      // If user is MANAGER, fetch only their own offers
+      if (user?.role === 'ADMIN') {
+        data = await offerLettersAPI.getAll();
+      } else if (user?.role === 'MANAGER' && userId) {
+        data = await offerLettersAPI.getByUser(userId);
+      } else {
+        data = [];
+      }
+      
       setOffers(data);
     } catch (error) {
       console.error('Failed to fetch offers:', error);
+      alert('Failed to fetch offers. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -32,17 +51,21 @@ export default function OffersPage() {
 
   const handleGeneratePDF = async (offerId: string) => {
     try {
+      setGeneratingPdf(offerId);
       const result = await offerLettersAPI.generatePDF(offerId);
       alert('PDF generated successfully!');
       fetchOffers(); // Refresh to show updated offer with PDF URL
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to generate PDF:', error);
-      alert('Failed to generate PDF. Please try again.');
+      alert(`Failed to generate PDF: ${error.message || 'Please try again.'}`);
+    } finally {
+      setGeneratingPdf(null);
     }
   };
 
   const handleDownloadPDF = async (offerId: string, offerNumber: string) => {
     try {
+      setDownloadingPdf(offerId);
       const blob = await offerLettersAPI.downloadPDF(offerId);
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -52,9 +75,11 @@ export default function OffersPage() {
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to download PDF:', error);
-      alert('Failed to download PDF. Please try again.');
+      alert(`Failed to download PDF: ${error.message || 'Please try again.'}`);
+    } finally {
+      setDownloadingPdf(null);
     }
   };
 
@@ -63,22 +88,31 @@ export default function OffersPage() {
       await offerLettersAPI.updateStatus(offerId, newStatus);
       alert('Status updated successfully!');
       fetchOffers();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to update status:', error);
-      alert('Failed to update status. Please try again.');
+      alert(`Failed to update status: ${error.message || 'Please try again.'}`);
     }
   };
 
   const handleDelete = async (offerId: string) => {
-    if (!confirm('Are you sure you want to delete this offer letter?')) return;
+    // Only ADMIN can delete
+    if (user?.role !== 'ADMIN') {
+      alert('Only administrators can delete offer letters.');
+      return;
+    }
+
+    if (!confirm('Are you sure you want to delete this offer letter? This action cannot be undone.')) return;
 
     try {
+      setDeletingOffer(offerId);
       await offerLettersAPI.delete(offerId);
       alert('Offer letter deleted successfully!');
       fetchOffers();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to delete offer:', error);
-      alert('Failed to delete offer letter. Please try again.');
+      alert(`Failed to delete offer letter: ${error.message || 'Please try again.'}`);
+    } finally {
+      setDeletingOffer(null);
     }
   };
 
@@ -101,16 +135,30 @@ export default function OffersPage() {
       : 'bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-200';
   };
 
+  // Filter offers based on user role and search
   const filteredOffers = offers.filter(offer => {
     const matchesStatus = filterStatus === 'ALL' || offer.status === filterStatus;
     const matchesSearch = 
       offer.offerNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      offer.lead?.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      offer.property?.name.toLowerCase().includes(searchTerm.toLowerCase());
+      offer.lead?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      offer.property?.name?.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    // If user is MANAGER, also filter by user ID
+    if (user?.role === 'MANAGER') {
+      return matchesStatus && matchesSearch && offer.createdById === userId;
+    }
+    
     return matchesStatus && matchesSearch;
   });
 
-  const stats = {
+  // Calculate stats (only for ADMIN users)
+  const stats = user?.role === 'ADMIN' ? {
+    total: offers.length,
+    draft: offers.filter(o => o.status === 'DRAFT').length,
+    sent: offers.filter(o => o.status === 'SENT').length,
+    accepted: offers.filter(o => o.status === 'ACCEPTED').length,
+    rejected: offers.filter(o => o.status === 'REJECTED').length,
+  } : {
     total: offers.length,
     draft: offers.filter(o => o.status === 'DRAFT').length,
     sent: offers.filter(o => o.status === 'SENT').length,
@@ -132,15 +180,45 @@ export default function OffersPage() {
     );
   }
 
+  // Show loading while auth is being checked
+  if (!user && loading) {
+    return (
+      <div className="flex justify-center items-center h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 dark:border-blue-500"></div>
+      </div>
+    );
+  }
+
+  // Check if user has permission to view offers
+  if (user && !['ADMIN', 'MANAGER'].includes(user.role)) {
+    return (
+      <div className="p-6">
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-8 text-center">
+          <h1 className="text-2xl font-bold text-red-700 dark:text-red-400 mb-2">Access Denied</h1>
+          <p className="text-red-600 dark:text-red-300">
+            You don't have permission to view offer letters. Please contact an administrator.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 space-y-6">
-      {/* Header */}
+      {/* Header with user role info */}
       <div className="flex justify-between items-start">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Offer Letters</h1>
           <p className="text-gray-600 dark:text-gray-400 mt-1">
-            Manage offer letters for prospective tenants
+            {user?.role === 'ADMIN' 
+              ? 'Manage all offer letters' 
+              : 'Manage your offer letters'}
           </p>
+          {user?.role === 'MANAGER' && (
+            <div className="mt-2 text-sm text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-3 py-1 rounded-full inline-block">
+              Viewing only your offers
+            </div>
+          )}
         </div>
         <button
           onClick={() => setShowForm(true)}
@@ -150,29 +228,31 @@ export default function OffersPage() {
         </button>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-        <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-          <p className="text-sm text-gray-600 dark:text-gray-400">Total Offers</p>
-          <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.total}</p>
+      {/* Stats Cards - Only show for ADMIN */}
+      {user?.role === 'ADMIN' && (
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+            <p className="text-sm text-gray-600 dark:text-gray-400">Total Offers</p>
+            <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.total}</p>
+          </div>
+          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+            <p className="text-sm text-gray-600 dark:text-gray-400">Draft</p>
+            <p className="text-2xl font-bold text-gray-500 dark:text-gray-300">{stats.draft}</p>
+          </div>
+          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+            <p className="text-sm text-gray-600 dark:text-gray-400">Sent</p>
+            <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{stats.sent}</p>
+          </div>
+          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+            <p className="text-sm text-gray-600 dark:text-gray-400">Accepted</p>
+            <p className="text-2xl font-bold text-green-600 dark:text-green-400">{stats.accepted}</p>
+          </div>
+          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+            <p className="text-sm text-gray-600 dark:text-gray-400">Rejected</p>
+            <p className="text-2xl font-bold text-red-600 dark:text-red-400">{stats.rejected}</p>
+          </div>
         </div>
-        <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-          <p className="text-sm text-gray-600 dark:text-gray-400">Draft</p>
-          <p className="text-2xl font-bold text-gray-500 dark:text-gray-300">{stats.draft}</p>
-        </div>
-        <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-          <p className="text-sm text-gray-600 dark:text-gray-400">Sent</p>
-          <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{stats.sent}</p>
-        </div>
-        <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-          <p className="text-sm text-gray-600 dark:text-gray-400">Accepted</p>
-          <p className="text-2xl font-bold text-green-600 dark:text-green-400">{stats.accepted}</p>
-        </div>
-        <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-          <p className="text-sm text-gray-600 dark:text-gray-400">Rejected</p>
-          <p className="text-2xl font-bold text-red-600 dark:text-red-400">{stats.rejected}</p>
-        </div>
-      </div>
+      )}
 
       {/* Filters */}
       <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
@@ -227,7 +307,9 @@ export default function OffersPage() {
           </svg>
           <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">No offer letters found</h3>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Get started by creating a new offer letter.
+            {user?.role === 'ADMIN' 
+              ? 'No offer letters match your search criteria.'
+              : "You haven't created any offer letters yet."}
           </p>
           <button
             onClick={() => setShowForm(true)}
@@ -263,6 +345,11 @@ export default function OffersPage() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                     Issue Date
                   </th>
+                  {user?.role === 'ADMIN' && (
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                      Created By
+                    </th>
+                  )}
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                     Actions
                   </th>
@@ -276,15 +363,15 @@ export default function OffersPage() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                        {offer.lead?.name}
+                        {offer.lead?.name || 'N/A'}
                       </div>
                       <div className="text-sm text-gray-500 dark:text-gray-400">
-                        {offer.lead?.phone}
+                        {offer.lead?.phone || 'No phone'}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900 dark:text-gray-100">
-                        {offer.property?.name}
+                        {offer.property?.name || 'N/A'}
                       </div>
                       {offer.unit && (
                         <div className="text-sm text-gray-500 dark:text-gray-400">
@@ -298,7 +385,7 @@ export default function OffersPage() {
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
-                      KES {offer.rentAmount.toLocaleString()}
+                      KES {offer.rentAmount?.toLocaleString() || '0'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <select
@@ -316,42 +403,66 @@ export default function OffersPage() {
                       </select>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                      {new Date(offer.issueDate).toLocaleDateString()}
+                      {offer.issueDate ? new Date(offer.issueDate).toLocaleDateString() : 'N/A'}
                     </td>
+                    {user?.role === 'ADMIN' && offer.createdById && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                        {offer.createdById || 'Unknown'}
+                      </td>
+                    )}
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div className="flex gap-2">
                         {!offer.documentUrl && (
                           <button
                             onClick={() => handleGeneratePDF(offer.id)}
-                            className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300"
+                            disabled={generatingPdf === offer.id}
+                            className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 disabled:text-blue-300 dark:disabled:text-blue-700 disabled:cursor-not-allowed flex items-center gap-1"
                             title="Generate PDF"
                           >
-                            Generate
+                            {generatingPdf === offer.id ? (
+                              <>
+                                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600 dark:border-blue-400"></div>
+                                Generating...
+                              </>
+                            ) : (
+                              'Generate'
+                            )}
                           </button>
                         )}
                         {offer.documentUrl && (
                           <button
                             onClick={() => handleDownloadPDF(offer.id, offer.offerNumber)}
-                            className="text-green-600 dark:text-green-400 hover:text-green-900 dark:hover:text-green-300"
+                            disabled={downloadingPdf === offer.id}
+                            className="text-green-600 dark:text-green-400 hover:text-green-900 dark:hover:text-green-300 disabled:text-green-300 dark:disabled:text-green-700 disabled:cursor-not-allowed flex items-center gap-1"
                             title="Download PDF"
                           >
-                            Download
+                            {downloadingPdf === offer.id ? (
+                              <>
+                                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-green-600 dark:border-green-400"></div>
+                                Downloading...
+                              </>
+                            ) : (
+                              'Download'
+                            )}
                           </button>
                         )}
-                        <button
-                          onClick={() => router.push(`/dashboard/offers/${offer.id}`)}
-                          className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-900 dark:hover:text-indigo-300"
-                          title="View Details"
-                        >
-                          View
-                        </button>
-                        <button
-                          onClick={() => handleDelete(offer.id)}
-                          className="text-red-600 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300"
-                          title="Delete"
-                        >
-                          Delete
-                        </button>
+                        {user?.role === 'ADMIN' && (
+                          <button
+                            onClick={() => handleDelete(offer.id)}
+                            disabled={deletingOffer === offer.id}
+                            className="text-red-600 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300 disabled:text-red-300 dark:disabled:text-red-700 disabled:cursor-not-allowed flex items-center gap-1"
+                            title="Delete"
+                          >
+                            {deletingOffer === offer.id ? (
+                              <>
+                                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-red-600 dark:border-red-400"></div>
+                                Deleting...
+                              </>
+                            ) : (
+                              'Delete'
+                            )}
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

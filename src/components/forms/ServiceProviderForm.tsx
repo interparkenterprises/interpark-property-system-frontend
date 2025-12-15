@@ -10,14 +10,25 @@ interface ServiceProviderFormProps {
   serviceProvider?: ServiceProvider;
   onSuccess?: () => void;
   onCancel?: () => void;
-  propertyId?: string;  // Add this prop for auto-population
+  propertyId?: string;
 }
+
+// Draft storage key generator
+const getDraftKey = (serviceProviderId?: string, propertyId?: string) => {
+  if (serviceProviderId) {
+    return `service_provider_form_draft_${serviceProviderId}`;
+  }
+  if (propertyId) {
+    return `service_provider_form_draft_new_${propertyId}`;
+  }
+  return 'service_provider_form_draft_new';
+};
 
 export default function ServiceProviderForm({ 
   serviceProvider, 
   onSuccess, 
   onCancel,
-  propertyId  // Add this prop
+  propertyId
 }: ServiceProviderFormProps) {
   const [formData, setFormData] = useState({
     propertyId: '',
@@ -32,35 +43,84 @@ export default function ServiceProviderForm({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [propertyName, setPropertyName] = useState('');
+  const [hasDraft, setHasDraft] = useState(false);
+
+  // Load draft from localStorage
+  const loadDraft = () => {
+    try {
+      const draftKey = getDraftKey(serviceProvider?.id, propertyId);
+      const savedDraft = localStorage.getItem(draftKey);
+      if (savedDraft) {
+        const parsedDraft = JSON.parse(savedDraft);
+        setFormData(parsedDraft);
+        setHasDraft(true);
+        return true;
+      }
+    } catch (error) {
+      console.error('Error loading draft:', error);
+    }
+    return false;
+  };
+
+  // Save draft to localStorage
+  const saveDraft = (data: typeof formData) => {
+    try {
+      const draftKey = getDraftKey(serviceProvider?.id, propertyId);
+      localStorage.setItem(draftKey, JSON.stringify(data));
+    } catch (error) {
+      console.error('Error saving draft:', error);
+    }
+  };
+
+  // Clear draft from localStorage
+  const clearDraft = () => {
+    try {
+      const draftKey = getDraftKey(serviceProvider?.id, propertyId);
+      localStorage.removeItem(draftKey);
+      setHasDraft(false);
+    } catch (error) {
+      console.error('Error clearing draft:', error);
+    }
+  };
 
   useEffect(() => {
     fetchProperties();
     
-    // If propertyId is passed as prop (from property detail page), set it in formData
-    if (propertyId) {
-      setFormData(prev => ({
-        ...prev,
-        propertyId: propertyId
-      }));
-      
-      // Fetch property name to display
-      fetchPropertyName(propertyId);
-    }
+    // Try to load draft first
+    const draftLoaded = loadDraft();
     
-    // If editing an existing service provider
-    if (serviceProvider) {
-      setFormData({
-        propertyId: serviceProvider.propertyId,
-        name: serviceProvider.name,
-        contact: serviceProvider.contact || '',
-        contractPeriod: serviceProvider.contractPeriod || '',
-        serviceContract: serviceProvider.serviceContract || '',
-        chargeAmount: serviceProvider.chargeAmount || 0,
-        chargeFrequency: serviceProvider.chargeFrequency || 'MONTHLY',
-      });
+    if (!draftLoaded) {
+      // If propertyId is passed as prop (from property detail page), set it in formData
+      if (propertyId) {
+        setFormData(prev => ({
+          ...prev,
+          propertyId: propertyId
+        }));
+        
+        // Fetch property name to display
+        fetchPropertyName(propertyId);
+      }
       
-      // Fetch property name for editing
-      fetchPropertyName(serviceProvider.propertyId);
+      // If editing an existing service provider
+      if (serviceProvider) {
+        setFormData({
+          propertyId: serviceProvider.propertyId,
+          name: serviceProvider.name,
+          contact: serviceProvider.contact || '',
+          contractPeriod: serviceProvider.contractPeriod || '',
+          serviceContract: serviceProvider.serviceContract || '',
+          chargeAmount: serviceProvider.chargeAmount || 0,
+          chargeFrequency: serviceProvider.chargeFrequency || 'MONTHLY',
+        });
+        
+        // Fetch property name for editing
+        fetchPropertyName(serviceProvider.propertyId);
+      }
+    } else {
+      // Draft was loaded, fetch property name if propertyId exists
+      if (formData.propertyId) {
+        fetchPropertyName(formData.propertyId);
+      }
     }
   }, [serviceProvider, propertyId]);
 
@@ -94,6 +154,8 @@ export default function ServiceProviderForm({
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
     
+    let newFormData = { ...formData };
+    
     // If property is being changed (only possible when not pre-populated)
     if (name === 'propertyId' && !propertyId) {
       const selectedProperty = properties.find(p => p.id === value);
@@ -101,15 +163,25 @@ export default function ServiceProviderForm({
     }
     
     if (type === 'number') {
-      setFormData(prev => ({
-        ...prev,
+      newFormData = {
+        ...newFormData,
         [name]: value === '' ? 0 : parseFloat(value)
-      }));
+      };
     } else {
-      setFormData(prev => ({
-        ...prev,
+      newFormData = {
+        ...newFormData,
         [name]: value
-      }));
+      };
+    }
+    
+    setFormData(newFormData);
+    
+    // Auto-save draft on every change
+    saveDraft(newFormData);
+    
+    // Mark as having draft data
+    if (!hasDraft) {
+      setHasDraft(true);
     }
   };
 
@@ -124,6 +196,10 @@ export default function ServiceProviderForm({
       } else {
         await serviceProvidersAPI.create(formData);
       }
+      
+      // Clear draft after successful submission
+      clearDraft();
+      
       onSuccess?.();
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to save service provider');
@@ -132,8 +208,61 @@ export default function ServiceProviderForm({
     }
   };
 
+  const handleClearDraft = () => {
+    if (confirm('Are you sure you want to clear the saved draft? This action cannot be undone.')) {
+      // Reset to original data
+      if (serviceProvider) {
+        setFormData({
+          propertyId: serviceProvider.propertyId,
+          name: serviceProvider.name,
+          contact: serviceProvider.contact || '',
+          contractPeriod: serviceProvider.contractPeriod || '',
+          serviceContract: serviceProvider.serviceContract || '',
+          chargeAmount: serviceProvider.chargeAmount || 0,
+          chargeFrequency: serviceProvider.chargeFrequency || 'MONTHLY',
+        });
+        fetchPropertyName(serviceProvider.propertyId);
+      } else {
+        // Clear form for new service provider
+        setFormData({
+          propertyId: propertyId || '',
+          name: '',
+          contact: '',
+          contractPeriod: '',
+          serviceContract: '',
+          chargeAmount: 0,
+          chargeFrequency: 'MONTHLY',
+        });
+        if (propertyId) {
+          fetchPropertyName(propertyId);
+        } else {
+          setPropertyName('');
+        }
+      }
+      clearDraft();
+    }
+  };
+
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
+      {hasDraft && (
+        <div className="bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 rounded flex justify-between items-center">
+          <span className="flex items-center gap-2">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <span>Draft saved - Your changes are being automatically saved</span>
+          </span>
+          <button
+            type="button"
+            onClick={handleClearDraft}
+            className="text-sm text-blue-600 hover:text-blue-800 underline"
+          >
+            Clear Draft
+          </button>
+        </div>
+      )}
+
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-md">
           {error}

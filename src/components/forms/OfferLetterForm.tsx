@@ -14,6 +14,10 @@ interface OfferLetterFormProps {
   onCancel?: () => void;
 }
 
+// Draft storage key generator
+const getDraftKey = (offerId?: string) => 
+  offerId ? `offer_form_draft_${offerId}` : 'offer_form_draft_new';
+
 export default function OfferLetterForm({ offerId, onSuccess, onCancel }: OfferLetterFormProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -23,6 +27,7 @@ export default function OfferLetterForm({ offerId, onSuccess, onCancel }: OfferL
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
   const [selectedUnit, setSelectedUnit] = useState<Unit | null>(null);
   const [isMixedUse, setIsMixedUse] = useState(false);
+  const [hasDraft, setHasDraft] = useState(false);
 
   const [formData, setFormData] = useState({
     leadId: '',
@@ -48,9 +53,50 @@ export default function OfferLetterForm({ offerId, onSuccess, onCancel }: OfferL
     escalationFrequency: '' as 'ANNUALLY' | 'BI_ANNUALLY' | '',
   });
 
+  // Load draft from localStorage
+  const loadDraft = () => {
+    try {
+      const draftKey = getDraftKey(offerId);
+      const savedDraft = localStorage.getItem(draftKey);
+      if (savedDraft) {
+        const parsedDraft = JSON.parse(savedDraft);
+        setFormData(parsedDraft);
+        setHasDraft(true);
+        return true;
+      }
+    } catch (error) {
+      console.error('Error loading draft:', error);
+    }
+    return false;
+  };
+
+  // Save draft to localStorage
+  const saveDraft = (data: typeof formData) => {
+    try {
+      const draftKey = getDraftKey(offerId);
+      localStorage.setItem(draftKey, JSON.stringify(data));
+    } catch (error) {
+      console.error('Error saving draft:', error);
+    }
+  };
+
+  // Clear draft from localStorage
+  const clearDraft = () => {
+    try {
+      const draftKey = getDraftKey(offerId);
+      localStorage.removeItem(draftKey);
+      setHasDraft(false);
+    } catch (error) {
+      console.error('Error clearing draft:', error);
+    }
+  };
+
   useEffect(() => {
     fetchProperties();
     fetchLeads();
+    
+    // Try to load draft
+    loadDraft();
   }, []);
 
   useEffect(() => {
@@ -62,8 +108,10 @@ export default function OfferLetterForm({ offerId, onSuccess, onCancel }: OfferL
       
       // Clear unit selection when property changes
       if (formData.unitId) {
-        setFormData(prev => ({ ...prev, unitId: '' }));
+        const newFormData = { ...formData, unitId: '' };
+        setFormData(newFormData);
         setSelectedUnit(null);
+        saveDraft(newFormData);
       }
     } else {
       setUnits([]);
@@ -76,20 +124,23 @@ export default function OfferLetterForm({ offerId, onSuccess, onCancel }: OfferL
   useEffect(() => {
     // Auto-populate fields when a unit is selected
     if (selectedUnit) {
-      setFormData(prev => ({
-        ...prev,
+      const newFormData = {
+        ...formData,
         rentAmount: selectedUnit.rentAmount.toString(),
         // Auto-populate additional fields based on unit data
         rentPerSqFt: selectedUnit.rentType === 'PER_SQFT' && selectedUnit.calculationInfo?.ratePerSqFt 
           ? selectedUnit.calculationInfo.ratePerSqFt.toString() 
-          : prev.rentPerSqFt,
+          : formData.rentPerSqFt,
         // Set default deposit (typically 1-2 months rent)
-        deposit: selectedUnit.rentAmount ? (selectedUnit.rentAmount * 2).toString() : prev.deposit,
+        deposit: selectedUnit.rentAmount ? (selectedUnit.rentAmount * 2).toString() : formData.deposit,
         // Set unit type for commercial/residential determination
         ...(selectedUnit.unitType === 'COMMERCIAL' && {
           useOfPremises: selectedUnit.usage || 'Commercial Space'
         })
-      }));
+      };
+      
+      setFormData(newFormData);
+      saveDraft(newFormData);
     }
   }, [selectedUnit]);
 
@@ -113,7 +164,6 @@ export default function OfferLetterForm({ offerId, onSuccess, onCancel }: OfferL
 
   const fetchUnits = async (propertyId: string) => {
     try {
-      // FIX: The unitsAPI.getAll expects an object with propertyId and status
       const data = await unitsAPI.getByProperty(propertyId);
       setUnits(data.filter(unit => unit.status === 'VACANT'));
     } catch (error) {
@@ -125,28 +175,39 @@ export default function OfferLetterForm({ offerId, onSuccess, onCancel }: OfferL
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
   ) => {
     const { name, value } = e.target;
+    let newFormData = { ...formData };
     
     if (name === 'propertyId') {
       // Clear unit-related data when property changes
       if (formData.propertyId !== value) {
         setSelectedUnit(null);
-        setFormData(prev => ({ 
-          ...prev, 
+        newFormData = { 
+          ...newFormData, 
           [name]: value,
           unitId: '',
           rentAmount: '',
           rentPerSqFt: '',
           deposit: ''
-        }));
+        };
       } else {
-        setFormData(prev => ({ ...prev, [name]: value }));
+        newFormData = { ...newFormData, [name]: value };
       }
     } else if (name === 'unitId') {
       const unit = units.find(u => u.id === value);
       setSelectedUnit(unit || null);
-      setFormData(prev => ({ ...prev, [name]: value }));
+      newFormData = { ...newFormData, [name]: value };
     } else {
-      setFormData(prev => ({ ...prev, [name]: value }));
+      newFormData = { ...newFormData, [name]: value };
+    }
+    
+    setFormData(newFormData);
+    
+    // Auto-save draft on every change
+    saveDraft(newFormData);
+    
+    // Mark as having draft data
+    if (!hasDraft) {
+      setHasDraft(true);
     }
   };
 
@@ -196,6 +257,9 @@ export default function OfferLetterForm({ offerId, onSuccess, onCancel }: OfferL
         await offerLettersAPI.create(payload);
       }
 
+      // Clear draft after successful submission
+      clearDraft();
+
       if (onSuccess) {
         onSuccess();
       } else {
@@ -207,6 +271,37 @@ export default function OfferLetterForm({ offerId, onSuccess, onCancel }: OfferL
       alert('Failed to create offer letter. Please try again.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleClearDraft = () => {
+    if (confirm('Are you sure you want to clear the saved draft? This action cannot be undone.')) {
+      // Reset form to empty state
+      setFormData({
+        leadId: '',
+        propertyId: '',
+        unitId: '',
+        letterType: '' as LetterType | '',
+        rentAmount: '',
+        deposit: '',
+        leaseTerm: '',
+        serviceCharge: '',
+        escalationRate: '',
+        expiryDate: '',
+        additionalTerms: '',
+        notes: '',
+        rentPerSqFt: '',
+        serviceChargePerSqFt: '',
+        useOfPremises: '',
+        fitOutPeriodMonths: '',
+        depositMonths: '',
+        advanceRentMonths: '',
+        escalationFrequency: '' as 'ANNUALLY' | 'BI_ANNUALLY' | '',
+      });
+      setSelectedProperty(null);
+      setSelectedUnit(null);
+      setIsMixedUse(false);
+      clearDraft();
     }
   };
 
@@ -258,6 +353,25 @@ export default function OfferLetterForm({ offerId, onSuccess, onCancel }: OfferL
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6 bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+      {/* Draft Banner */}
+      {hasDraft && (
+        <div className="bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 rounded flex justify-between items-center">
+          <span className="flex items-center gap-2">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <span>Draft saved - Your changes are being automatically saved</span>
+          </span>
+          <button
+            type="button"
+            onClick={handleClearDraft}
+            className="text-sm text-blue-600 hover:text-blue-800 underline"
+          >
+            Clear Draft
+          </button>
+        </div>
+      )}
+
       <div className="border-b pb-4 border-gray-200 dark:border-gray-700">
         <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Create Offer Letter</h2>
         <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">

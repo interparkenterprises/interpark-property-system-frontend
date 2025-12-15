@@ -11,6 +11,10 @@ interface PropertyFormProps {
   onCancel?: () => void;
 }
 
+// Draft storage key generator
+const getDraftKey = (propertyId?: string) => 
+  propertyId ? `property_form_draft_${propertyId}` : 'property_form_draft_new';
+
 const PropertyForm = forwardRef<HTMLFormElement, PropertyFormProps>(
   ({ property, onSuccess, onCancel }, ref) => {
     const [formData, setFormData] = useState({
@@ -26,7 +30,7 @@ const PropertyForm = forwardRef<HTMLFormElement, PropertyFormProps>(
       landlordAddress: '',
       landlordIdNumber: '',
       commissionFee: 0,
-      imageFile: null as File | null, // Changed from image URL to File
+      imageFile: null as File | null,
       // Bank details
       accountNo: '',
       accountName: '',
@@ -39,37 +43,102 @@ const PropertyForm = forwardRef<HTMLFormElement, PropertyFormProps>(
     const [error, setError] = useState('');
     const [landlordMode, setLandlordMode] = useState<'existing' | 'new'>('existing');
     const [imagePreview, setImagePreview] = useState<string | null>(null);
+    const [hasDraft, setHasDraft] = useState(false);
+
+    // Load draft from localStorage
+    const loadDraft = () => {
+      try {
+        const draftKey = getDraftKey(property?.id);
+        const savedDraft = localStorage.getItem(draftKey);
+        if (savedDraft) {
+          const parsedDraft = JSON.parse(savedDraft);
+          
+          // Note: File objects can't be serialized, so imageFile will be null in draft
+          setFormData(parsedDraft);
+          setHasDraft(true);
+          
+          // Restore image preview if there's a URL in the draft
+          if (parsedDraft.imagePreviewUrl) {
+            setImagePreview(parsedDraft.imagePreviewUrl);
+          }
+          
+          // Restore landlord mode
+          if (parsedDraft.landlordMode) {
+            setLandlordMode(parsedDraft.landlordMode);
+          }
+          
+          return true;
+        }
+      } catch (error) {
+        console.error('Error loading draft:', error);
+      }
+      return false;
+    };
+
+    // Save draft to localStorage
+    const saveDraft = (data: typeof formData, mode: typeof landlordMode, preview: typeof imagePreview) => {
+      try {
+        const draftKey = getDraftKey(property?.id);
+        const draftData = {
+          ...data,
+          landlordMode: mode,
+          imagePreviewUrl: preview,
+          // Note: File objects are not serializable, so we don't save them
+        };
+        localStorage.setItem(draftKey, JSON.stringify(draftData));
+      } catch (error) {
+        console.error('Error saving draft:', error);
+      }
+    };
+
+    // Clear draft from localStorage
+    const clearDraft = () => {
+      try {
+        const draftKey = getDraftKey(property?.id);
+        localStorage.removeItem(draftKey);
+        setHasDraft(false);
+      } catch (error) {
+        console.error('Error clearing draft:', error);
+      }
+    };
 
     useEffect(() => {
       fetchLandlords();
+      
       if (property) {
-        setLandlordMode(property.landlordId ? 'existing' : 'new');
-        setFormData({
-          name: property.name || '',
-          address: property.address || '',
-          lrNumber: property.lrNumber || '',
-          form: property.form || 'APARTMENT',
-          usage: property.usage || 'RESIDENTIAL',
-          landlordId: property.landlordId || '',
-          landlordName: property.landlord?.name || '',
-          landlordEmail: property.landlord?.email || '',
-          landlordPhone: property.landlord?.phone || '',
-          landlordAddress: property.landlord?.address || '',
-          landlordIdNumber: property.landlord?.idNumber || '',
-          commissionFee: property.commissionFee || 0,
-          imageFile: null, // Keep as null since we can't get File from URL
-          // Bank details
-          accountNo: property.accountNo || '',
-          accountName: property.accountName || '',
-          bank: property.bank || '',
-          branch: property.branch || '',
-          branchCode: property.branchCode || '',
-        });
+        const draftLoaded = loadDraft();
         
-        // If property has an image URL, set it as preview
-        if (property.image) {
-          setImagePreview(property.image);
+        if (!draftLoaded) {
+          // No draft found, use property data
+          setLandlordMode(property.landlordId ? 'existing' : 'new');
+          setFormData({
+            name: property.name || '',
+            address: property.address || '',
+            lrNumber: property.lrNumber || '',
+            form: property.form || 'APARTMENT',
+            usage: property.usage || 'RESIDENTIAL',
+            landlordId: property.landlordId || '',
+            landlordName: property.landlord?.name || '',
+            landlordEmail: property.landlord?.email || '',
+            landlordPhone: property.landlord?.phone || '',
+            landlordAddress: property.landlord?.address || '',
+            landlordIdNumber: property.landlord?.idNumber || '',
+            commissionFee: property.commissionFee || 0,
+            imageFile: null,
+            accountNo: property.accountNo || '',
+            accountName: property.accountName || '',
+            bank: property.bank || '',
+            branch: property.branch || '',
+            branchCode: property.branchCode || '',
+          });
+          
+          if (property.image) {
+            setImagePreview(property.image);
+          }
         }
+      } else {
+        // Creating new property - try to load draft
+        loadDraft();
       }
     }, [property]);
 
@@ -87,27 +156,29 @@ const PropertyForm = forwardRef<HTMLFormElement, PropertyFormProps>(
       e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
     ) => {
       const { name, value, type } = e.target;
+      let newFormData = { ...formData };
       
       // Special handling for phone number fields
       if (name === 'landlordPhone' || name === 'accountNo') {
         const numericValue = value.replace(/[^0-9]/g, '');
         const maxLength = name === 'accountNo' ? 20 : 10;
         if (numericValue.length <= maxLength) {
-          setFormData(prev => ({
-            ...prev,
-            [name]: numericValue
-          }));
+          newFormData = { ...newFormData, [name]: numericValue };
         }
       } else if (type === 'number') {
-        setFormData(prev => ({
-          ...prev,
-          [name]: value === '' ? 0 : parseFloat(value)
-        }));
+        newFormData = { ...newFormData, [name]: value === '' ? 0 : parseFloat(value) };
       } else {
-        setFormData(prev => ({
-          ...prev,
-          [name]: value
-        }));
+        newFormData = { ...newFormData, [name]: value };
+      }
+      
+      setFormData(newFormData);
+      
+      // Auto-save draft on every change
+      saveDraft(newFormData, landlordMode, imagePreview);
+      
+      // Mark as having draft data
+      if (!hasDraft) {
+        setHasDraft(true);
       }
     };
 
@@ -130,28 +201,48 @@ const PropertyForm = forwardRef<HTMLFormElement, PropertyFormProps>(
       }
 
       // Update form data
-      setFormData(prev => ({
-        ...prev,
+      const newFormData = {
+        ...formData,
         imageFile: file
-      }));
+      };
+      setFormData(newFormData);
 
       // Create preview
       const reader = new FileReader();
       reader.onloadend = () => {
-        setImagePreview(reader.result as string);
+        const previewUrl = reader.result as string;
+        setImagePreview(previewUrl);
+        
+        // Save draft with new image preview
+        saveDraft(newFormData, landlordMode, previewUrl);
       };
       reader.readAsDataURL(file);
 
       // Clear any previous errors
       setError('');
+      
+      // Mark as having draft data
+      if (!hasDraft) {
+        setHasDraft(true);
+      }
     };
 
     const removeImage = () => {
-      setFormData(prev => ({
-        ...prev,
+      const newFormData = {
+        ...formData,
         imageFile: null
-      }));
+      };
+      setFormData(newFormData);
       setImagePreview(null);
+      
+      // Save draft without image
+      saveDraft(newFormData, landlordMode, null);
+    };
+
+    const handleLandlordModeChange = (mode: 'existing' | 'new') => {
+      setLandlordMode(mode);
+      // Save draft with new mode
+      saveDraft(formData, mode, imagePreview);
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -221,6 +312,9 @@ const PropertyForm = forwardRef<HTMLFormElement, PropertyFormProps>(
           await propertiesAPI.create(formDataToSend);
         }
 
+        // Clear draft after successful submission
+        clearDraft();
+        
         onSuccess?.();
       } catch (err: any) {
         const message =
@@ -233,6 +327,61 @@ const PropertyForm = forwardRef<HTMLFormElement, PropertyFormProps>(
       }
     };
 
+    const handleClearDraft = () => {
+      if (confirm('Are you sure you want to clear the saved draft? This action cannot be undone.')) {
+        if (property) {
+          // Reset to original property data
+          setFormData({
+            name: property.name || '',
+            address: property.address || '',
+            lrNumber: property.lrNumber || '',
+            form: property.form || 'APARTMENT',
+            usage: property.usage || 'RESIDENTIAL',
+            landlordId: property.landlordId || '',
+            landlordName: property.landlord?.name || '',
+            landlordEmail: property.landlord?.email || '',
+            landlordPhone: property.landlord?.phone || '',
+            landlordAddress: property.landlord?.address || '',
+            landlordIdNumber: property.landlord?.idNumber || '',
+            commissionFee: property.commissionFee || 0,
+            imageFile: null,
+            accountNo: property.accountNo || '',
+            accountName: property.accountName || '',
+            bank: property.bank || '',
+            branch: property.branch || '',
+            branchCode: property.branchCode || '',
+          });
+          setLandlordMode(property.landlordId ? 'existing' : 'new');
+          setImagePreview(property.image || null);
+        } else {
+          // Clear form for new property
+          setFormData({
+            name: '',
+            address: '',
+            lrNumber: '',
+            form: 'APARTMENT',
+            usage: 'RESIDENTIAL',
+            landlordId: '',
+            landlordName: '',
+            landlordEmail: '',
+            landlordPhone: '',
+            landlordAddress: '',
+            landlordIdNumber: '',
+            commissionFee: 0,
+            imageFile: null,
+            accountNo: '',
+            accountName: '',
+            bank: '',
+            branch: '',
+            branchCode: '',
+          });
+          setLandlordMode('existing');
+          setImagePreview(null);
+        }
+        clearDraft();
+      }
+    };
+
     return (
       <form
         ref={ref}
@@ -241,6 +390,25 @@ const PropertyForm = forwardRef<HTMLFormElement, PropertyFormProps>(
         noValidate
         encType="multipart/form-data"
       >
+        {/* Draft Banner */}
+        {hasDraft && (
+          <div className="bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 rounded flex justify-between items-center">
+            <span className="flex items-center gap-2">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              <span>Draft saved - Your changes are being automatically saved</span>
+            </span>
+            <button
+              type="button"
+              onClick={handleClearDraft}
+              className="text-sm text-blue-600 hover:text-blue-800 underline"
+            >
+              Clear Draft
+            </button>
+          </div>
+        )}
+
         {/* Error Banner */}
         {error && (
           <div className="p-3 rounded-md bg-red-50 border border-red-200 text-red-700 text-sm">
@@ -543,7 +711,7 @@ const PropertyForm = forwardRef<HTMLFormElement, PropertyFormProps>(
           <div className="flex flex-wrap gap-3 mb-4">
             <button
               type="button"
-              onClick={() => setLandlordMode('existing')}
+              onClick={() => handleLandlordModeChange('existing')}
               className={`px-4 py-2 rounded-lg border font-medium transition-colors ${
                 landlordMode === 'existing'
                   ? 'bg-primary text-white border-primary'
@@ -554,7 +722,7 @@ const PropertyForm = forwardRef<HTMLFormElement, PropertyFormProps>(
             </button>
             <button
               type="button"
-              onClick={() => setLandlordMode('new')}
+              onClick={() => handleLandlordModeChange('new')}
               className={`px-4 py-2 rounded-lg border font-medium transition-colors ${
                 landlordMode === 'new'
                   ? 'bg-primary text-white border-primary'
