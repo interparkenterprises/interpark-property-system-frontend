@@ -1,5 +1,5 @@
 import ExcelJS from 'exceljs';
-import { Property } from '@/types';
+import { Property, VATType } from '@/types';
 
 export interface ExportSection {
   id: string;
@@ -8,19 +8,20 @@ export interface ExportSection {
 }
 
 // Helper functions for Excel generation
-const addSectionTitle = (worksheet: ExcelJS.Worksheet, row: number, title: string) => {
-  worksheet.mergeCells(`A${row}:R${row}`);
-  const cell = worksheet.getCell(`A${row}`);
-  cell.value = title.toUpperCase();
-  cell.font = { size: 16, bold: true, color: { argb: 'FFFFFFFF' } };
-  cell.fill = {
-    type: 'pattern',
-    pattern: 'solid',
-    fgColor: { argb: 'FF0066B2' },
-  };
-  cell.alignment = { horizontal: 'center', vertical: 'middle' };
-  worksheet.getRow(row).height = 30;
-};
+// Note: addSectionTitle is commented out as it's currently unused
+// const addSectionTitle = (worksheet: ExcelJS.Worksheet, row: number, title: string) => {
+//   worksheet.mergeCells(`A${row}:R${row}`);
+//   const cell = worksheet.getCell(`A${row}`);
+//   cell.value = title.toUpperCase();
+//   cell.font = { size: 16, bold: true, color: { argb: 'FFFFFFFF' } };
+//   cell.fill = {
+//     type: 'pattern',
+//     pattern: 'solid',
+//     fgColor: { argb: 'FF0066B2' },
+//   };
+//   cell.alignment = { horizontal: 'center', vertical: 'middle' };
+//   worksheet.getRow(row).height = 30;
+// };
 
 const addSubsectionHeader = (worksheet: ExcelJS.Worksheet, row: number, title: string) => {
   worksheet.mergeCells(`A${row}:R${row}`);
@@ -171,6 +172,34 @@ const addTotalRow = (
   }
 };
 
+// Helper function to calculate VAT based on VAT type
+const calculateVAT = (
+  rentAmount: number,
+  serviceChargeValue: number,
+  vatType: VATType = 'NOT_APPLICABLE',
+  vatRate: number = 0.16 // Default VAT rate of 16%
+): { vatAmount: number; taxableAmount: number } => {
+  switch (vatType) {
+    case 'INCLUSIVE':
+      // VAT is already included in the rent amount
+      // We need to extract VAT from the total
+      const totalInclusive = rentAmount + serviceChargeValue;
+      const vatAmount = totalInclusive - (totalInclusive / (1 + vatRate));
+      return { vatAmount, taxableAmount: totalInclusive - vatAmount };
+      
+    case 'EXCLUSIVE':
+      // VAT needs to be added on top of the rent amount
+      const taxableAmount = rentAmount + serviceChargeValue;
+      const vatExclusive = taxableAmount * vatRate;
+      return { vatAmount: vatExclusive, taxableAmount };
+      
+    case 'NOT_APPLICABLE':
+    default:
+      // No VAT applicable
+      return { vatAmount: 0, taxableAmount: rentAmount + serviceChargeValue };
+  }
+};
+
 // Main export function
 export const exportPropertyToExcel = async (
   property: Property,
@@ -268,13 +297,30 @@ export const exportPropertyToExcel = async (
         }
       }
 
-      // Calculate VAT (16% of rent + service charge)
-      const vat = (unit.rentAmount + serviceChargeValue) * 0.16;
+      // Calculate VAT based on tenant's VAT type
+      const vatType = tenant?.vatType || 'NOT_APPLICABLE';
+      const vatRate = tenant?.vatRate || 0.16; // Default to 16% if not specified
+      const { vatAmount, taxableAmount } = calculateVAT(
+        unit.rentAmount,
+        serviceChargeValue,
+        vatType,
+        vatRate
+      );
       
       // Find tenant's income/payments
       const tenantIncomes = property.incomes?.filter(income => income.tenantId === tenant?.id) || [];
       const totalPaid = tenantIncomes.reduce((sum, income) => sum + income.amount, 0);
-      const amountPayable = unit.rentAmount + serviceChargeValue + vat;
+      
+      // Calculate amount payable based on VAT type
+      let amountPayable = 0;
+      if (vatType === 'INCLUSIVE') {
+        // VAT is already included in rent, so amount payable is just rent + service charge
+        amountPayable = unit.rentAmount + serviceChargeValue;
+      } else {
+        // For EXCLUSIVE and NOT_APPLICABLE, amount payable is taxable amount + VAT
+        amountPayable = taxableAmount + vatAmount;
+      }
+      
       const balance = amountPayable - totalPaid;
 
       unitsByFloor[floor].push({
@@ -282,7 +328,9 @@ export const exportPropertyToExcel = async (
         tenant,
         serviceChargeValue,
         serviceChargeType,
-        vat,
+        vatAmount,
+        vatType,
+        taxableAmount,
         amountPayable,
         totalPaid,
         balance
@@ -303,7 +351,7 @@ export const exportPropertyToExcel = async (
     'ELECTRICITY/BCF',
     'GROUND RENT PER MONTH',
     'WATER BILL',
-    'VAT 16 %',
+    'VAT',
     'SERVICE CHARGE',
     `${new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })} Rent`,
     'AMOUNT PAYABLE',
@@ -353,12 +401,42 @@ export const exportPropertyToExcel = async (
 
     // Add unit rows
     units.forEach((unitData, unitIndex) => {
-      const { unit, tenant, serviceChargeValue, serviceChargeType, vat, amountPayable, totalPaid, balance } = unitData;
+      const { 
+        unit, 
+        tenant, 
+        serviceChargeValue, 
+        serviceChargeType, 
+        vatAmount, 
+        vatType,
+        taxableAmount,
+        amountPayable, 
+        totalPaid, 
+        balance 
+      } = unitData;
+      
       const tenantIncomes = property.incomes?.filter(income => income.tenantId === tenant?.id) || [];
       
       // Calculate rates description
       const ratePerSqFt = unit.rentAmount / unit.sizeSqFt;
       const ratesDesc = `${Math.round(ratePerSqFt)} PER SQ/FT`;
+
+      // Format VAT display based on VAT type
+      let vatDisplay = '';
+      if (vatType === 'NOT_APPLICABLE') {
+        vatDisplay = 'N/A';
+      } else {
+        vatDisplay = `Ksh ${vatAmount.toFixed(2)} (${vatType})`;
+      }
+
+      // Calculate the rent amount to display (depends on VAT type)
+      let rentDisplayAmount = 0;
+      if (vatType === 'INCLUSIVE') {
+        // For INCLUSIVE VAT, the displayed rent should be the amount without VAT
+        rentDisplayAmount = taxableAmount;
+      } else {
+        // For EXCLUSIVE and NOT_APPLICABLE, the displayed rent is just rent amount
+        rentDisplayAmount = unit.rentAmount;
+      }
 
       const rowData = [
         unit.type?.substring(0, 3) || `U${unitIndex + 1}`, // ENTRANCE
@@ -370,14 +448,14 @@ export const exportPropertyToExcel = async (
         tenant?.fullName ? (unit.type || 'RETAIL') : 'VACANT', // NATURE OF THE BUSINESS
         '', // DEPOSIT (not in current data model)
         '', // ELECTRICITY/BCF (not in current data model)
-        `Ksh ${unit.rentAmount.toLocaleString()}`, // GROUND RENT PER MONTH
+        `Ksh ${rentDisplayAmount.toLocaleString()}`, // GROUND RENT PER MONTH (adjusted for VAT)
         '', // WATER BILL (not in current data model)
-        `Ksh ${vat.toFixed(2)}`, // VAT 16 %
+        vatDisplay, // VAT with type indicator
         serviceChargeValue > 0 ? `Ksh ${serviceChargeValue.toLocaleString()}` : '-', // SERVICE CHARGE
         {
           formula: `SUM(J${currentRow}:M${currentRow})`,
-          result: unit.rentAmount + serviceChargeValue + vat
-        }, // Rent (formula)
+          result: rentDisplayAmount + serviceChargeValue + (vatType === 'EXCLUSIVE' ? vatAmount : 0)
+        }, // Rent (formula - adjusted for VAT type)
         {
           formula: `SUM(J${currentRow}:M${currentRow})`,
           result: amountPayable
@@ -393,10 +471,17 @@ export const exportPropertyToExcel = async (
       addTableRow(worksheet, currentRow, rowData, unitIndex % 2 === 0);
       
       // Update floor totals
-      floorTotal.groundRent += unit.rentAmount;
-      floorTotal.vat += vat;
+      floorTotal.groundRent += rentDisplayAmount;
+      floorTotal.vat += vatAmount;
       floorTotal.serviceCharge += serviceChargeValue;
-      floorTotal.rent += unit.rentAmount + serviceChargeValue + vat;
+      
+      // Calculate total rent based on VAT type
+      if (vatType === 'INCLUSIVE') {
+        floorTotal.rent += rentDisplayAmount + serviceChargeValue;
+      } else {
+        floorTotal.rent += rentDisplayAmount + serviceChargeValue + vatAmount;
+      }
+      
       floorTotal.amountPayable += amountPayable;
       floorTotal.amountPaid += totalPaid;
       floorTotal.balance += balance;
@@ -505,6 +590,12 @@ export const exportPropertyToExcel = async (
   worksheet.getCell(`A${currentRow}`).font = { italic: true, size: 10 };
   currentRow++;
 
+  // Add VAT note
+  worksheet.mergeCells(`A${currentRow}:R${currentRow}`);
+  worksheet.getCell(`A${currentRow}`).value = 'VAT Types: INCLUSIVE (VAT included in rent), EXCLUSIVE (VAT added on top), NOT_APPLICABLE (No VAT)';
+  worksheet.getCell(`A${currentRow}`).font = { italic: true, size: 9 };
+  currentRow++;
+
   // Add company footer
   currentRow += 2;
   worksheet.mergeCells(`A${currentRow}:R${currentRow}`);
@@ -519,7 +610,7 @@ export const exportPropertyToExcel = async (
   footerCell.font = { size: 12, bold: true, color: { argb: 'FF0066B2' } };
   footerCell.alignment = { horizontal: 'center', vertical: 'middle' };
 
-  // Set column widths (similar to November Collection format)
+  // Set column widths
   worksheet.columns = [
     { width: 10 },  // A: ENTRANCE
     { width: 25 },  // B: TENANT NAME
@@ -532,7 +623,7 @@ export const exportPropertyToExcel = async (
     { width: 12 },  // I: ELECTRICITY/BCF
     { width: 18 },  // J: GROUND RENT
     { width: 12 },  // K: WATER BILL
-    { width: 12 },  // L: VAT
+    { width: 20 },  // L: VAT (increased width to show VAT type)
     { width: 15 },  // M: SERVICE CHARGE
     { width: 15 },  // N: MONTH Rent
     { width: 15 },  // O: AMOUNT PAYABLE

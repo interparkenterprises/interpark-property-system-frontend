@@ -523,3 +523,537 @@ export interface BillInvoiceResponse {
     totalPages: number;
   };
 }
+
+// Daily Report Types
+export type ReportStatus = 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'REJECTED';
+export type AttachmentType = 'PDF' | 'IMAGE' | 'DOCUMENT' | 'OTHER';
+
+export interface ReportAttachment {
+  type: AttachmentType;
+  fileName: string;
+  fileUrl: string;
+  uploadedAt: string;
+  version?: string;
+}
+
+export interface DailyReport {
+  id: string;
+  propertyId: string;
+  property?: Property;
+  managerId: string;
+  manager?: User;
+  reportDate: string;
+  preparedBy: string;
+  timeSubmitted: string;
+  
+  // Report content sections
+  overview?: {
+    summary: string;
+    issuesEncountered?: string;
+    resolutions?: string;
+    recommendations?: string;
+  };
+  
+  occupancy?: {
+    totalUnits: number;
+    occupiedUnits: number;
+    vacantUnits: number;
+    occupancyRate: number;
+    newTenants?: number;
+    moveOuts?: number;
+    notes?: string;
+  };
+  
+  maintenance?: {
+    completedTasks?: number;
+  pendingTasks?: number;
+  urgentIssues?: number;
+  repairs?: Array<{
+    description: string;
+    status: string;
+    cost?: number;
+    notes?: string;
+  }>;
+  notes?: string;
+  };
+  
+  financial?: {
+    rentCollected: number;
+    pendingRent: number;
+    arrears: number;
+    expenses: number;
+    netIncome: number;
+    billsPaid?: number;
+    pendingBills?: number;
+    notes?: string;
+  };
+  
+  security?: {
+    incidents?: number;
+    patrols?: number;
+    accessControl?: string;
+    cctvStatus?: string;
+    notes?: string;
+  };
+  
+  cleanliness?: {
+    rating?: number; // 1-5
+    areasInspected?: string[];
+    issues?: string[];
+    notes?: string;
+  };
+  
+  tenantIssues?: {
+    complaints?: number;
+    resolved?: number;
+    pending?: number;
+    issues?: Array<{
+      tenantName: string;
+      unit: string;
+      issue: string;
+      status: string;
+      dateReported: string;
+    }>;
+    notes?: string;
+  };
+  
+  otherObservations?: string;
+  
+  // Status and metadata
+  status: ReportStatus;
+  pdfUrl?: string;
+  attachments: ReportAttachment[];
+  
+  reviewedAt?: string;
+  reviewedBy?: string;
+  reviewComments?: string;
+  
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateDailyReportRequest {
+  propertyId: string;
+  reportDate: string;
+  overview?: {
+    summary: string;
+    issuesEncountered?: string;
+    resolutions?: string;
+    recommendations?: string;
+  };
+  occupancy?: {
+    totalUnits: number;
+    occupiedUnits: number;
+    vacantUnits: number;
+    occupancyRate: number;
+    newTenants?: number;
+    moveOuts?: number;
+    notes?: string;
+  };
+  maintenance?: {
+    completedTasks?: number;
+    pendingTasks?: number;
+    urgentIssues?: number;
+    repairs?: Array<{
+      description: string;
+      status: string;
+      cost?: number;
+      notes?: string;
+    }>;
+    notes?: string;
+  };
+  financial?: {
+    rentCollected: number;
+    pendingRent: number;
+    arrears: number;
+    expenses: number;
+    netIncome: number;
+    billsPaid?: number;
+    pendingBills?: number;
+    notes?: string;
+  };
+  security?: {
+    incidents?: number;
+    patrols?: number;
+    accessControl?: string;
+    cctvStatus?: string;
+    notes?: string;
+  };
+  cleanliness?: {
+    rating?: number;
+    areasInspected?: string[];
+    issues?: string[];
+    notes?: string;
+  };
+  tenantIssues?: {
+    complaints?: number;
+    resolved?: number;
+    pending?: number;
+    issues?: Array<{
+      tenantName: string;
+      unit: string;
+      issue: string;
+      status: string;
+      dateReported: string;
+    }>;
+    notes?: string;
+  };
+  otherObservations?: string;
+}
+
+export interface UpdateDailyReportRequest {
+  overview?: {
+    summary?: string;
+    issuesEncountered?: string;
+    resolutions?: string;
+    recommendations?: string;
+  };
+  occupancy?: {
+    totalUnits?: number;
+    occupiedUnits?: number;
+    vacantUnits?: number;
+    occupancyRate?: number;
+    newTenants?: number;
+    moveOuts?: number;
+    notes?: string;
+  };
+  maintenance?: {
+    completedTasks?: number;
+    pendingTasks?: number;
+    urgentIssues?: number;
+    repairs?: Array<{
+      description: string;
+      status: string;
+      cost?: number;
+      notes?: string;
+    }>;
+    notes?: string;
+  };
+  financial?: {
+    rentCollected?: number;
+    pendingRent?: number;
+    arrears?: number;
+    expenses?: number;
+    netIncome?: number;
+    billsPaid?: number;
+    pendingBills?: number;
+    notes?: string;
+  };
+  security?: {
+    incidents?: number;
+    patrols?: number;
+    accessControl?: string;
+    cctvStatus?: string;
+    notes?: string;
+  };
+  cleanliness?: {
+    rating?: number;
+    areasInspected?: string[];
+    issues?: string[];
+    notes?: string;
+  };
+  tenantIssues?: {
+    complaints?: number;
+    resolved?: number;
+    pending?: number;
+    issues?: Array<{
+      tenantName: string;
+      unit: string;
+      issue: string;
+      status: string;
+      dateReported: string;
+    }>;
+    notes?: string;
+  };
+  otherObservations?: string;
+}
+
+export interface DailyReportResponse {
+  success: boolean;
+  message: string;
+  data: DailyReport;
+}
+
+export interface DailyReportsListResponse {
+  success: boolean;
+  count: number;
+  data: DailyReport[];
+}
+// Activation Request Types
+export type ActivationType = 
+  | 'OFFICE_SPACE' 
+  | 'RETAIL_SPACE' 
+  | 'WAREHOUSE' 
+  | 'EVENT_SPACE'
+  | 'POP_UP_STORE'
+  | 'SHOWROOM'
+  | 'OTHER';
+
+export type ActivationStatus = 
+  | 'DRAFT' 
+  | 'SUBMITTED' 
+  | 'UNDER_REVIEW' 
+  | 'APPROVED' 
+  | 'REJECTED' 
+  | 'COMPLETED'
+  | 'CANCELLED';
+
+export interface ActivationRequest {
+  id: string;
+  requestNumber: string;
+  propertyId: string;
+  property?: Property;
+  managerId: string;
+  manager?: User;
+  
+  // Part 1 - Client Information
+  companyName: string;
+  postalAddress: string;
+  telephone: string;
+  contactPerson: string;
+  designation: string;
+  email: string;
+  mobileNo: string;
+  alternativeContact?: string;
+  
+  // Part 2 - Description of Activation/Exhibition
+  startDate: string;
+  setupTime: string;
+  endDate: string;
+  tearDownTime: string;
+  activationType: ActivationType;
+  description?: string;
+  expectedVisitors?: number;
+  
+  // Part 3 - Space Requirements
+  spaceRequired: number; // in square meters
+  location?: string;
+  powerRequirement?: string;
+  waterRequirement?: boolean;
+  internetRequired?: boolean;
+  
+  // Part 4 - Equipment & Setup
+  ownEquipment?: boolean;
+  equipmentList?: any[]; // JSON array
+  furnitureNeeded?: any[]; // JSON array
+  
+  // Part 5 - Branding & Marketing
+  brandingMaterials?: any[]; // JSON array
+  soundSystem?: boolean;
+  displayScreens?: boolean;
+  
+  // Part 6 - Health & Safety
+  insuranceCover?: boolean;
+  insuranceDetails?: string;
+  safetyMeasures?: any[]; // JSON array
+  firstAidKit?: boolean;
+  
+  // Part 7 - Financial Information
+  proposedBudget?: number;
+  proposedRent?: number;
+  proposedServiceCharge?: number;
+  proposedDeposit?: number;
+  paymentTerms?: string;
+  
+  // Part 8 - Additional Services
+  securityRequired?: boolean;
+  cleaningRequired?: boolean;
+  cateringRequired?: boolean;
+  parkingSpaces?: number;
+  
+  // Part 9 - Terms & Conditions
+  termsAccepted: boolean;
+  signature?: string;
+  signatureDate?: string;
+  
+  // Document Management
+  documentUrl?: string;
+  status: ActivationStatus;
+  
+  // Additional Notes
+  specialRequests?: string;
+  internalNotes?: string;
+  
+  // Supporting documents
+  companyRegistration?: string;
+  kraPinCertificate?: string;
+  businessPermit?: string;
+  otherDocuments?: string[];
+  
+  // Approval Workflow
+  submittedAt?: string;
+  reviewedAt?: string;
+  approvedAt?: string;
+  rejectedAt?: string;
+  rejectionReason?: string;
+  reviewedBy?: string;
+  reviewComments?: string;
+  
+  // Calculated field (for convenience)
+  durationDays?: number;
+  
+  // Timestamps
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateActivationRequest {
+  propertyId: string;
+  
+  // Part 1 - Client Information
+  companyName: string;
+  postalAddress: string;
+  telephone: string;
+  contactPerson: string;
+  designation: string;
+  email: string;
+  mobileNo: string;
+  alternativeContact?: string;
+  
+  // Part 2 - Description of Activation/Exhibition
+  startDate: string;
+  setupTime: string;
+  endDate: string;
+  tearDownTime: string;
+  activationType: ActivationType;
+  description?: string;
+  expectedVisitors?: number;
+  
+  // Part 3 - Space Requirements
+  spaceRequired: number;
+  location?: string;
+  powerRequirement?: string;
+  waterRequirement?: boolean;
+  internetRequired?: boolean;
+  
+  // Part 4 - Equipment & Setup
+  ownEquipment?: boolean;
+  equipmentList?: any[];
+  furnitureNeeded?: any[];
+  
+  // Part 5 - Branding & Marketing
+  brandingMaterials?: any[];
+  soundSystem?: boolean;
+  displayScreens?: boolean;
+  
+  // Part 6 - Health & Safety
+  insuranceCover?: boolean;
+  insuranceDetails?: string;
+  safetyMeasures?: any[];
+  firstAidKit?: boolean;
+  
+  // Part 7 - Financial Information
+  proposedBudget?: number;
+  proposedRent?: number;
+  proposedServiceCharge?: number;
+  proposedDeposit?: number;
+  paymentTerms?: string;
+  
+  // Part 8 - Additional Services
+  securityRequired?: boolean;
+  cleaningRequired?: boolean;
+  cateringRequired?: boolean;
+  parkingSpaces?: number;
+  
+  // Part 9 - Terms & Conditions
+  termsAccepted: boolean;
+  signature?: string;
+  signatureDate?: string;
+  
+  // Additional Notes
+  specialRequests?: string;
+  internalNotes?: string;
+  
+  // Supporting documents
+  companyRegistration?: string;
+  kraPinCertificate?: string;
+  businessPermit?: string;
+  otherDocuments?: string[];
+}
+
+export interface UpdateActivationRequest {
+  // Part 1 - Client Information
+  companyName?: string;
+  postalAddress?: string;
+  telephone?: string;
+  contactPerson?: string;
+  designation?: string;
+  email?: string;
+  mobileNo?: string;
+  alternativeContact?: string;
+  
+  // Part 2 - Description of Activation/Exhibition
+  startDate?: string;
+  setupTime?: string;
+  endDate?: string;
+  tearDownTime?: string;
+  activationType?: ActivationType;
+  description?: string;
+  expectedVisitors?: number;
+  
+  // Part 3 - Space Requirements
+  spaceRequired?: number;
+  location?: string;
+  powerRequirement?: string;
+  waterRequirement?: boolean;
+  internetRequired?: boolean;
+  
+  // Part 4 - Equipment & Setup
+  ownEquipment?: boolean;
+  equipmentList?: any[];
+  furnitureNeeded?: any[];
+  
+  // Part 5 - Branding & Marketing
+  brandingMaterials?: any[];
+  soundSystem?: boolean;
+  displayScreens?: boolean;
+  
+  // Part 6 - Health & Safety
+  insuranceCover?: boolean;
+  insuranceDetails?: string;
+  safetyMeasures?: any[];
+  firstAidKit?: boolean;
+  
+  // Part 7 - Financial Information
+  proposedBudget?: number;
+  proposedRent?: number;
+  proposedServiceCharge?: number;
+  proposedDeposit?: number;
+  paymentTerms?: string;
+  
+  // Part 8 - Additional Services
+  securityRequired?: boolean;
+  cleaningRequired?: boolean;
+  cateringRequired?: boolean;
+  parkingSpaces?: number;
+  
+  // Part 9 - Terms & Conditions
+  termsAccepted?: boolean;
+  signature?: string;
+  signatureDate?: string;
+  
+  // Additional Notes
+  specialRequests?: string;
+  internalNotes?: string;
+  
+  // Supporting documents
+  companyRegistration?: string;
+  kraPinCertificate?: string;
+  businessPermit?: string;
+  otherDocuments?: string[];
+  
+  // Status
+  status?: ActivationStatus;
+}
+
+export interface ActivationResponse {
+  success: boolean;
+  message: string;
+  data: ActivationRequest;
+}
+
+export interface ActivationsListResponse {
+  success: boolean;
+  count: number;
+  data: ActivationRequest[];
+}

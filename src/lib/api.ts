@@ -11,7 +11,17 @@ import {
   BillInvoiceResponse,
   GenerateBillInvoiceRequest, 
   ArrearsItem,
-  ArrearsResponse
+  ArrearsResponse,
+  DailyReport, 
+  CreateDailyReportRequest, 
+  UpdateDailyReportRequest,
+  DailyReportsListResponse,
+  ReportStatus,
+  ActivationRequest,
+  CreateActivationRequest,
+  UpdateActivationRequest,
+  ActivationsListResponse,
+  ActivationStatus,
 } from '@/types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.interparkpropertysystem.co.ke/api';
@@ -1400,6 +1410,423 @@ export const billInvoicesAPI = {
         error?.response?.data?.message ||
         error?.message ||
         'Failed to delete bill invoice';
+      throw new Error(message);
+    }
+  },
+};
+
+export const dailyReportsAPI = {
+  // Create a new daily report
+  create: async (data: CreateDailyReportRequest): Promise<DailyReport> => {
+    try {
+      const response = await api.post('/daily-reports', data);
+      
+      if (!response.data || !response.data.success) {
+        throw new Error('Invalid response from server');
+      }
+
+      return response.data.data;
+    } catch (error: any) {
+      console.error('Failed to create daily report:', error);
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to create daily report';
+      throw new Error(message);
+    }
+  },
+
+  // Get report by ID
+  getById: async (id: string, includePdf = false): Promise<DailyReport> => {
+    try {
+      const response = await api.get(`/daily-reports/${id}`, {
+        params: { includePdf: includePdf.toString() }
+      });
+      
+      if (!response.data || !response.data.success) {
+        throw new Error('Invalid response from server');
+      }
+
+      return response.data.data;
+    } catch (error: any) {
+      console.error('Failed to get daily report:', error);
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to fetch daily report';
+      throw new Error(message);
+    }
+  },
+
+  // Update report
+  update: async (id: string, data: UpdateDailyReportRequest): Promise<DailyReport> => {
+    try {
+      const response = await api.put(`/daily-reports/${id}`, data);
+      
+      if (!response.data || !response.data.success) {
+        throw new Error('Invalid response from server');
+      }
+
+      return response.data.data;
+    } catch (error: any) {
+      console.error('Failed to update daily report:', error);
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to update daily report';
+      throw new Error(message);
+    }
+  },
+
+  // Submit report (change status from DRAFT to SUBMITTED)
+  submit: async (id: string): Promise<DailyReport> => {
+    try {
+      const response = await api.post(`/daily-reports/${id}/submit`);
+      
+      if (!response.data || !response.data.success) {
+        throw new Error('Invalid response from server');
+      }
+
+      return response.data.data;
+    } catch (error: any) {
+      console.error('Failed to submit daily report:', error);
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to submit daily report';
+      throw new Error(message);
+    }
+  },
+
+  // Delete report
+  delete: async (id: string): Promise<void> => {
+    try {
+      const response = await api.delete(`/daily-reports/${id}`);
+      
+      if (!response.data || !response.data.success) {
+        throw new Error('Invalid response from server');
+      }
+    } catch (error: any) {
+      console.error('Failed to delete daily report:', error);
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to delete daily report';
+      throw new Error(message);
+    }
+  },
+
+  // Get reports by property
+  getByProperty: async (
+    propertyId: string, 
+    params?: {
+      startDate?: string;
+      endDate?: string;
+      status?: ReportStatus;
+      page?: number;
+      limit?: number;
+    }
+  ): Promise<DailyReportsListResponse> => {
+    try {
+      const response = await api.get(`/daily-reports/property/${propertyId}`, { params });
+      
+      if (!response.data || !response.data.success) {
+        throw new Error('Invalid response from server');
+      }
+
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to get property daily reports:', error);
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to fetch property daily reports';
+      throw new Error(message);
+    }
+  },
+
+  // Download report PDF
+  downloadPDF: async (id: string): Promise<Blob> => {
+    try {
+      const response = await api.get(`/daily-reports/${id}/download`, {
+        responseType: 'blob',
+      });
+      
+      // Check if we got a valid blob response
+      if (!response.data || response.data.size === 0) {
+        throw new Error('Received empty PDF file');
+      }
+      
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to download daily report PDF:', error);
+      
+      // Check if it's a JSON error response in the blob
+      if (error.response?.data instanceof Blob) {
+        try {
+          const errorText = await error.response.data.text();
+          const errorData = JSON.parse(errorText);
+          throw new Error(errorData.error || 'Failed to download daily report PDF');
+        } catch (parseError) {
+          // If we can't parse as JSON, use generic error
+          throw new Error('Failed to download daily report PDF: Invalid PDF format');
+        }
+      }
+      
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to download daily report PDF';
+      throw new Error(message);
+    }
+  },
+
+  // Get all reports (admin only)
+  getAll: async (params?: {
+    page?: number;
+    limit?: number;
+    startDate?: string;
+    endDate?: string;
+    status?: ReportStatus;
+    propertyId?: string;
+    managerId?: string;
+  }): Promise<DailyReportsListResponse> => {
+    try {
+      const response = await api.get('/daily-reports', { params });
+      
+      if (!response.data || !response.data.success) {
+        throw new Error('Invalid response from server');
+      }
+
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to get all daily reports:', error);
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to fetch daily reports';
+      throw new Error(message);
+    }
+  },
+
+  // Review report (admin only - approve/reject)
+  review: async (
+    id: string, 
+    action: 'APPROVE' | 'REJECT',
+    comments?: string
+  ): Promise<DailyReport> => {
+    try {
+      const response = await api.post(`/daily-reports/${id}/review`, {
+        action,
+        comments
+      });
+      
+      if (!response.data || !response.data.success) {
+        throw new Error('Invalid response from server');
+      }
+
+      return response.data.data;
+    } catch (error: any) {
+      console.error('Failed to review daily report:', error);
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to review daily report';
+      throw new Error(message);
+    }
+  },
+};
+
+// Activation Requests API
+export const activationsAPI = {
+  // Get all activation requests with optional filters
+  getAll: async (params?: {
+    propertyId?: string;
+    status?: ActivationStatus;
+    startDate?: string;
+    endDate?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<ActivationsListResponse> => {
+    try {
+      const response = await api.get('/activations', { params });
+      
+      if (!response.data || !response.data.success) {
+        throw new Error('Invalid response from server');
+      }
+
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to load activation requests:', error);
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to fetch activation requests';
+      throw new Error(message);
+    }
+  },
+
+  // Get single activation request by ID
+  getById: async (id: string): Promise<ActivationRequest> => {
+    try {
+      const response = await api.get(`/activations/${id}`);
+      
+      if (!response.data || !response.data.success) {
+        throw new Error('Invalid response from server');
+      }
+
+      return response.data.data;
+    } catch (error: any) {
+      console.error('Failed to load activation request:', error);
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to fetch activation request';
+      throw new Error(message);
+    }
+  },
+
+  // Create new activation request
+  create: async (data: CreateActivationRequest): Promise<ActivationRequest> => {
+    try {
+      const response = await api.post('/activations', data);
+      
+      if (!response.data || !response.data.success) {
+        throw new Error('Invalid response from server');
+      }
+
+      return response.data.data;
+    } catch (error: any) {
+      console.error('Failed to create activation request:', error);
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to create activation request';
+      throw new Error(message);
+    }
+  },
+
+  // Update activation request
+  update: async (id: string, data: UpdateActivationRequest): Promise<ActivationRequest> => {
+    try {
+      const response = await api.put(`/activations/${id}`, data);
+      
+      if (!response.data || !response.data.success) {
+        throw new Error('Invalid response from server');
+      }
+
+      return response.data.data;
+    } catch (error: any) {
+      console.error('Failed to update activation request:', error);
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to update activation request';
+      throw new Error(message);
+    }
+  },
+
+  // Delete activation request
+  delete: async (id: string): Promise<void> => {
+    try {
+      const response = await api.delete(`/activations/${id}`);
+      
+      if (!response.data || !response.data.success) {
+        throw new Error('Invalid response from server');
+      }
+    } catch (error: any) {
+      console.error('Failed to delete activation request:', error);
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to delete activation request';
+      throw new Error(message);
+    }
+  },
+
+  // Generate PDF for activation request
+  generatePDF: async (id: string): Promise<{ 
+    message: string; 
+    documentUrl: string; 
+    activation: ActivationRequest;
+  }> => {
+    try {
+      const response = await api.post(`/activations/${id}/generate-pdf`);
+      
+      if (!response.data || !response.data.success) {
+        throw new Error('Invalid response from server');
+      }
+
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to generate activation PDF:', error);
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to generate PDF';
+      throw new Error(message);
+    }
+  },
+
+  // Submit activation request for review
+  submit: async (id: string): Promise<ActivationRequest> => {
+    try {
+      const response = await api.post(`/activations/${id}/submit`);
+      
+      if (!response.data || !response.data.success) {
+        throw new Error('Invalid response from server');
+      }
+
+      return response.data.data;
+    } catch (error: any) {
+      console.error('Failed to submit activation request:', error);
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to submit activation request';
+      throw new Error(message);
+    }
+  },
+
+  // Download activation PDF
+  downloadPDF: async (id: string): Promise<Blob> => {
+    try {
+      const response = await api.get(`/activations/${id}/download`, {
+        responseType: 'blob',
+      });
+      
+      // Check content type
+      const contentType = response.headers['content-type'];
+      
+      if (contentType === 'application/json') {
+        // Handle JSON error response
+        const text = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.readAsText(response.data);
+        });
+        
+        const errorData = JSON.parse(text as string);
+        throw new Error(errorData.message || 'Failed to download activation PDF');
+      }
+      
+      if (!response.data || response.data.size === 0) {
+        throw new Error('Received empty PDF file');
+      }
+      
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to download activation PDF:', error);
+      
+      // Check if it's already an Error object
+      if (error instanceof Error) {
+        throw error;
+      }
+      
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to download activation PDF';
       throw new Error(message);
     }
   },

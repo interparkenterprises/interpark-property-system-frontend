@@ -2,16 +2,18 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
-import { Property, Unit, ServiceProvider, Tenant } from '@/types';
-import { propertiesAPI, unitsAPI, serviceProvidersAPI, tenantsAPI } from '@/lib/api';
+import { Property, Unit, ServiceProvider, Tenant, DailyReport, ActivationRequest  } from '@/types';
+import { propertiesAPI, unitsAPI, serviceProvidersAPI, tenantsAPI, dailyReportsAPI, activationsAPI } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import PropertyForm from '@/components/forms/PropertyForm';
 import UnitForm from '@/components/forms/UnitForm';
 import ServiceProviderForm from '@/components/forms/ServiceProviderForm';
 import TenantForm from '@/components/forms/TenantForm';
+import DailyReportForm from '@/components/forms/DailyReportForm';
+import ActivationForm from '@/components/forms/ActivationForm';
 import Image from 'next/image';
 
-type TabType = 'overview' | 'units' | 'tenants' | 'providers';
+type TabType = 'overview' | 'units' | 'tenants' | 'providers' | 'reports' | 'activations';
 
 export default function PropertyDetailPage() {
   const params = useParams();
@@ -33,6 +35,19 @@ export default function PropertyDetailPage() {
   const [propertyImageUrl, setPropertyImageUrl] = useState<string | null>(null);
   const [showImageModal, setShowImageModal] = useState(false);
   const [imageLoading, setImageLoading] = useState(false);
+  
+  // Daily Reports state
+  const [showReportForm, setShowReportForm] = useState(false);
+  const [editingReport, setEditingReport] = useState<DailyReport | null>(null);
+  const [dailyReports, setDailyReports] = useState<DailyReport[]>([]);
+  const [reportsLoading, setReportsLoading] = useState(false);
+  const [deletingReportId, setDeletingReportId] = useState<string | null>(null);
+  // Activation Forms state
+  const [showActivationForm, setShowActivationForm] = useState(false);
+  const [editingActivation, setEditingActivation] = useState<ActivationRequest | null>(null);
+  const [activationRequests, setActivationRequests] = useState<ActivationRequest[]>([]);
+  const [activationsLoading, setActivationsLoading] = useState(false);
+  const [deletingActivationId, setDeletingActivationId] = useState<string | null>(null);
 
   const propertyId = params.id as string;
 
@@ -40,6 +55,8 @@ export default function PropertyDetailPage() {
     fetchProperty();
     fetchPropertyTenants();
     fetchPropertyImage();
+    fetchDailyReports();
+    fetchActivations(); 
   }, [propertyId]);
 
   const fetchProperty = async () => {
@@ -70,13 +87,43 @@ export default function PropertyDetailPage() {
   const fetchPropertyTenants = async () => {
     try {
       const allTenants = await tenantsAPI.getAll();
-      // Filter tenants whose units belong to this property
       const filteredTenants = allTenants.filter(
         tenant => tenant.unit && tenant.unit.propertyId === propertyId
       );
       setPropertyTenants(filteredTenants);
     } catch (error) {
       console.error('Error fetching tenants:', error);
+    }
+  };
+
+  const fetchDailyReports = async () => {
+    try {
+      setReportsLoading(true);
+      const response = await dailyReportsAPI.getByProperty(propertyId, {
+        page: 1,
+        limit: 50
+      });
+      setDailyReports(response.data);
+    } catch (error) {
+      console.error('Error fetching daily reports:', error);
+    } finally {
+      setReportsLoading(false);
+    }
+  };
+  const fetchActivations = async () => {
+    try {
+      setActivationsLoading(true);
+      // Use getAll with propertyId filter instead of getByProperty
+      const response = await activationsAPI.getAll({
+        propertyId: propertyId,
+        page: 1,
+        limit: 50
+      });
+      setActivationRequests(response.data);
+    } catch (error) {
+      console.error('Error fetching activation requests:', error);
+    } finally {
+      setActivationsLoading(false);
     }
   };
 
@@ -94,7 +141,7 @@ export default function PropertyDetailPage() {
   const handleUpdateSuccess = () => {
     setEditing(false);
     fetchProperty();
-    fetchPropertyImage(); // Refresh image in case it was updated
+    fetchPropertyImage();
   };
 
   const handleUnitSuccess = () => {
@@ -172,7 +219,7 @@ export default function PropertyDetailPage() {
     setShowTenantForm(false);
     setEditingTenant(null);
     fetchPropertyTenants();
-    fetchProperty(); // Refresh to update unit statuses
+    fetchProperty();
   };
 
   const handleEditTenant = (tenant: Tenant) => {
@@ -201,6 +248,125 @@ export default function PropertyDetailPage() {
     setEditingTenant(null);
   };
 
+  // Daily Report handlers
+  const handleReportSuccess = () => {
+    setShowReportForm(false);
+    setEditingReport(null);
+    fetchDailyReports();
+  };
+
+  const handleEditReport = (report: DailyReport) => {
+    setEditingReport(report);
+    setShowReportForm(true);
+    setActiveTab('reports');
+  };
+
+  const handleViewReport = async (reportId: string) => {
+    try {
+      const report = await dailyReportsAPI.getById(reportId, true);
+      if (report.pdfUrl) {
+        window.open(report.pdfUrl, '_blank');
+      }
+    } catch (error) {
+      console.error('Error viewing report:', error);
+    }
+  };
+
+  const handleDownloadReport = async (reportId: string, reportDate: string) => {
+    try {
+      const pdfBlob = await dailyReportsAPI.downloadPDF(reportId);
+      const url = URL.createObjectURL(pdfBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `daily-report-${reportDate}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error downloading report:', error);
+      alert('Failed to download report');
+    }
+  };
+
+  const handleDeleteReport = async (reportId: string) => {
+    if (confirm('Are you sure you want to delete this daily report?')) {
+      setDeletingReportId(reportId);
+      try {
+        await dailyReportsAPI.delete(reportId);
+        await fetchDailyReports();
+      } catch (error) {
+        console.error('Error deleting report:', error);
+      } finally {
+        setDeletingReportId(null);
+      }
+    }
+  };
+
+  const handleCancelReportForm = () => {
+    setShowReportForm(false);
+    setEditingReport(null);
+  };
+  // Activation handlers
+  const handleActivationSuccess = () => {
+    setShowActivationForm(false);
+    setEditingActivation(null);
+    fetchActivations();
+  };
+
+  const handleEditActivation = (activation: ActivationRequest) => {
+    setEditingActivation(activation);
+    setShowActivationForm(true);
+    setActiveTab('activations');
+  };
+
+  const handleViewActivation = async (activationId: string) => {
+    try {
+      const activation = await activationsAPI.getById(activationId);
+      if (activation.documentUrl) {
+        window.open(activation.documentUrl, '_blank');
+      }
+    } catch (error) {
+      console.error('Error viewing activation:', error);
+    }
+  };
+
+  const handleDownloadActivation = async (activationId: string, requestNumber: string) => {
+    try {
+      const pdfBlob = await activationsAPI.downloadPDF(activationId);
+      const url = URL.createObjectURL(pdfBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `activation-request-${requestNumber}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error downloading activation:', error);
+      alert('Failed to download activation request');
+    }
+  };
+
+  const handleDeleteActivation = async (activationId: string) => {
+    if (confirm('Are you sure you want to delete this activation request?')) {
+      setDeletingActivationId(activationId);
+      try {
+        await activationsAPI.delete(activationId);
+        await fetchActivations();
+      } catch (error) {
+        console.error('Error deleting activation:', error);
+      } finally {
+        setDeletingActivationId(null);
+      }
+    }
+  };
+
+  const handleCancelActivationForm = () => {
+    setShowActivationForm(false);
+    setEditingActivation(null);
+  };
+
   const handleBackToProperties = () => {
     router.push('/properties');
   };
@@ -218,7 +384,7 @@ export default function PropertyDetailPage() {
     };
   }, [propertyImageUrl]);
 
-  // Animation variants - Fixed typing issues
+  // Animation variants
   const containerVariants: Variants = {
     hidden: { opacity: 0 },
     visible: {
@@ -385,7 +551,6 @@ export default function PropertyDetailPage() {
               className="relative max-w-6xl max-h-[90vh] w-full"
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Close Button */}
               <button
                 onClick={() => setShowImageModal(false)}
                 className="absolute -top-12 right-0 text-white hover:text-gray-300 transition-colors"
@@ -395,7 +560,6 @@ export default function PropertyDetailPage() {
                 </svg>
               </button>
               
-              {/* Image Container */}
               <div className="relative w-full h-full bg-white rounded-2xl overflow-hidden shadow-2xl">
                 <div className="relative w-full h-full flex items-center justify-center p-4">
                   <img
@@ -405,7 +569,6 @@ export default function PropertyDetailPage() {
                   />
                 </div>
                 
-                {/* Image Info Overlay */}
                 <div className="absolute bottom-0 left-0 right-0 bg-linear-to-t from-black/70 to-transparent p-6">
                   <h3 className="text-white text-2xl font-bold mb-1">{property.name}</h3>
                   <p className="text-gray-200 text-sm">{property.address}</p>
@@ -418,7 +581,6 @@ export default function PropertyDetailPage() {
 
       {/* Back Button and Action Buttons Row */}
       <motion.div variants={itemVariants} className="flex items-center justify-between">
-        {/* Back Button */}
         <Button
           onClick={handleBackToProperties}
           className="group px-6 py-3 bg-gray-100 text-gray-700 hover:bg-gray-200 transition-all duration-300 shadow-sm hover:shadow-md rounded-lg"
@@ -430,7 +592,6 @@ export default function PropertyDetailPage() {
             Back to Properties
           </motion.span>
         </Button>
-        {/* Action Buttons */}
         <div className="flex flex-wrap gap-3">
           <Button
             onClick={() => setEditing(true)}
@@ -473,7 +634,6 @@ export default function PropertyDetailPage() {
         className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6 pb-6 border-b-2 border-gray-100"
       >
         <div className="flex-1 flex items-start gap-6">
-          {/* Property Image */}
           <motion.div
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
@@ -498,7 +658,6 @@ export default function PropertyDetailPage() {
                   alt={property.name}
                   className="w-full h-full object-cover"
                 />
-                {/* Overlay on hover */}
                 <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
                   <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
@@ -509,7 +668,6 @@ export default function PropertyDetailPage() {
                     />
                   </svg>
                 </div>
-                {/* Badge */}
                 <div className="absolute top-2 right-2 bg-primary text-white text-xs px-2 py-1 rounded-full font-semibold shadow-lg">
                   Click to view
                 </div>
@@ -528,7 +686,6 @@ export default function PropertyDetailPage() {
             )}
           </motion.div>
 
-          {/* Property Info */}
           <div className="flex-1">
             <div className="flex items-center gap-4 mb-3">
               <div>
@@ -631,7 +788,7 @@ export default function PropertyDetailPage() {
         </motion.div>
       </motion.div>
 
-      {/* Tabs Navigation */}
+      {/* Tabs Navigation - UPDATED WITH REPORTS TAB */}
       <motion.div variants={itemVariants} className="bg-white rounded-xl shadow-sm border border-gray-200 p-2">
         <div className="flex gap-2 overflow-x-auto">
           {[
@@ -642,6 +799,16 @@ export default function PropertyDetailPage() {
               id: 'providers',
               label: 'Service Providers',
               icon: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z',
+            },
+            {
+              id: 'reports',
+              label: "Manager's D.O.R",
+              icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z'
+            },
+            {
+              id: 'activations',
+              label: 'Activation Forms',
+              icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z'
             },
           ].map((tab) => (
             <motion.button
@@ -656,6 +823,10 @@ export default function PropertyDetailPage() {
                 setEditingProvider(null);
                 setShowTenantForm(false);
                 setEditingTenant(null);
+                setShowReportForm(false);
+                setEditingReport(null);
+                setShowActivationForm(false);  // ADD THIS LINE
+                setEditingActivation(null); // ADD THIS LINE AS WELL
               }}
               className={`flex items-center justify-center gap-2 px-6 py-3 rounded-lg font-semibold transition-all duration-300 whitespace-nowrap ${
                 activeTab === tab.id
@@ -671,6 +842,266 @@ export default function PropertyDetailPage() {
           ))}
         </div>
       </motion.div>
+
+      {/* Tab Content */}
+      <AnimatePresence mode="wait">
+        {/* DAILY REPORTS TAB - NEW SECTION */}
+        {activeTab === 'reports' && (
+          <motion.div
+            key="reports"
+            variants={tabVariants}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
+            className="space-y-6"
+          >
+            {showReportForm ? (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-white rounded-2xl p-8 shadow-lg border border-gray-200"
+              >
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-2xl font-bold text-heading-color">
+                    {editingReport ? 'Edit Daily Report' : 'Create Daily Report'}
+                  </h2>
+                  <Button
+                    onClick={handleCancelReportForm}
+                    variant="secondary"
+                    className="px-4 py-2"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+                <DailyReportForm
+                  propertyId={propertyId}
+                  report={editingReport}
+                  onSuccess={handleReportSuccess}
+                  onCancel={handleCancelReportForm}
+                />
+              </motion.div>
+            ) : (
+              <>
+                {/* Header with Add Button */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-2xl font-bold text-heading-color">Daily Operations Reports</h2>
+                    <p className="text-sm text-gray-500 mt-1">
+                      Track and manage daily property operations
+                    </p>
+                  </div>
+                  <Button
+                    onClick={() => setShowReportForm(true)}
+                    className="group px-6 py-3 bg-primary text-white hover:bg-primary/90 transition-all duration-300 shadow-md hover:shadow-lg rounded-lg"
+                  >
+                    <motion.span className="flex items-center gap-2" whileHover={{ scale: 1.05 }}>
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                      </svg>
+                      Create Report
+                    </motion.span>
+                  </Button>
+                </div>
+
+                {/* Reports List */}
+                {reportsLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <div className="text-center">
+                      <div className="relative w-16 h-16 mx-auto mb-4">
+                        <motion.div
+                          className="absolute inset-0 border-4 border-primary/20 rounded-full"
+                          animate={{ scale: [1, 1.2, 1] }}
+                          transition={{ duration: 1.5, repeat: Infinity }}
+                        />
+                        <motion.div
+                          className="absolute inset-0 border-4 border-t-primary border-r-transparent border-b-transparent border-l-transparent rounded-full"
+                          animate={{ rotate: 360 }}
+                          transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                        />
+                      </div>
+                      <p className="text-gray-600">Loading reports...</p>
+                    </div>
+                  </div>
+                ) : dailyReports.length === 0 ? (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="bg-white rounded-2xl p-12 shadow-lg border border-gray-200 text-center"
+                  >
+                    <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <svg className="w-10 h-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                        />
+                      </svg>
+                    </div>
+                    <h3 className="text-xl font-semibold text-gray-700 mb-2">No Daily Reports Yet</h3>
+                    <p className="text-gray-500 mb-6">Start tracking daily operations by creating your first report.</p>
+                    <Button
+                      onClick={() => setShowReportForm(true)}
+                      className="px-6 py-3 bg-primary text-white hover:bg-primary/90"
+                    >
+                      Create First Report
+                    </Button>
+                  </motion.div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {dailyReports.map((report, index) => (
+                      <motion.div
+                        key={report.id}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: index * 0.05 }}
+                        whileHover={{ y: -4 }}
+                        className="bg-white rounded-xl p-6 shadow-lg border border-gray-200 hover:shadow-xl transition-all duration-300"
+                      >
+                        {/* Report Date */}
+                        <div className="flex items-center justify-between mb-4">
+                          <div className="flex items-center gap-2">
+                            <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
+                              <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+                                />
+                              </svg>
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-gray-500">Report Date</p>
+                              <p className="text-sm font-bold text-heading-color">
+                                {new Date(report.reportDate).toLocaleDateString('en-GB', {
+                                  day: '2-digit',
+                                  month: 'short',
+                                  year: 'numeric'
+                                })}
+                              </p>
+                            </div>
+                          </div>
+                          <span
+                            className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                              report.status === 'DRAFT'
+                                ? 'bg-gray-100 text-gray-700'
+                                : report.status === 'SUBMITTED'
+                                ? 'bg-blue-100 text-blue-700'
+                                : report.status === 'APPROVED'
+                                ? 'bg-green-100 text-green-700'
+                                : 'bg-red-100 text-red-700'
+                            }`}
+                          >
+                            {report.status}
+                          </span>
+                        </div>
+
+                        {/* Report Summary */}
+                        <div className="space-y-3 mb-4">
+                          {report.overview?.summary && (
+                            <div>
+                              <p className="text-xs font-semibold text-gray-500 mb-1">Summary</p>
+                              <p className="text-sm text-gray-700 line-clamp-2">{report.overview.summary}</p>
+                            </div>
+                          )}
+                          
+                          {report.occupancy && (
+                            <div className="flex items-center gap-2">
+                              <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                                />
+                              </svg>
+                              <span className="text-sm text-gray-600">
+                                Occupancy: <strong>{report.occupancy.occupancyRate}%</strong>
+                              </span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Prepared By */}
+                        <div className="mb-4 pb-4 border-b border-gray-100">
+                          <p className="text-xs text-gray-500">Prepared by</p>
+                          <p className="text-sm font-medium text-gray-700">{report.preparedBy}</p>
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="flex gap-2">
+                          {report.status === 'DRAFT' && (
+                            <Button
+                              onClick={() => handleEditReport(report)}
+                              variant="outline"
+                              className="flex-1 text-sm py-2"
+                            >
+                              <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                                />
+                              </svg>
+                              Edit
+                            </Button>
+                          )}
+                          <Button
+                            onClick={() => handleDownloadReport(report.id, report.reportDate)}
+                            variant="outline"
+                            className="flex-1 text-sm py-2"
+                          >
+                            <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                              />
+                            </svg>
+                            Download
+                          </Button>
+                          {report.status === 'DRAFT' && (
+                            <Button
+                              onClick={() => handleDeleteReport(report.id)}
+                              disabled={deletingReportId === report.id}
+                              variant="outline"
+                              className="text-red-600 hover:bg-red-50 hover:border-red-300 px-3 py-2"
+                            >
+                              {deletingReportId === report.id ? (
+                                <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                  <path
+                                    className="opacity-75"
+                                    fill="currentColor"
+                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                                  />
+                                </svg>
+                              ) : (
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                  />
+                                </svg>
+                              )}
+                            </Button>
+                          )}
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
 
       {/* Tab Content - Keep the rest of your existing tab content here */}
       <AnimatePresence mode="wait">
@@ -1564,6 +1995,231 @@ export default function PropertyDetailPage() {
                   </div>
                 )}
               </div>
+            )}
+          </motion.div>
+        )}
+        {/* ACTIVATION FORMS TAB */}
+        {activeTab === 'activations' && (
+          <motion.div
+            key="activations"
+            variants={tabVariants}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
+            className="space-y-6"
+          >
+            {showActivationForm ? (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-white rounded-2xl p-8 shadow-lg border border-gray-200"
+              >
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-2xl font-bold text-heading-color">
+                    {editingActivation ? 'Edit Activation Request' : 'Create Activation Request'}
+                  </h2>
+                  <Button
+                    onClick={handleCancelActivationForm}
+                    variant="secondary"
+                    className="px-4 py-2"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+                <ActivationForm
+                  propertyId={propertyId}
+                  activation={editingActivation}
+                  onSuccess={handleActivationSuccess}
+                  onCancel={handleCancelActivationForm}
+                />
+              </motion.div>
+            ) : (
+              <>
+                {/* Header with Add Button */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-2xl font-bold text-heading-color">Activation Requests</h2>
+                    <p className="text-sm text-gray-500 mt-1">
+                      Manage space activation and temporary lease requests
+                    </p>
+                  </div>
+                  <Button
+                    onClick={() => setShowActivationForm(true)}
+                    className="group px-6 py-3 bg-primary text-white hover:bg-primary/90 transition-all duration-300 shadow-md hover:shadow-lg rounded-lg"
+                  >
+                    <motion.span className="flex items-center gap-2" whileHover={{ scale: 1.05 }}>
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                      </svg>
+                      Create Request
+                    </motion.span>
+                  </Button>
+                </div>
+
+                {/* Activation Requests List */}
+                {activationsLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <div className="text-center">
+                      <div className="relative w-16 h-16 mx-auto mb-4">
+                        <motion.div
+                          className="absolute inset-0 border-4 border-primary/20 rounded-full"
+                          animate={{ scale: [1, 1.2, 1] }}
+                          transition={{ duration: 1.5, repeat: Infinity }}
+                        />
+                        <motion.div
+                          className="absolute inset-0 border-4 border-t-primary border-r-transparent border-b-transparent border-l-transparent rounded-full"
+                          animate={{ rotate: 360 }}
+                          transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                        />
+                      </div>
+                      <p className="text-gray-600">Loading activation requests...</p>
+                    </div>
+                  </div>
+                ) : activationRequests.length === 0 ? (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="bg-white rounded-2xl p-12 shadow-lg border border-gray-200 text-center"
+                  >
+                    <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <svg className="w-10 h-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                        />
+                      </svg>
+                    </div>
+                    <h3 className="text-xl font-semibold text-gray-700 mb-2">No Activation Requests Yet</h3>
+                    <p className="text-gray-500 mb-6">Create your first activation request for this property.</p>
+                    <Button
+                      onClick={() => setShowActivationForm(true)}
+                      className="px-6 py-3 bg-primary text-white hover:bg-primary/90"
+                    >
+                      Create First Request
+                    </Button>
+                  </motion.div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {activationRequests.map((activation, index) => (
+                      <motion.div
+                        key={activation.id}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: index * 0.05 }}
+                        whileHover={{ y: -4 }}
+                        className="bg-white rounded-xl p-6 shadow-lg border border-gray-200 hover:shadow-xl transition-all duration-300"
+                      >
+                        {/* Request Header */}
+                        <div className="flex items-center justify-between mb-4">
+                          <div>
+                            <p className="text-xs font-semibold text-gray-500">Request No.</p>
+                            <p className="text-sm font-bold text-heading-color">{activation.requestNumber}</p>
+                          </div>
+                          <span
+                            className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                              activation.status === 'DRAFT'
+                                ? 'bg-gray-100 text-gray-700'
+                                : activation.status === 'SUBMITTED'
+                                ? 'bg-blue-100 text-blue-700'
+                                : activation.status === 'UNDER_REVIEW'
+                                ? 'bg-yellow-100 text-yellow-700'
+                                : activation.status === 'APPROVED'
+                                ? 'bg-green-100 text-green-700'
+                                : activation.status === 'REJECTED'
+                                ? 'bg-red-100 text-red-700'
+                                : activation.status === 'COMPLETED'
+                                ? 'bg-teal-100 text-teal-700'
+                                : 'bg-gray-100 text-gray-700'
+                            }`}
+                          >
+                            {activation.status}
+                          </span>
+                        </div>
+
+                        {/* Company Info */}
+                        <div className="space-y-3 mb-4">
+                          <div>
+                            <p className="text-xs font-semibold text-gray-500 mb-1">Company</p>
+                            <p className="text-sm font-bold text-gray-800">{activation.companyName}</p>
+                          </div>
+                          
+                          <div>
+                            <p className="text-xs font-semibold text-gray-500 mb-1">Contact Person</p>
+                            <p className="text-sm text-gray-700">{activation.contactPerson}</p>
+                          </div>
+
+                          <div>
+                            <p className="text-xs font-semibold text-gray-500 mb-1">Type</p>
+                            <p className="text-sm text-gray-700">{activation.activationType.replace(/_/g, ' ')}</p>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <p className="text-xs font-semibold text-gray-500 mb-1">Space (sq ft)</p>
+                              <p className="text-sm font-bold text-gray-800">{activation.spaceRequired.toLocaleString()}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs font-semibold text-gray-500 mb-1">Duration</p>
+                              <p className="text-sm font-bold text-gray-800">{activation.durationDays} days</p>
+                            </div>
+                          </div>
+
+                          <div>
+                            <p className="text-xs font-semibold text-gray-500 mb-1">Period</p>
+                            <p className="text-xs text-gray-600">
+                              {new Date(activation.startDate).toLocaleDateString('en-GB')} - {new Date(activation.endDate).toLocaleDateString('en-GB')}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="flex flex-wrap gap-2 pt-4 border-t border-gray-100">
+                          <motion.button
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => handleEditActivation(activation)}
+                            className="flex-1 px-3 py-2 bg-primary/10 text-primary rounded-lg hover:bg-primary/20 transition-colors text-sm font-medium"
+                          >
+                            Edit
+                          </motion.button>
+                          
+                          {activation.documentUrl && (
+                            <motion.button
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
+                              onClick={() => handleViewActivation(activation.id)}
+                              className="flex-1 px-3 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors text-sm font-medium"
+                            >
+                              View
+                            </motion.button>
+                          )}
+                          
+                          <motion.button
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => handleDownloadActivation(activation.id, activation.requestNumber)}
+                            className="flex-1 px-3 py-2 bg-green-50 text-green-600 rounded-lg hover:bg-green-100 transition-colors text-sm font-medium"
+                          >
+                            Download
+                          </motion.button>
+                          
+                          <motion.button
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => handleDeleteActivation(activation.id)}
+                            disabled={deletingActivationId === activation.id}
+                            className="px-3 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors text-sm font-medium disabled:opacity-50"
+                          >
+                            {deletingActivationId === activation.id ? 'Deleting...' : 'Delete'}
+                          </motion.button>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </motion.div>
         )}

@@ -743,7 +743,7 @@ export const generateComprehensiveReportPDF = async (
     pdf.setFontSize(14);
     pdf.setFont('helvetica', 'bold');
     pdf.text('COMPREHENSIVE SUMMARY', 20, yPosition);
-    yPosition += 10;
+    yPosition += 8;
 
     // Calculate totals
     const rentTotal = paymentReports.reduce((sum, r) => sum + r.totalDue, 0);
@@ -758,57 +758,61 @@ export const generateComprehensiveReportPDF = async (
     const overallPaid = rentPaid + billsPaid;
     const overallBalance = rentArrears + billsBalance;
 
-    // Summary Box
-    pdf.setFillColor(240, 240, 240);
-    pdf.rect(15, yPosition, pageWidth - 30, 70, 'F');
-    
-    yPosition += 10;
-    pdf.setFontSize(10);
-    
-    // Rent Summary
-    pdf.setFont('helvetica', 'bold');
-    pdf.text('Rent Summary:', 20, yPosition);
-    yPosition += 7;
-    pdf.setFont('helvetica', 'normal');
-    pdf.text(`Total Rent Due: Ksh ${rentTotal.toLocaleString()}`, 30, yPosition);
-    yPosition += 6;
-    pdf.text(`Total Rent Paid: Ksh ${rentPaid.toLocaleString()}`, 30, yPosition);
-    yPosition += 6;
-    pdf.setTextColor(255, 0, 0);
-    pdf.text(`Total Rent Arrears: Ksh ${rentArrears.toLocaleString()}`, 30, yPosition);
-    pdf.setTextColor(0, 0, 0);
-    yPosition += 10;
+    // Create table data for comprehensive summary
+    const summaryData = [
+      ['RENT', `Ksh ${rentTotal.toLocaleString()}`, `Ksh ${rentPaid.toLocaleString()}`, `Ksh ${rentArrears.toLocaleString()}`],
+      ['BILLS', `Ksh ${billsTotal.toLocaleString()}`, `Ksh ${billsPaid.toLocaleString()}`, `Ksh ${billsBalance.toLocaleString()}`],
+      ['OVERALL', `Ksh ${overallTotal.toLocaleString()}`, `Ksh ${overallPaid.toLocaleString()}`, `Ksh ${overallBalance.toLocaleString()}`]
+    ];
 
-    // Bills Summary
-    pdf.setFont('helvetica', 'bold');
-    pdf.text('Bills Summary:', 20, yPosition);
-    yPosition += 7;
-    pdf.setFont('helvetica', 'normal');
-    pdf.text(`Total Bills Due: Ksh ${billsTotal.toLocaleString()}`, 30, yPosition);
-    yPosition += 6;
-    pdf.text(`Total Bills Paid: Ksh ${billsPaid.toLocaleString()}`, 30, yPosition);
-    yPosition += 6;
-    pdf.setTextColor(255, 0, 0);
-    pdf.text(`Total Bills Balance: Ksh ${billsBalance.toLocaleString()}`, 30, yPosition);
-    pdf.setTextColor(0, 0, 0);
-    yPosition += 10;
+    // Apply conditional coloring for the last row (OVERALL)
+    const didDrawCell = (data: any) => {
+      if (data.column.index === 1 && data.row.index === 2) { // Overall Total Due
+        data.cell.styles.fontStyle = 'bold';
+        data.cell.styles.fillColor = [41, 128, 185];
+        data.cell.styles.textColor = 255;
+      } else if (data.column.index === 2 && data.row.index === 2) { // Overall Paid
+        data.cell.styles.fontStyle = 'bold';
+        data.cell.styles.textColor = [0, 128, 0];
+      } else if (data.column.index === 3 && data.row.index === 2) { // Overall Balance
+        data.cell.styles.fontStyle = 'bold';
+        data.cell.styles.textColor = [255, 0, 0];
+      }
+    };
 
-    // Overall Summary
-    pdf.setFont('helvetica', 'bold');
-    pdf.setFontSize(11);
-    pdf.text('Overall Summary:', 20, yPosition);
-    yPosition += 7;
-    pdf.setFontSize(10);
-    pdf.text(`Grand Total Due: Ksh ${overallTotal.toLocaleString()}`, 30, yPosition);
-    yPosition += 6;
-    pdf.setTextColor(0, 128, 0);
-    pdf.text(`Grand Total Paid: Ksh ${overallPaid.toLocaleString()}`, 30, yPosition);
-    pdf.setTextColor(0, 0, 0);
-    yPosition += 6;
-    pdf.setTextColor(255, 0, 0);
-    pdf.setFont('helvetica', 'bold');
-    pdf.text(`Grand Total Balance: Ksh ${overallBalance.toLocaleString()}`, 30, yPosition);
-    pdf.setTextColor(0, 0, 0);
+    autoTable(pdf, {
+      startY: yPosition,
+      head: [
+        ['CATEGORY', 'TOTAL DUE', 'TOTAL PAID', 'BALANCE'],
+      ],
+      body: summaryData,
+      theme: 'striped',
+      headStyles: {
+        fillColor: [52, 58, 64],
+        textColor: 255,
+        fontStyle: 'bold',
+        fontSize: 9,
+      },
+      bodyStyles: {
+        fontSize: 9,
+      },
+      columnStyles: {
+        0: { 
+          cellWidth: 30,
+          fontStyle: 'bold'
+        },
+        1: { cellWidth: 40 },
+        2: { cellWidth: 40 },
+        3: { cellWidth: 40 },
+      },
+      alternateRowStyles: {
+        fillColor: [245, 245, 245],
+      },
+      didDrawCell: didDrawCell,
+      margin: { top: yPosition, left: 20, right: 20 },
+    });
+
+    yPosition = (pdf as any).lastAutoTable.finalY + 15;
 
     // Add footer with company info
     const footerY = pageHeight - 20;
