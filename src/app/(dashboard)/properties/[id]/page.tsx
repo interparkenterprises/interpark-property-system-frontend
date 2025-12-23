@@ -2155,16 +2155,7 @@ export default function PropertyDetailPage() {
                             <p className="text-sm text-gray-700">{activation.activationType.replace(/_/g, ' ')}</p>
                           </div>
 
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <p className="text-xs font-semibold text-gray-500 mb-1">Space (sq ft)</p>
-                              <p className="text-sm font-bold text-gray-800">{activation.spaceRequired.toLocaleString()}</p>
-                            </div>
-                            <div>
-                              <p className="text-xs font-semibold text-gray-500 mb-1">Duration</p>
-                              <p className="text-sm font-bold text-gray-800">{activation.durationDays} days</p>
-                            </div>
-                          </div>
+                          
 
                           <div>
                             <p className="text-xs font-semibold text-gray-500 mb-1">Period</p>

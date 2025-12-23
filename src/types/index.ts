@@ -780,15 +780,6 @@ export interface DailyReportsListResponse {
   data: DailyReport[];
 }
 // Activation Request Types
-export type ActivationType = 
-  | 'OFFICE_SPACE' 
-  | 'RETAIL_SPACE' 
-  | 'WAREHOUSE' 
-  | 'EVENT_SPACE'
-  | 'POP_UP_STORE'
-  | 'SHOWROOM'
-  | 'OTHER';
-
 export type ActivationStatus = 
   | 'DRAFT' 
   | 'SUBMITTED' 
@@ -798,15 +789,30 @@ export type ActivationStatus =
   | 'COMPLETED'
   | 'CANCELLED';
 
+// Activation type can be any string, not just predefined values
+export type ActivationType = string;
+
 export interface ActivationRequest {
   id: string;
   requestNumber: string;
   propertyId: string;
-  property?: Property;
+  property?: {
+    id: string;
+    name: string;
+    address: string;
+    landlord?: {
+      id: string;
+      name: string;
+    }
+  };
   managerId: string;
-  manager?: User;
+  manager?: {
+    id: string;
+    name: string;
+    email: string;
+  };
   
-  // Part 1 - Client Information
+  // Part 1 - Client Information (Required for template)
   companyName: string;
   postalAddress: string;
   telephone: string;
@@ -814,9 +820,8 @@ export interface ActivationRequest {
   designation: string;
   email: string;
   mobileNo: string;
-  alternativeContact?: string;
   
-  // Part 2 - Description of Activation/Exhibition
+  // Part 2 - Description of Activation/Exhibition (Required for template)
   startDate: string;
   setupTime: string;
   endDate: string;
@@ -824,83 +829,44 @@ export interface ActivationRequest {
   activationType: ActivationType;
   description?: string;
   expectedVisitors?: number;
+  soundSystem: boolean;
   
-  // Part 3 - Space Requirements
-  spaceRequired: number; // in square meters
-  location?: string;
-  powerRequirement?: string;
-  waterRequirement?: boolean;
-  internetRequired?: boolean;
+  // Part 3 - Cost of Activation/Exhibition (Required for template)
+  licenseFeePerDay?: number;
+  numberOfDays?: number;
+  proposedBudget?: number; // Fallback for licenseFeePerDay
   
-  // Part 4 - Equipment & Setup
-  ownEquipment?: boolean;
-  equipmentList?: any[]; // JSON array
-  furnitureNeeded?: any[]; // JSON array
+  // Payment Details (Required for template)
+  bankName?: string;
+  bankBranch?: string;
+  accountName?: string;
+  accountNumber?: string;
+  swiftCode?: string;
+  paybillNumber?: string;
+  mpesaAccount?: string;
   
-  // Part 5 - Branding & Marketing
-  brandingMaterials?: any[]; // JSON array
-  soundSystem?: boolean;
-  displayScreens?: boolean;
-  
-  // Part 6 - Health & Safety
-  insuranceCover?: boolean;
-  insuranceDetails?: string;
-  safetyMeasures?: any[]; // JSON array
-  firstAidKit?: boolean;
-  
-  // Part 7 - Financial Information
-  proposedBudget?: number;
-  proposedRent?: number;
-  proposedServiceCharge?: number;
-  proposedDeposit?: number;
-  paymentTerms?: string;
-  
-  // Part 8 - Additional Services
-  securityRequired?: boolean;
-  cleaningRequired?: boolean;
-  cateringRequired?: boolean;
-  parkingSpaces?: number;
-  
-  // Part 9 - Terms & Conditions
-  termsAccepted: boolean;
-  signature?: string;
-  signatureDate?: string;
+  // Manager Information (Required for template)
+  managerName?: string; // Manager's name for signature
+  managerDesignation?: string; // Manager's designation
   
   // Document Management
-  documentUrl?: string;
+  documentUrl?: string; // Generated PDF URL
   status: ActivationStatus;
   
-  // Additional Notes
-  specialRequests?: string;
-  internalNotes?: string;
-  
-  // Supporting documents
-  companyRegistration?: string;
-  kraPinCertificate?: string;
-  businessPermit?: string;
-  otherDocuments?: string[];
-  
-  // Approval Workflow
+  // Timestamps (Used in template)
   submittedAt?: string;
-  reviewedAt?: string;
   approvedAt?: string;
-  rejectedAt?: string;
-  rejectionReason?: string;
-  reviewedBy?: string;
-  reviewComments?: string;
-  
-  // Calculated field (for convenience)
-  durationDays?: number;
-  
-  // Timestamps
   createdAt: string;
   updatedAt: string;
+  
+  // Signature Information
+  signatureDate?: string;
 }
 
 export interface CreateActivationRequest {
   propertyId: string;
   
-  // Part 1 - Client Information
+  // Part 1 - Client Information (Required for template)
   companyName: string;
   postalAddress: string;
   telephone: string;
@@ -908,67 +874,34 @@ export interface CreateActivationRequest {
   designation: string;
   email: string;
   mobileNo: string;
-  alternativeContact?: string;
   
-  // Part 2 - Description of Activation/Exhibition
+  // Part 2 - Description of Activation/Exhibition (Required for template)
   startDate: string;
   setupTime: string;
   endDate: string;
   tearDownTime: string;
-  activationType: ActivationType;
+  activationType: string;
   description?: string;
   expectedVisitors?: number;
-  
-  // Part 3 - Space Requirements
-  spaceRequired: number;
-  location?: string;
-  powerRequirement?: string;
-  waterRequirement?: boolean;
-  internetRequired?: boolean;
-  
-  // Part 4 - Equipment & Setup
-  ownEquipment?: boolean;
-  equipmentList?: any[];
-  furnitureNeeded?: any[];
-  
-  // Part 5 - Branding & Marketing
-  brandingMaterials?: any[];
   soundSystem?: boolean;
-  displayScreens?: boolean;
   
-  // Part 6 - Health & Safety
-  insuranceCover?: boolean;
-  insuranceDetails?: string;
-  safetyMeasures?: any[];
-  firstAidKit?: boolean;
-  
-  // Part 7 - Financial Information
+  // Part 3 - Cost of Activation/Exhibition (Required for template)
+  licenseFeePerDay?: number;
+  numberOfDays?: number;
   proposedBudget?: number;
-  proposedRent?: number;
-  proposedServiceCharge?: number;
-  proposedDeposit?: number;
-  paymentTerms?: string;
   
-  // Part 8 - Additional Services
-  securityRequired?: boolean;
-  cleaningRequired?: boolean;
-  cateringRequired?: boolean;
-  parkingSpaces?: number;
+  // Payment Details (Required for template)
+  bankName?: string;
+  bankBranch?: string;
+  accountName?: string;
+  accountNumber?: string;
+  swiftCode?: string;
+  paybillNumber?: string;
+  mpesaAccount?: string;
   
-  // Part 9 - Terms & Conditions
-  termsAccepted: boolean;
-  signature?: string;
-  signatureDate?: string;
-  
-  // Additional Notes
-  specialRequests?: string;
-  internalNotes?: string;
-  
-  // Supporting documents
-  companyRegistration?: string;
-  kraPinCertificate?: string;
-  businessPermit?: string;
-  otherDocuments?: string[];
+  // Manager Information (Required for template) - Will be set on submission
+  managerName?: string;
+  managerDesignation?: string;
 }
 
 export interface UpdateActivationRequest {
@@ -980,70 +913,46 @@ export interface UpdateActivationRequest {
   designation?: string;
   email?: string;
   mobileNo?: string;
-  alternativeContact?: string;
   
   // Part 2 - Description of Activation/Exhibition
   startDate?: string;
   setupTime?: string;
   endDate?: string;
   tearDownTime?: string;
-  activationType?: ActivationType;
+  activationType?: string;
   description?: string;
   expectedVisitors?: number;
-  
-  // Part 3 - Space Requirements
-  spaceRequired?: number;
-  location?: string;
-  powerRequirement?: string;
-  waterRequirement?: boolean;
-  internetRequired?: boolean;
-  
-  // Part 4 - Equipment & Setup
-  ownEquipment?: boolean;
-  equipmentList?: any[];
-  furnitureNeeded?: any[];
-  
-  // Part 5 - Branding & Marketing
-  brandingMaterials?: any[];
   soundSystem?: boolean;
-  displayScreens?: boolean;
   
-  // Part 6 - Health & Safety
-  insuranceCover?: boolean;
-  insuranceDetails?: string;
-  safetyMeasures?: any[];
-  firstAidKit?: boolean;
-  
-  // Part 7 - Financial Information
+  // Part 3 - Cost of Activation/Exhibition
+  licenseFeePerDay?: number;
+  numberOfDays?: number;
   proposedBudget?: number;
-  proposedRent?: number;
-  proposedServiceCharge?: number;
-  proposedDeposit?: number;
-  paymentTerms?: string;
   
-  // Part 8 - Additional Services
-  securityRequired?: boolean;
-  cleaningRequired?: boolean;
-  cateringRequired?: boolean;
-  parkingSpaces?: number;
+  // Payment Details
+  bankName?: string;
+  bankBranch?: string;
+  accountName?: string;
+  accountNumber?: string;
+  swiftCode?: string;
+  paybillNumber?: string;
+  mpesaAccount?: string;
   
-  // Part 9 - Terms & Conditions
-  termsAccepted?: boolean;
-  signature?: string;
-  signatureDate?: string;
+  // Manager Information
+  managerName?: string;
+  managerDesignation?: string;
   
-  // Additional Notes
-  specialRequests?: string;
-  internalNotes?: string;
-  
-  // Supporting documents
-  companyRegistration?: string;
-  kraPinCertificate?: string;
-  businessPermit?: string;
-  otherDocuments?: string[];
-  
-  // Status
+  // Status (for admin updates)
   status?: ActivationStatus;
+  
+  // Signature Information (for submission)
+  signatureDate?: string;
+}
+
+export interface SubmitActivationRequest {
+  // Required manager signature info for submission
+  managerName: string;
+  managerDesignation: string;
 }
 
 export interface ActivationResponse {
@@ -1055,5 +964,74 @@ export interface ActivationResponse {
 export interface ActivationsListResponse {
   success: boolean;
   count: number;
+  totalCount: number;
   data: ActivationRequest[];
+  pagination: {
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}
+
+export interface ActivationStats {
+  success: boolean;
+  data: {
+    total: number;
+    byStatus: Record<ActivationStatus, number>;
+    upcoming: number;
+  };
+}
+
+// Pagination parameters for fetching activations
+export interface ActivationQueryParams {
+  propertyId?: string;
+  status?: ActivationStatus;
+  startDate?: string;
+  endDate?: string;
+  activationType?: string;
+  companyName?: string;
+  page?: number;
+  limit?: number;
+}
+
+// Interface for form data (for form handling)
+export interface ActivationFormData {
+  // Part 1 - Client Information
+  companyName: string;
+  postalAddress: string;
+  telephone: string;
+  contactPerson: string;
+  designation: string;
+  email: string;
+  mobileNo: string;
+  
+  // Part 2 - Description of Activation/Exhibition
+  startDate: string;
+  setupTime: string;
+  endDate: string;
+  tearDownTime: string;
+  activationType: string;
+  description?: string;
+  expectedVisitors?: number;
+  soundSystem: boolean;
+  
+  // Part 3 - Cost of Activation/Exhibition
+  licenseFeePerDay?: number;
+  numberOfDays?: number;
+  proposedBudget?: number;
+  
+  // Payment Details
+  bankName?: string;
+  bankBranch?: string;
+  accountName?: string;
+  accountNumber?: string;
+  swiftCode?: string;
+  paybillNumber?: string;
+  mpesaAccount?: string;
+}
+
+// Interface for manager signature section
+export interface ManagerSignatureData {
+  managerName: string;
+  managerDesignation: string;
 }
