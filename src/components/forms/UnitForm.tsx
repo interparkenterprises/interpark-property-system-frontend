@@ -474,7 +474,7 @@ export default function UnitForm({
             className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all duration-200 text-gray-900"
           >
             <option value="FIXED">Fixed Total Amount</option>
-            <option value="PER_SQ_FT">Per Sq Ft</option>
+            <option value="PER_SQFT">Per Sq Ft</option>
             <option value="MONTHLY">Monthly</option>
             <option value="ANNUAL">Annual</option>
             <option value="PER_ROOM">Per Room</option>
