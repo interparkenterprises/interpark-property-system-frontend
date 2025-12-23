@@ -42,6 +42,44 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Custom error class for API errors with additional data
+export class ApiError extends Error {
+  public data?: any;
+  public statusCode?: number;
+  
+  constructor(message: string, data?: any) {
+    super(message);
+    this.name = 'ApiError';
+    this.data = data;
+    this.statusCode = data?.statusCode;
+    
+    // Maintains proper stack trace for where our error was thrown
+    if (Error.captureStackTrace) {
+      Error.captureStackTrace(this, ApiError);
+    }
+  }
+  
+  // Helper to get validation errors
+  get validationErrors() {
+    return this.data?.validationErrors || this.data?.missingFields;
+  }
+  
+  // Helper to check if it's a validation error
+  isValidationError() {
+    return this.statusCode === 400 || this.data?.missingFields;
+  }
+  
+  // Helper to check if it's a not found error
+  isNotFoundError() {
+    return this.statusCode === 404;
+  }
+  
+  // Helper to check if it's an authorization error
+  isAuthorizationError() {
+    return this.statusCode === 401 || this.statusCode === 403;
+  }
+}
+
 // Handle token expiration
 api.interceptors.response.use(
   (response) => response,
@@ -1652,17 +1690,26 @@ export const activationsAPI = {
       const response = await api.get('/activations', { params });
       
       if (!response.data || !response.data.success) {
-        throw new Error('Invalid response from server');
+        const errorMessage = response.data?.message || 'Invalid response from server';
+        throw new ApiError(errorMessage, response.data);
       }
 
       return response.data;
     } catch (error: any) {
       console.error('Failed to load activation requests:', error);
-      const message =
-        error?.response?.data?.message ||
-        error?.message ||
-        'Failed to fetch activation requests';
-      throw new Error(message);
+      
+      // Create a detailed error message
+      const errorData = error?.response?.data;
+      const message = errorData?.message || error?.message || 'Failed to fetch activation requests';
+      
+      // Include additional data like missingFields for validation errors
+      const additionalData = {
+        missingFields: errorData?.missingFields,
+        statusCode: error?.response?.status,
+        ...errorData
+      };
+      
+      throw new ApiError(message, additionalData);
     }
   },
 
@@ -1672,17 +1719,23 @@ export const activationsAPI = {
       const response = await api.get(`/activations/${id}`);
       
       if (!response.data || !response.data.success) {
-        throw new Error('Invalid response from server');
+        const errorMessage = response.data?.message || 'Invalid response from server';
+        throw new ApiError(errorMessage, response.data);
       }
 
       return response.data.data;
     } catch (error: any) {
       console.error('Failed to load activation request:', error);
-      const message =
-        error?.response?.data?.message ||
-        error?.message ||
-        'Failed to fetch activation request';
-      throw new Error(message);
+      
+      const errorData = error?.response?.data;
+      const message = errorData?.message || error?.message || 'Failed to fetch activation request';
+      
+      const additionalData = {
+        statusCode: error?.response?.status,
+        ...errorData
+      };
+      
+      throw new ApiError(message, additionalData);
     }
   },
 
@@ -1692,17 +1745,26 @@ export const activationsAPI = {
       const response = await api.post('/activations', data);
       
       if (!response.data || !response.data.success) {
-        throw new Error('Invalid response from server');
+        const errorMessage = response.data?.message || 'Invalid response from server';
+        throw new ApiError(errorMessage, response.data);
       }
 
       return response.data.data;
     } catch (error: any) {
       console.error('Failed to create activation request:', error);
-      const message =
-        error?.response?.data?.message ||
-        error?.message ||
-        'Failed to create activation request';
-      throw new Error(message);
+      
+      const errorData = error?.response?.data;
+      const message = errorData?.message || error?.message || 'Failed to create activation request';
+      
+      // For validation errors, include missing fields
+      const additionalData = {
+        missingFields: errorData?.missingFields,
+        statusCode: error?.response?.status,
+        validationErrors: errorData?.validationErrors,
+        ...errorData
+      };
+      
+      throw new ApiError(message, additionalData);
     }
   },
 
@@ -1712,17 +1774,24 @@ export const activationsAPI = {
       const response = await api.put(`/activations/${id}`, data);
       
       if (!response.data || !response.data.success) {
-        throw new Error('Invalid response from server');
+        const errorMessage = response.data?.message || 'Invalid response from server';
+        throw new ApiError(errorMessage, response.data);
       }
 
       return response.data.data;
     } catch (error: any) {
       console.error('Failed to update activation request:', error);
-      const message =
-        error?.response?.data?.message ||
-        error?.message ||
-        'Failed to update activation request';
-      throw new Error(message);
+      
+      const errorData = error?.response?.data;
+      const message = errorData?.message || error?.message || 'Failed to update activation request';
+      
+      const additionalData = {
+        statusCode: error?.response?.status,
+        validationErrors: errorData?.validationErrors,
+        ...errorData
+      };
+      
+      throw new ApiError(message, additionalData);
     }
   },
 
@@ -1732,15 +1801,21 @@ export const activationsAPI = {
       const response = await api.delete(`/activations/${id}`);
       
       if (!response.data || !response.data.success) {
-        throw new Error('Invalid response from server');
+        const errorMessage = response.data?.message || 'Invalid response from server';
+        throw new ApiError(errorMessage, response.data);
       }
     } catch (error: any) {
       console.error('Failed to delete activation request:', error);
-      const message =
-        error?.response?.data?.message ||
-        error?.message ||
-        'Failed to delete activation request';
-      throw new Error(message);
+      
+      const errorData = error?.response?.data;
+      const message = errorData?.message || error?.message || 'Failed to delete activation request';
+      
+      const additionalData = {
+        statusCode: error?.response?.status,
+        ...errorData
+      };
+      
+      throw new ApiError(message, additionalData);
     }
   },
 
@@ -1754,17 +1829,23 @@ export const activationsAPI = {
       const response = await api.post(`/activations/${id}/generate-pdf`);
       
       if (!response.data || !response.data.success) {
-        throw new Error('Invalid response from server');
+        const errorMessage = response.data?.message || 'Invalid response from server';
+        throw new ApiError(errorMessage, response.data);
       }
 
       return response.data;
     } catch (error: any) {
       console.error('Failed to generate activation PDF:', error);
-      const message =
-        error?.response?.data?.message ||
-        error?.message ||
-        'Failed to generate PDF';
-      throw new Error(message);
+      
+      const errorData = error?.response?.data;
+      const message = errorData?.message || error?.message || 'Failed to generate PDF';
+      
+      const additionalData = {
+        statusCode: error?.response?.status,
+        ...errorData
+      };
+      
+      throw new ApiError(message, additionalData);
     }
   },
 
@@ -1774,17 +1855,25 @@ export const activationsAPI = {
       const response = await api.post(`/activations/${id}/submit`);
       
       if (!response.data || !response.data.success) {
-        throw new Error('Invalid response from server');
+        const errorMessage = response.data?.message || 'Invalid response from server';
+        throw new ApiError(errorMessage, response.data);
       }
 
       return response.data.data;
     } catch (error: any) {
       console.error('Failed to submit activation request:', error);
-      const message =
-        error?.response?.data?.message ||
-        error?.message ||
-        'Failed to submit activation request';
-      throw new Error(message);
+      
+      const errorData = error?.response?.data;
+      const message = errorData?.message || error?.message || 'Failed to submit activation request';
+      
+      // Include missingFields for validation errors during submission
+      const additionalData = {
+        missingFields: errorData?.missingFields,
+        statusCode: error?.response?.status,
+        ...errorData
+      };
+      
+      throw new ApiError(message, additionalData);
     }
   },
 
@@ -1807,27 +1896,31 @@ export const activationsAPI = {
         });
         
         const errorData = JSON.parse(text as string);
-        throw new Error(errorData.message || 'Failed to download activation PDF');
+        throw new ApiError(errorData.message || 'Failed to download activation PDF', errorData);
       }
       
       if (!response.data || response.data.size === 0) {
-        throw new Error('Received empty PDF file');
+        throw new ApiError('Received empty PDF file');
       }
       
       return response.data;
     } catch (error: any) {
       console.error('Failed to download activation PDF:', error);
       
-      // Check if it's already an Error object
-      if (error instanceof Error) {
+      // Check if it's already an ApiError object
+      if (error instanceof ApiError) {
         throw error;
       }
       
-      const message =
-        error?.response?.data?.message ||
-        error?.message ||
-        'Failed to download activation PDF';
-      throw new Error(message);
+      const errorData = error?.response?.data;
+      const message = errorData?.message || error?.message || 'Failed to download activation PDF';
+      
+      const additionalData = {
+        statusCode: error?.response?.status,
+        ...errorData
+      };
+      
+      throw new ApiError(message, additionalData);
     }
   },
 };
