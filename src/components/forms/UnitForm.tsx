@@ -372,7 +372,7 @@ export default function UnitForm({
             className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all duration-200 text-gray-900"
           >
             <option value="VACANT">Vacant</option>
-            <option value="OCCUPIED">Occupied</option>
+            {/*<option value="OCCUPIED">Occupied</option>*/}
           </select>
         </div>
       </div>
