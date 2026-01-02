@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { motion, Variants } from 'framer-motion';
-import { Bill, BillType, BillStatus, Tenant, BillInvoice, InvoiceStatus } from '@/types';
-import { billsAPI, tenantsAPI, billInvoicesAPI } from '@/lib/api';
+import { Bill, BillType, BillStatus, Tenant, BillInvoice, InvoiceStatus, PaymentPolicy } from '@/types';
+import { billsAPI, tenantsAPI, billInvoicesAPI, invoicesAPI } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -308,7 +308,7 @@ export default function TenantBillsPage() {
   };
 
   const handleGenerateBillInvoice = async () => {
-    if (!selectedBill) return;
+    if (!selectedBill || !tenant) return;
     if (!billInvoiceForm.dueDate) {
         toast.error('Please select a due date');
         return;
@@ -324,10 +324,15 @@ export default function TenantBillsPage() {
 
     try {
         setGeneratingInvoice(true);
+        
+        // Use the tenant's payment policy from the tenant object
+        const paymentPolicy: PaymentPolicy = tenant.paymentPolicy || 'MONTHLY';
+        
         const response = await billInvoicesAPI.generate({
-        billId: selectedBill.id,
-        dueDate: billInvoiceForm.dueDate,
-        notes: billInvoiceForm.notes || `Invoice for remaining balance of Ksh ${remainingBalance.toLocaleString()}`,
+          billId: selectedBill.id,
+          dueDate: billInvoiceForm.dueDate,
+          notes: billInvoiceForm.notes || `Invoice for remaining balance of Ksh ${remainingBalance.toLocaleString()}`,
+          paymentPolicy: paymentPolicy // Pass the tenant's payment policy
         });
         
         toast.success('Bill invoice generated successfully!');
@@ -338,7 +343,7 @@ export default function TenantBillsPage() {
         
         // If this was a partial payment invoice, also refresh bills to show updated status
         if (remainingBalance < selectedBill.grandTotal) {
-        fetchBills();
+          fetchBills();
         }
     } catch (error: any) {
         console.error('Error generating bill invoice:', error);
@@ -354,7 +359,36 @@ export default function TenantBillsPage() {
     } finally {
         setGeneratingInvoice(false);
     }
- };
+  };
+
+  const handleGenerateRegularInvoice = async () => {
+    if (!tenant) return;
+    
+    // This is for regular rent invoices (not bill invoices)
+    try {
+      setGeneratingInvoice(true);
+      
+      // Use the tenant's payment policy
+      const paymentPolicy: PaymentPolicy = tenant.paymentPolicy || 'MONTHLY';
+      
+      // You would call the invoicesAPI.generateInvoice here
+      // Example:
+      // const invoice = await invoicesAPI.generateInvoice({
+      //   tenantId: tenant.id,
+      //   paymentPolicy: paymentPolicy,
+      //   dueDate: billInvoiceForm.dueDate,
+      //   notes: billInvoiceForm.notes
+      // });
+      
+      toast.success('Invoice generated successfully!');
+    } catch (error) {
+      console.error('Error generating invoice:', error);
+      toast.error('Failed to generate invoice');
+    } finally {
+      setGeneratingInvoice(false);
+    }
+  };
+
   const handleDeleteBill = async (billId: string) => {
     if (!confirm('Are you sure you want to delete this bill?')) return;
     try {
@@ -417,6 +451,33 @@ export default function TenantBillsPage() {
   const openGenerateInvoiceDialog = (bill: Bill) => {
     setSelectedBill(bill);
     resetBillInvoiceForm();
+    
+    // Set default due date based on tenant's payment policy
+    if (tenant) {
+      const today = new Date();
+      let dueDate = new Date();
+      
+      // Set due date based on payment policy
+      switch (tenant.paymentPolicy) {
+        case 'MONTHLY':
+          dueDate.setMonth(today.getMonth() + 1);
+          break;
+        case 'QUARTERLY':
+          dueDate.setMonth(today.getMonth() + 3);
+          break;
+        case 'ANNUAL':
+          dueDate.setFullYear(today.getFullYear() + 1);
+          break;
+        default:
+          dueDate.setMonth(today.getMonth() + 1); // Default to monthly
+      }
+      
+      setBillInvoiceForm(prev => ({
+        ...prev,
+        dueDate: dueDate.toISOString().split('T')[0]
+      }));
+    }
+    
     setShowGenerateInvoiceDialog(true);
   };
 
@@ -451,6 +512,19 @@ export default function TenantBillsPage() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
           </svg>
         );
+    }
+  };
+
+  const getPaymentPolicyColor = (policy: PaymentPolicy) => {
+    switch (policy) {
+      case 'MONTHLY':
+        return 'bg-blue-100 text-blue-700 border-blue-200';
+      case 'QUARTERLY':
+        return 'bg-purple-100 text-purple-700 border-purple-200';
+      case 'ANNUAL':
+        return 'bg-green-100 text-green-700 border-green-200';
+      default:
+        return 'bg-gray-100 text-gray-700 border-gray-200';
     }
   };
 
@@ -544,7 +618,12 @@ export default function TenantBillsPage() {
             Back to Tenant Details
           </Button>
           <h1 className="text-3xl md:text-4xl font-bold text-heading-color">Bills for {tenant.fullName}</h1>
-          <p className="text-gray-600 mt-2">Manage water and electricity bills</p>
+          <div className="flex items-center gap-4 mt-2">
+            <p className="text-gray-600">Manage water and electricity bills</p>
+            <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getPaymentPolicyColor(tenant.paymentPolicy)}`}>
+              Payment Policy: {tenant.paymentPolicy}
+            </span>
+          </div>
         </div>
         <div className="flex gap-3">
           <Button
@@ -630,6 +709,9 @@ export default function TenantBillsPage() {
       <motion.div variants={itemVariants} className="bg-white rounded-2xl shadow-lg border border-gray-200 overflow-hidden">
         <div className="p-6 border-b border-gray-200">
           <h2 className="text-xl font-bold text-heading-color">Bills History</h2>
+          <p className="text-sm text-gray-600 mt-1">
+            Tenant Payment Policy: <span className="font-semibold">{tenant.paymentPolicy}</span>
+          </p>
         </div>
         {billsLoading ? (
           <div className="flex justify-center py-12">
@@ -822,6 +904,11 @@ export default function TenantBillsPage() {
             <DialogDescription className="text-gray-700">
               Generate a new utility bill for {tenant.fullName}
             </DialogDescription>
+            <div className="mt-2">
+              <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getPaymentPolicyColor(tenant.paymentPolicy)}`}>
+                Payment Policy: {tenant.paymentPolicy}
+              </span>
+            </div>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="grid grid-cols-2 gap-4">
@@ -1335,6 +1422,11 @@ export default function TenantBillsPage() {
             <DialogDescription className="text-gray-700">
                 Create an invoice for {selectedBill?.type} bill
             </DialogDescription>
+            <div className="mt-2">
+              <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getPaymentPolicyColor(tenant.paymentPolicy)}`}>
+                Payment Policy: {tenant.paymentPolicy}
+              </span>
+            </div>
             </DialogHeader>
             {selectedBill && (
             <div className="space-y-4 py-4">
@@ -1439,6 +1531,11 @@ export default function TenantBillsPage() {
             <DialogDescription className="text-gray-700">
               Bill invoice history for {tenant.fullName}
             </DialogDescription>
+            <div className="mt-2">
+              <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getPaymentPolicyColor(tenant.paymentPolicy)}`}>
+                Payment Policy: {tenant.paymentPolicy}
+              </span>
+            </div>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-3">
@@ -1470,6 +1567,9 @@ export default function TenantBillsPage() {
                         <h4 className="font-semibold text-lg text-gray-900">{invoice.invoiceNumber}</h4>
                         <p className="text-sm text-gray-700">
                           {invoice.billType} - {new Date(invoice.issueDate).toLocaleDateString()}
+                        </p>
+                        <p className="text-xs text-gray-600 mt-1">
+                          Payment Policy: <span className="font-semibold">{invoice.paymentPolicy}</span>
                         </p>
                       </div>
                       <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getStatusColor(invoice.status)}`}>

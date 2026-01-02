@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { motion, Variants } from 'framer-motion';
-import { Tenant, Invoice, InvoiceStatus, PaymentReport, PaymentStatus, BillInvoice } from '@/types';
+import { Tenant, Invoice, InvoiceStatus, PaymentReport, PaymentStatus, BillInvoice, PaymentPolicy } from '@/types';
 import { tenantsAPI, invoicesAPI, paymentsAPI, billInvoicesAPI } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import {
@@ -42,14 +42,14 @@ export default function TenantDetailPage() {
   const [showPaymentReportsDialog, setShowPaymentReportsDialog] = useState(false);
   const [showCreatePaymentDialog, setShowCreatePaymentDialog] = useState(false);
   const [showBillInvoicesDialog, setShowBillInvoicesDialog] = useState(false);
-  const [showPartialPaymentInvoiceDialog, setShowPartialPaymentInvoiceDialog] = useState(false); // NEW
-  const [selectedPartialPayment, setSelectedPartialPayment] = useState<PaymentReport | null>(null); // NEW
+  const [showPartialPaymentInvoiceDialog, setShowPartialPaymentInvoiceDialog] = useState(false);
+  const [selectedPartialPayment, setSelectedPartialPayment] = useState<PaymentReport | null>(null);
   const [generatingPDF, setGeneratingPDF] = useState(false);
   const [generatingBillPDF, setGeneratingBillPDF] = useState(false);
   const [generatingComprehensivePDF, setGeneratingComprehensivePDF] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [creatingPayment, setCreatingPayment] = useState(false);
-  const [generatingPartialInvoice, setGeneratingPartialInvoice] = useState(false); // NEW
+  const [generatingPartialInvoice, setGeneratingPartialInvoice] = useState(false);
   
   const [invoiceForm, setInvoiceForm] = useState({
     dueDate: '',
@@ -64,7 +64,6 @@ export default function TenantDetailPage() {
     status: 'PAID' as PaymentStatus,
   });
 
-  // NEW: Form for partial payment invoice
   const [partialInvoiceForm, setPartialInvoiceForm] = useState({
     dueDate: '',
     notes: '',
@@ -222,26 +221,38 @@ export default function TenantDetailPage() {
       return;
     }
 
+    if (!tenant) {
+      toast.error('Tenant information not available');
+      return;
+    }
+
     try {
       setGenerating(true);
+      
+      // The invoice will automatically use the tenant's payment policy from the backend
+      // Display the payment policy being used
+      toast.loading(`Generating ${tenant.paymentPolicy} invoice...`);
+      
       await invoicesAPI.generateInvoice({
         tenantId,
         dueDate: invoiceForm.dueDate,
-        notes: invoiceForm.notes,
+        notes: invoiceForm.notes || `${tenant.paymentPolicy} rent invoice for ${tenant.fullName}`,
       });
-      toast.success('Invoice generated successfully!');
+      
+      toast.dismiss();
+      toast.success(`${tenant.paymentPolicy} invoice generated successfully!`);
       setShowInvoiceDialog(false);
       setInvoiceForm({ dueDate: '', notes: '' });
       fetchInvoices();
     } catch (error) {
       console.error('Error generating invoice:', error);
+      toast.dismiss();
       toast.error('Failed to generate invoice');
     } finally {
       setGenerating(false);
     }
   };
 
-  // NEW: Handle generating invoice for partial payment
   const handleGeneratePartialPaymentInvoice = async () => {
     if (!selectedPartialPayment) {
       toast.error('No payment selected');
@@ -253,14 +264,25 @@ export default function TenantDetailPage() {
       return;
     }
 
+    if (!tenant) {
+      toast.error('Tenant information not available');
+      return;
+    }
+
     try {
       setGeneratingPartialInvoice(true);
+      
+      // Display the payment policy being used
+      toast.loading(`Generating ${tenant.paymentPolicy} balance invoice...`);
+      
       await invoicesAPI.generateFromPartialPayment({
         paymentReportId: selectedPartialPayment.id,
         dueDate: partialInvoiceForm.dueDate,
-        notes: partialInvoiceForm.notes || `Balance invoice for ${selectedPartialPayment.paymentPeriod}`,
+        notes: partialInvoiceForm.notes || `Balance invoice for ${selectedPartialPayment.paymentPeriod} (${tenant.paymentPolicy})`,
       });
-      toast.success('Balance invoice generated successfully!');
+      
+      toast.dismiss();
+      toast.success(`${tenant.paymentPolicy} balance invoice generated successfully!`);
       setShowPartialPaymentInvoiceDialog(false);
       setPartialInvoiceForm({ dueDate: '', notes: '' });
       setSelectedPartialPayment(null);
@@ -268,17 +290,17 @@ export default function TenantDetailPage() {
       fetchPaymentReports();
     } catch (error: any) {
       console.error('Error generating partial payment invoice:', error);
+      toast.dismiss();
       toast.error(error.message || 'Failed to generate balance invoice');
     } finally {
       setGeneratingPartialInvoice(false);
     }
   };
 
-  // NEW: Open partial payment invoice dialog
   const openPartialPaymentInvoiceDialog = (payment: PaymentReport) => {
     setSelectedPartialPayment(payment);
     setPartialInvoiceForm({
-      dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // Default 30 days
+      dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
       notes: `Balance invoice for ${payment.paymentPeriod}`,
     });
     setShowPartialPaymentInvoiceDialog(true);
@@ -395,6 +417,19 @@ export default function TenantDetailPage() {
     }
   };
 
+  const getPaymentPolicyColor = (policy: PaymentPolicy) => {
+    switch (policy) {
+      case 'MONTHLY':
+        return 'bg-blue-100 text-blue-800 border-blue-200';
+      case 'QUARTERLY':
+        return 'bg-purple-100 text-purple-800 border-purple-200';
+      case 'ANNUAL':
+        return 'bg-indigo-100 text-indigo-800 border-indigo-200';
+      default:
+        return 'bg-gray-100 text-gray-800 border-gray-200';
+    }
+  };
+
   const containerVariants: Variants = {
     hidden: { opacity: 0 },
     visible: {
@@ -465,8 +500,6 @@ export default function TenantDetailPage() {
   }
 
   const { rent, serviceCharge, vat, totalDue } = calculatePaymentAmounts();
-
-  // NEW: Get partial payments count
   const partialPaymentsCount = paymentReports.filter(p => p.status === 'PARTIAL' && p.arrears > 0).length;
 
   return (
@@ -507,12 +540,17 @@ export default function TenantDetailPage() {
           </motion.div>
           <div>
             <h1 className="text-3xl md:text-4xl font-bold text-heading-color">{tenant.fullName}</h1>
-            <p className="text-gray-900 flex items-center gap-2 mt-1">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-              </svg>
-              ID: {tenant.id}
-            </p>
+            <div className="flex items-center gap-3 mt-2">
+              <p className="text-gray-900 flex items-center gap-2">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                </svg>
+                ID: {tenant.id}
+              </p>
+              <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getPaymentPolicyColor(tenant.paymentPolicy)}`}>
+                {tenant.paymentPolicy}
+              </span>
+            </div>
           </div>
         </div>
 
@@ -643,7 +681,6 @@ export default function TenantDetailPage() {
                 </div>
               </div>
             )}
-                {/* Email Field - Added Here */}
             {tenant.email && (
               <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors">
                 <svg className="w-5 h-5 text-gray-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -775,11 +812,16 @@ export default function TenantDetailPage() {
                 </div>
               </div>
             )}
-            <div className="p-4 bg-gray-50 rounded-xl">
+            <div className="p-4 bg-linear-to-r from-blue-50 to-purple-50 rounded-xl border border-blue-200">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-semibold text-gray-800">Payment Policy</span>
-                <span className="text-lg font-bold text-gray-900">{tenant.paymentPolicy}</span>
+                <span className={`px-3 py-1 rounded-full text-sm font-bold border ${getPaymentPolicyColor(tenant.paymentPolicy)}`}>
+                  {tenant.paymentPolicy}
+                </span>
               </div>
+              <p className="text-xs text-gray-600 mt-2">
+                All invoices will be generated based on this policy
+              </p>
             </div>
           </div>
         </motion.div>
@@ -800,24 +842,35 @@ export default function TenantDetailPage() {
               <h2 className="text-xl font-bold text-heading-color">Unit Information</h2>
             </div>
             <dl className="space-y-4">
+              {tenant.unit.unitNo && (
+                <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors">
+                  <svg className="w-5 h-5 text-gray-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                  </svg>
+                  <div className="flex-1">
+                    <dt className="text-sm font-semibold text-gray-800 mb-1">Unit Number</dt>
+                    <dd className="text-sm text-gray-900 font-medium">{tenant.unit.unitNo}</dd>
+                  </div>
+                </div>
+              )}
+              {tenant.unit.floor && (
+                <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors">
+                  <svg className="w-5 h-5 text-gray-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                  </svg>
+                  <div className="flex-1">
+                    <dt className="text-sm font-semibold text-gray-800 mb-1">Floor</dt>
+                    <dd className="text-sm text-gray-900 font-medium">{tenant.unit.floor}</dd>
+                  </div>
+                </div>
+              )}
               <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors">
                 <svg className="w-5 h-5 text-gray-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                 </svg>
                 <div className="flex-1">
                   <dt className="text-sm font-semibold text-gray-800 mb-1">Unit Type</dt>
-                  <dd className="text-sm text-gray-900 font-medium">{tenant.unit.type || 'N/A'}</dd>
-                </div>
-              </div>
-              <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors">
-                <svg className="w-5 h-5 text-gray-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-                </svg>
-                <div className="flex-1">
-                  <dt className="text-sm font-semibold text-gray-800 mb-1">Bedrooms / Bathrooms</dt>
-                  <dd className="text-sm text-gray-900 font-medium">
-                    {tenant.unit.bedrooms} bed &bull; {tenant.unit.bathrooms} bath
-                  </dd>
+                  <dd className="text-sm text-gray-900 font-medium">{tenant.unit.unitType}</dd>
                 </div>
               </div>
               <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors">
@@ -825,29 +878,32 @@ export default function TenantDetailPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
                 </svg>
                 <div className="flex-1">
-                  <dt className="text-sm font-semibold text-gray-900 mb-1">Size</dt>
+                  <dt className="text-sm font-semibold text-gray-800 mb-1">Size</dt>
                   <dd className="text-sm text-gray-900 font-medium">{tenant.unit.sizeSqFt} sq ft</dd>
                 </div>
               </div>
-              <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors">
-                <svg className="w-5 h-5 text-gray-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                <div className="flex-1">
-                  <dt className="text-sm font-semibold text-gray-800 mb-1">Status</dt>
-                  <dd>
-                    <span
-                      className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${
-                        tenant.unit.status === 'VACANT'
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-blue-100 text-blue-800'
-                      }`}
-                    >
-                      {tenant.unit.status}
-                    </span>
-                  </dd>
+              {tenant.unit.bedrooms && (
+                <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors">
+                  <svg className="w-5 h-5 text-gray-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                  </svg>
+                  <div className="flex-1">
+                    <dt className="text-sm font-semibold text-gray-800 mb-1">Bedrooms</dt>
+                    <dd className="text-sm text-gray-900 font-medium">{tenant.unit.bedrooms}</dd>
+                  </div>
                 </div>
-              </div>
+              )}
+              {tenant.unit.bathrooms && (
+                <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors">
+                  <svg className="w-5 h-5 text-gray-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 14v3m4-3v3m4-3v3M3 21h18M3 10h18M3 7l9-4 9 4M4 10h16v11H4V10z" />
+                  </svg>
+                  <div className="flex-1">
+                    <dt className="text-sm font-semibold text-gray-800 mb-1">Bathrooms</dt>
+                    <dd className="text-sm text-gray-900 font-medium">{tenant.unit.bathrooms}</dd>
+                  </div>
+                </div>
+              )}
             </dl>
           </motion.div>
         )}
@@ -857,53 +913,43 @@ export default function TenantDetailPage() {
       <Dialog open={showInvoiceDialog} onOpenChange={setShowInvoiceDialog}>
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
-            <DialogTitle className="text-2xl font-bold text-gray-900">Generate New Invoice</DialogTitle>
+            <DialogTitle className="text-2xl font-bold text-heading-color">Generate Invoice</DialogTitle>
             <DialogDescription className="text-gray-700">
-              Create a new invoice for {tenant.fullName}
+              Generate a new invoice for {tenant.fullName}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
+          <div className="mt-2 p-3 bg-blue-50 rounded-lg border border-blue-200">
+            <div className="text-sm text-blue-900 font-medium">
+              Payment Policy: <span className="font-bold">{tenant.paymentPolicy}</span>
+            </div>
+            <div className="text-xs text-blue-700 mt-1">
+              The invoice will be generated according to this policy
+            </div>
+          </div>
+          <div className="space-y-6 py-4">
             <div className="space-y-2">
-              <Label htmlFor="dueDate" className="text-gray-900">Due Date *</Label>
+              <Label htmlFor="dueDate" className="text-sm font-semibold text-gray-800">
+                Due Date <span className="text-red-500">*</span>
+              </Label>
               <Input
                 id="dueDate"
                 type="date"
                 value={invoiceForm.dueDate}
                 onChange={(e) => setInvoiceForm({ ...invoiceForm, dueDate: e.target.value })}
-                min={new Date().toISOString().split('T')[0]}
-                required
-                className="text-gray-900"
+                className="w-full text-gray-800"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="notes" className="text-gray-900">Notes (Optional)</Label>
+              <Label htmlFor="notes" className="text-sm font-semibold text-gray-800">
+                Notes (Optional)
+              </Label>
               <Textarea
                 id="notes"
-                placeholder="Add any additional notes for this invoice..."
+                placeholder={`Add any additional notes (e.g., ${tenant.paymentPolicy} rent for December 2025)`}
                 value={invoiceForm.notes}
                 onChange={(e) => setInvoiceForm({ ...invoiceForm, notes: e.target.value })}
-                rows={3}
-                className="text-gray-900 placeholder:text-gray-600"
+                className="min-h-[100px] text-gray-800"
               />
-            </div>
-            {/* Preview */}
-            <div className="bg-gray-50 rounded-lg p-4 space-y-2 border border-gray-200">
-              <h4 className="font-semibold text-sm text-gray-900">Invoice Preview</h4>
-              <div className="text-sm space-y-1">
-                <div className="flex justify-between">
-                  <span className="text-gray-900 font-medium">Rent:</span>
-                  <span className="font-bold text-gray-900">Ksh {tenant.rent.toLocaleString()}</span>
-                </div>
-                {tenant.serviceCharge && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-900 font-medium">Service Charge:</span>
-                    <span className="font-bold text-gray-900">
-                      {tenant.serviceCharge.type === 'FIXED' && `Ksh ${tenant.serviceCharge.fixedAmount?.toLocaleString()}`}
-                      {tenant.serviceCharge.type === 'PERCENTAGE' && `${tenant.serviceCharge.percentage}%`}
-                    </span>
-                  </div>
-                )}
-              </div>
             </div>
           </div>
           <DialogFooter>
@@ -921,11 +967,10 @@ export default function TenantDetailPage() {
             >
               {generating ? (
                 <>
-                  <motion.div
-                    className="w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2"
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                  />
+                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
                   Generating...
                 </>
               ) : (
@@ -936,221 +981,217 @@ export default function TenantDetailPage() {
         </DialogContent>
       </Dialog>
 
-      {/* NEW: Generate Invoice for Partial Payment Dialog */}
-      <Dialog open={showPartialPaymentInvoiceDialog} onOpenChange={setShowPartialPaymentInvoiceDialog}>
-        <DialogContent className="sm:max-w-[500px]">
+      {/* Invoices List Dialog */}
+      <Dialog open={showInvoicesList} onOpenChange={setShowInvoicesList}>
+        <DialogContent className="max-w-6xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-2xl font-bold text-gray-900">Generate Balance Invoice</DialogTitle>
+            <DialogTitle className="text-2xl font-bold text-heading-color">Invoices</DialogTitle>
             <DialogDescription className="text-gray-700">
-              Create an invoice for the outstanding balance from partial payment
+              All invoices for {tenant.fullName}
             </DialogDescription>
           </DialogHeader>
-          {selectedPartialPayment && (
-            <div className="space-y-4 py-4">
-              {/* Payment Info */}
-              <div className="bg-yellow-50 rounded-lg p-4 border border-yellow-200">
-                <h4 className="font-semibold text-sm text-gray-900 mb-2">Payment Information</h4>
-                <div className="text-sm space-y-1">
-                  <div className="flex justify-between">
-                    <span className="text-gray-700">Period:</span>
-                    <span className="font-medium text-gray-900">{selectedPartialPayment.paymentPeriod}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-700">Total Due:</span>
-                    <span className="font-medium text-gray-900">Ksh {selectedPartialPayment.totalDue.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-700">Amount Paid:</span>
-                    <span className="font-medium text-green-600">Ksh {selectedPartialPayment.amountPaid.toLocaleString()}</span>
-                  </div>
-                  <div className="flex justify-between pt-2 border-t border-yellow-300">
-                    <span className="font-semibold text-gray-900">Outstanding Balance:</span>
-                    <span className="font-bold text-red-600">Ksh {selectedPartialPayment.arrears.toLocaleString()}</span>
-                  </div>
-                </div>
+          <div className="space-y-4 py-4">
+            {invoicesLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
               </div>
-
-              {/* Form Fields */}
-              <div className="space-y-2">
-                <Label htmlFor="partialDueDate" className="text-gray-900">Due Date *</Label>
-                <Input
-                  id="partialDueDate"
-                  type="date"
-                  value={partialInvoiceForm.dueDate}
-                  onChange={(e) => setPartialInvoiceForm({ ...partialInvoiceForm, dueDate: e.target.value })}
-                  min={new Date().toISOString().split('T')[0]}
-                  required
-                  className="text-gray-900"
-                />
+            ) : invoices.length === 0 ? (
+              <div className="text-center py-12 text-gray-500">
+                <svg className="w-16 h-16 mx-auto mb-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <p className="text-lg font-medium">No invoices found</p>
+                <p className="text-sm mt-1">Generate your first invoice to get started</p>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="partialNotes" className="text-gray-900">Notes (Optional)</Label>
-                <Textarea
-                  id="partialNotes"
-                  placeholder="Add any additional notes for this balance invoice..."
-                  value={partialInvoiceForm.notes}
-                  onChange={(e) => setPartialInvoiceForm({ ...partialInvoiceForm, notes: e.target.value })}
-                  rows={3}
-                  className="text-gray-900 placeholder:text-gray-600"
-                />
-              </div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setShowPartialPaymentInvoiceDialog(false);
-                setSelectedPartialPayment(null);
-                setPartialInvoiceForm({ dueDate: '', notes: '' });
-              }}
-              disabled={generatingPartialInvoice}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleGeneratePartialPaymentInvoice}
-              disabled={generatingPartialInvoice || !partialInvoiceForm.dueDate}
-              className="bg-orange-600 hover:bg-orange-700"
-            >
-              {generatingPartialInvoice ? (
-                <>
+            ) : (
+              <div className="grid gap-4">
+                {invoices.map((invoice) => (
                   <motion.div
-                    className="w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2"
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                  />
-                  Generating...
-                </>
-              ) : (
-                'Generate Balance Invoice'
-              )}
-            </Button>
-          </DialogFooter>
+                    key={invoice.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="p-6 border border-gray-200 rounded-xl hover:shadow-lg transition-shadow bg-white"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="space-y-3 flex-1">
+                        <div className="flex items-center gap-3">
+                          <h3 className="text-lg font-bold text-gray-900">{invoice.invoiceNumber}</h3>
+                          <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getStatusColor(invoice.status)}`}>
+                            {invoice.status}
+                          </span>
+                          <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getPaymentPolicyColor(invoice.paymentPolicy)}`}>
+                            {invoice.paymentPolicy}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                          <div>
+                            <p className="text-gray-500 font-medium">Period</p>
+                            <p className="text-gray-900 font-semibold">{invoice.paymentPeriod}</p>
+                          </div>
+                          <div>
+                            <p className="text-gray-500 font-medium">Issue Date</p>
+                            <p className="text-gray-900 font-semibold">
+                              {new Date(invoice.issueDate).toLocaleDateString()}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-gray-500 font-medium">Due Date</p>
+                            <p className="text-gray-900 font-semibold">
+                              {new Date(invoice.dueDate).toLocaleDateString()}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-gray-500 font-medium">Total Due</p>
+                            <p className="text-gray-900 font-bold">Ksh {invoice.totalDue.toLocaleString()}</p>
+                          </div>
+                        </div>
+                        {invoice.amountPaid > 0 && (
+                          <div className="grid grid-cols-2 gap-4 text-sm">
+                            <div>
+                              <p className="text-gray-500 font-medium">Amount Paid</p>
+                              <p className="text-green-700 font-bold">Ksh {invoice.amountPaid.toLocaleString()}</p>
+                            </div>
+                            <div>
+                              <p className="text-gray-500 font-medium">Balance</p>
+                              <p className="text-red-700 font-bold">Ksh {invoice.balance.toLocaleString()}</p>
+                            </div>
+                          </div>
+                        )}
+                        {invoice.notes && (
+                          <div className="text-sm">
+                            <p className="text-gray-500 font-medium">Notes</p>
+                            <p className="text-gray-700">{invoice.notes}</p>
+                          </div>
+                        )}
+                      </div>
+                      <Button
+                        onClick={() => handleDownloadInvoice(invoice.id, invoice.invoiceNumber)}
+                        variant="outline"
+                        size="sm"
+                        className="ml-4 shrink-0"
+                      >
+                        <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                        Download
+                      </Button>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
 
-      {/* Create Payment Report Dialog */}
+      {/* Create Payment Dialog */}
       <Dialog open={showCreatePaymentDialog} onOpenChange={setShowCreatePaymentDialog}>
-        <DialogContent className="sm:max-w-[600px] max-h-[80vh] overflow-hidden flex flex-col">
-          <div className="shrink-0">
-            <DialogHeader>
-              <DialogTitle className="text-2xl font-bold text-gray-900">Record Payment</DialogTitle>
-              <DialogDescription className="text-gray-700">
-                Create a new payment report for {tenant.fullName}
-              </DialogDescription>
-            </DialogHeader>
-          </div>
-          <div className="flex-1 overflow-y-auto space-y-4 py-4 px-1">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="paymentPeriod" className="text-gray-900">Payment Period *</Label>
-                <Input
-                  id="paymentPeriod"
-                  type="month"
-                  value={paymentForm.paymentPeriod}
-                  onChange={(e) => setPaymentForm({ ...paymentForm, paymentPeriod: e.target.value })}
-                  required
-                  className="text-gray-900 placeholder:text-gray-600"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="datePaid" className="text-gray-900">Date Paid *</Label>
-                <Input
-                  id="datePaid"
-                  type="date"
-                  value={paymentForm.datePaid}
-                  onChange={(e) => setPaymentForm({ ...paymentForm, datePaid: e.target.value })}
-                  required
-                  className="text-gray-900"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="amountPaid" className="text-gray-900">Amount Paid *</Label>
-                <Input
-                  id="amountPaid"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  placeholder="0.00"
-                  value={paymentForm.amountPaid}
-                  onChange={(e) => setPaymentForm({ ...paymentForm, amountPaid: e.target.value })}
-                  required
-                  className="text-gray-900 placeholder:text-gray-600"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="status" className="text-gray-900">Payment Status *</Label>
-                <Select
-                  value={paymentForm.status}
-                  onValueChange={(value: PaymentStatus) => setPaymentForm({ ...paymentForm, status: value })}
-                >
-                  <SelectTrigger className="text-gray-900">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="PAID">Paid</SelectItem>
-                    <SelectItem value="PARTIAL">Partial</SelectItem>
-                    <SelectItem value="UNPAID">Unpaid</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="paymentNotes" className="text-gray-900">Notes (Optional)</Label>
-              <Textarea
-                id="paymentNotes"
-                placeholder="Add any additional notes about this payment..."
-                value={paymentForm.notes}
-                onChange={(e) => setPaymentForm({ ...paymentForm, notes: e.target.value })}
-                rows={3}
-                className="text-gray-900 placeholder:text-gray-600"
-              />
-            </div>
-            {/* Payment Preview */}
-            <div className="bg-blue-50 rounded-lg p-4 space-y-3 border border-blue-200">
-              <h4 className="font-semibold text-sm text-gray-900">Payment Calculation Preview</h4>
-              <div className="text-sm space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-gray-900 font-medium">Rent:</span>
-                  <span className="font-bold text-gray-900">Ksh {rent.toLocaleString()}</span>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-bold text-heading-color">Record Payment</DialogTitle>
+            <DialogDescription className="text-gray-700">
+              Record a new payment for {tenant.fullName}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-6 py-4">
+            <div className="p-4 bg-linear-to-r from-green-50 to-green-100 rounded-xl border border-green-200">
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <p className="text-gray-600 font-medium">Rent</p>
+                  <p className="text-gray-900 font-bold">Ksh {rent.toLocaleString()}</p>
                 </div>
                 {serviceCharge > 0 && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-900 font-medium">Service Charge:</span>
-                    <span className="font-bold text-gray-900">Ksh {serviceCharge.toLocaleString()}</span>
+                  <div>
+                    <p className="text-gray-600 font-medium">Service Charge</p>
+                    <p className="text-gray-900 font-bold">Ksh {serviceCharge.toLocaleString()}</p>
                   </div>
                 )}
                 {vat > 0 && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-900 font-medium">VAT ({tenant.vatRate}%):</span>
-                    <span className="font-bold text-gray-900">Ksh {vat.toLocaleString()}</span>
+                  <div>
+                    <p className="text-gray-600 font-medium">VAT</p>
+                    <p className="text-gray-900 font-bold">Ksh {vat.toLocaleString()}</p>
                   </div>
                 )}
-                <div className="flex justify-between pt-2 border-t border-blue-300">
-                  <span className="font-semibold text-gray-900">Total Due:</span>
-                  <span className="font-bold text-blue-700">Ksh {totalDue.toLocaleString()}</span>
+                <div>
+                  <p className="text-gray-600 font-medium">Total Due</p>
+                  <p className="text-gray-900 font-bold text-lg">Ksh {totalDue.toLocaleString()}</p>
                 </div>
-                {paymentForm.amountPaid && (
-                  <>
-                    <div className="flex justify-between">
-                      <span className="text-gray-900 font-medium">Amount Paid:</span>
-                      <span className="font-bold text-green-600">Ksh {parseFloat(paymentForm.amountPaid).toLocaleString()}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-900 font-medium">Arrears:</span>
-                      <span className={`font-bold ${Math.max(0, totalDue - parseFloat(paymentForm.amountPaid)) > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                        Ksh {Math.max(0, totalDue - parseFloat(paymentForm.amountPaid || '0')).toLocaleString()}
-                      </span>
-                    </div>
-                  </>
-                )}
               </div>
             </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="paymentPeriod" className="text-sm font-semibold text-gray-800">
+                Payment Period <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                id="paymentPeriod"
+                placeholder="e.g., January 2025"
+                value={paymentForm.paymentPeriod}
+                onChange={(e) => setPaymentForm({ ...paymentForm, paymentPeriod: e.target.value })}
+                className="w-full"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="datePaid" className="text-sm font-semibold text-gray-800">
+                Date Paid <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                id="datePaid"
+                type="date"
+                value={paymentForm.datePaid}
+                onChange={(e) => setPaymentForm({ ...paymentForm, datePaid: e.target.value })}
+                className="w-full"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="amountPaid" className="text-sm font-semibold text-gray-800">
+                Amount Paid <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                id="amountPaid"
+                type="number"
+                placeholder="Enter amount"
+                value={paymentForm.amountPaid}
+                onChange={(e) => setPaymentForm({ ...paymentForm, amountPaid: e.target.value })}
+                className="w-full"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="status" className="text-sm font-semibold text-gray-800">
+                Payment Status
+              </Label>
+              <Select
+                value={paymentForm.status}
+                onValueChange={(value: PaymentStatus) => setPaymentForm({ ...paymentForm, status: value })}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="PAID">Paid</SelectItem>
+                  <SelectItem value="PARTIAL">Partial</SelectItem>
+                  <SelectItem value="UNPAID">Unpaid</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="paymentNotes" className="text-sm font-semibold text-gray-800">
+                Notes (Optional)
+              </Label>
+              <Textarea
+                id="paymentNotes"
+                placeholder="Add any additional notes"
+                value={paymentForm.notes}
+                onChange={(e) => setPaymentForm({ ...paymentForm, notes: e.target.value })}
+                className="min-h-20"
+              />
+            </div>
           </div>
-          <DialogFooter className="shrink-0 pt-4 border-t border-gray-200">
+          <DialogFooter>
             <Button
               variant="outline"
               onClick={() => setShowCreatePaymentDialog(false)}
@@ -1165,12 +1206,11 @@ export default function TenantDetailPage() {
             >
               {creatingPayment ? (
                 <>
-                  <motion.div
-                    className="w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2"
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                  />
-                  Recording...
+                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Creating...
                 </>
               ) : (
                 'Record Payment'
@@ -1180,467 +1220,343 @@ export default function TenantDetailPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Invoices List Dialog */}
-      <Dialog open={showInvoicesList} onOpenChange={setShowInvoicesList}>
-        <DialogContent className="sm:max-w-[700px] max-h-[80vh] overflow-y-auto">
+      {/* Payment Reports Dialog */}
+      <Dialog open={showPaymentReportsDialog} onOpenChange={setShowPaymentReportsDialog}>
+        <DialogContent className="max-w-6xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-2xl font-bold text-gray-900">Invoice History</DialogTitle>
+            <DialogTitle className="text-2xl font-bold text-heading-color">Payment Reports</DialogTitle>
             <DialogDescription className="text-gray-700">
-              All invoices for {tenant.fullName}
+              <div className="flex items-center justify-between">
+                <span>All payment reports for {tenant.fullName}</span>
+                <Button
+                  onClick={handleDownloadPaymentReport}
+                  disabled={generatingPDF || paymentReports.length === 0}
+                  size="sm"
+                  className="ml-4"
+                >
+                  {generatingPDF ? (
+                    <>
+                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                      </svg>
+                      Download Report
+                    </>
+                  )}
+                </Button>
+              </div>
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3 py-4">
-            {invoicesLoading ? (
-              <div className="flex justify-center py-8">
-                <motion.div
-                  className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full"
-                  animate={{ rotate: 360 }}
-                  transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                />
+          <div className="space-y-4 py-4">
+            {paymentReportsLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
               </div>
-            ) : invoices.length === 0 ? (
-              <div className="text-center py-8">
-                <svg className="w-16 h-16 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            ) : paymentReports.length === 0 ? (
+              <div className="text-center py-12 text-gray-500">
+                <svg className="w-16 h-16 mx-auto mb-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                 </svg>
-                <p className="text-gray-700">No invoices generated yet</p>
+                <p className="text-lg font-medium">No payment reports found</p>
+                <p className="text-sm mt-1">Record your first payment to get started</p>
               </div>
             ) : (
-              invoices.map((invoice) => (
-                <motion.div
-                  key={invoice.id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
-                >
-                  <div className="flex items-start justify-between mb-3">
-                    <div>
-                      <h4 className="font-semibold text-lg text-gray-900">{invoice.invoiceNumber}</h4>
-                      <p className="text-sm text-gray-700">{invoice.paymentPeriod}</p>
-                    </div>
-                    <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getStatusColor(invoice.status)}`}>
-                      {invoice.status}
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 text-sm mb-3">
-                    <div>
-                      <p className="text-gray-700">Issue Date</p>
-                      <p className="font-medium text-gray-900">{new Date(invoice.issueDate).toLocaleDateString()}</p>
-                    </div>
-                    <div>
-                      <p className="text-gray-700">Due Date</p>
-                      <p className="font-medium text-gray-900">{new Date(invoice.dueDate).toLocaleDateString()}</p>
-                    </div>
-                    <div>
-                      <p className="text-gray-700">Total Due</p>
-                      <p className="font-semibold text-primary">Ksh {invoice.totalDue.toLocaleString()}</p>
-                    </div>
-                    <div>
-                      <p className="text-gray-700">Balance</p>
-                      <p className={`font-semibold ${invoice.balance > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                        Ksh {invoice.balance.toLocaleString()}
-                      </p>
-                    </div>
-                  </div>
-                  <Button
-                    onClick={() => handleDownloadInvoice(invoice.id, invoice.invoiceNumber)}
-                    variant="outline"
-                    size="sm"
-                    className="w-full"
+              <div className="grid gap-4">
+                {paymentReports.map((report) => (
+                  <motion.div
+                    key={report.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="p-6 border border-gray-200 rounded-xl hover:shadow-lg transition-shadow bg-white"
                   >
-                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    Download PDF
-                  </Button>
-                </motion.div>
-              ))
+                    <div className="flex items-start justify-between">
+                      <div className="space-y-3 flex-1">
+                        <div className="flex items-center gap-3">
+                          <h3 className="text-lg font-bold text-gray-900">{report.paymentPeriod}</h3>
+                          <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getPaymentStatusColor(report.status)}`}>
+                            {report.status}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                          <div>
+                            <p className="text-gray-500 font-medium">Total Due</p>
+                            <p className="text-gray-900 font-bold">Ksh {report.totalDue.toLocaleString()}</p>
+                          </div>
+                          <div>
+                            <p className="text-gray-500 font-medium">Amount Paid</p>
+                            <p className="text-green-700 font-bold">Ksh {report.amountPaid.toLocaleString()}</p>
+                          </div>
+                          {report.arrears > 0 && (
+                            <div>
+                              <p className="text-gray-500 font-medium">Arrears</p>
+                              <p className="text-red-700 font-bold">Ksh {report.arrears.toLocaleString()}</p>
+                            </div>
+                          )}
+                          <div>
+                            <p className="text-gray-500 font-medium">Date Paid</p>
+                            <p className="text-gray-900 font-semibold">
+                              {new Date(report.datePaid).toLocaleDateString()}
+                            </p>
+                          </div>
+                        </div>
+                        {report.notes && (
+                          <div className="text-sm">
+                            <p className="text-gray-500 font-medium">Notes</p>
+                            <p className="text-gray-700">{report.notes}</p>
+                          </div>
+                        )}
+                      </div>
+                      {report.status === 'PARTIAL' && report.arrears > 0 && (
+                        <Button
+                          onClick={() => openPartialPaymentInvoiceDialog(report)}
+                          size="sm"
+                          className="ml-4 shrink-0 bg-yellow-600 hover:bg-yellow-700"
+                        >
+                          <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                          </svg>
+                          Generate Balance Invoice
+                        </Button>
+                      )}
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
             )}
           </div>
         </DialogContent>
       </Dialog>
 
-      {/* Payment Reports Dialog - UPDATED WITH GENERATE INVOICE BUTTON */}
-      <Dialog open={showPaymentReportsDialog} onOpenChange={setShowPaymentReportsDialog}>
-        <DialogContent className="sm:max-w-[800px] max-h-[80vh] overflow-y-auto">
+      {/* Partial Payment Invoice Dialog */}
+      <Dialog open={showPartialPaymentInvoiceDialog} onOpenChange={setShowPartialPaymentInvoiceDialog}>
+        <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
-            <DialogTitle className="text-2xl font-bold text-gray-900">Payment Reports</DialogTitle>
+            <DialogTitle className="text-2xl font-bold text-heading-color">Generate Balance Invoice</DialogTitle>
             <DialogDescription className="text-gray-700">
-              Payment history for {tenant.fullName}
-              {partialPaymentsCount > 0 && (
-                <span className="ml-2 text-yellow-600 font-semibold">
-                  ({partialPaymentsCount} payment{partialPaymentsCount > 1 ? 's' : ''} with balance)
-                </span>
+              {selectedPartialPayment && (
+                <>
+                  Generate invoice for outstanding balance of{' '}
+                  <span className="font-bold text-red-700">
+                    Ksh {selectedPartialPayment.arrears.toLocaleString()}
+                  </span>
+                </>
               )}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            {/* Download PDF Buttons */}
-            <div className="flex justify-end gap-3">
-              <Button
-                onClick={handleDownloadPaymentReport}
-                disabled={generatingPDF || paymentReports.length === 0}
-                className="bg-green-600 hover:bg-green-700 text-white"
-              >
-                {generatingPDF ? (
-                  <>
-                    <motion.div
-                      className="w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2"
-                      animate={{ rotate: 360 }}
-                      transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                    />
-                    Generating PDF...
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    Rent Report
-                  </>
-                )}
-              </Button>
-              <Button
-                onClick={handleDownloadBillPaymentReport}
-                disabled={generatingBillPDF || billInvoices.length === 0}
-                className="bg-purple-600 hover:bg-purple-700 text-white"
-              >
-                {generatingBillPDF ? (
-                  <>
-                    <motion.div
-                      className="w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2"
-                      animate={{ rotate: 360 }}
-                      transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                    />
-                    Generating PDF...
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    Bills Report
-                  </>
-                )}
-              </Button>
-              <Button
-                onClick={handleDownloadComprehensiveReport}
-                disabled={generatingComprehensivePDF || (paymentReports.length === 0 && billInvoices.length === 0)}
-                className="bg-blue-600 hover:bg-blue-700 text-white"
-              >
-                {generatingComprehensivePDF ? (
-                  <>
-                    <motion.div
-                      className="w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2"
-                      animate={{ rotate: 360 }}
-                      transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                    />
-                    Generating PDF...
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    Comprehensive
-                  </>
-                )}
-              </Button>
-            </div>
-            {/* Payment Reports List */}
-            <div className="space-y-3">
-              {paymentReportsLoading ? (
-                <div className="flex justify-center py-8">
-                  <motion.div
-                    className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full"
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                  />
+          {selectedPartialPayment && (
+            <>
+              <div className="mt-2 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
+                <div className="text-sm text-yellow-900">
+                  Period: <span className="font-bold">{selectedPartialPayment.paymentPeriod}</span>
                 </div>
-              ) : paymentReports.length === 0 ? (
-                <div className="text-center py-8">
-                  <svg className="w-16 h-16 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                  </svg>
-                  <p className="text-gray-700 mb-4">No payment reports found</p>
-                  <Button
-                    onClick={() => {
-                      setShowPaymentReportsDialog(false);
-                      setShowCreatePaymentDialog(true);
-                    }}
-                    className="bg-blue-600 hover:bg-blue-700"
-                  >
-                    Create First Payment Report
-                  </Button>
-                </div>
-              ) : (
-                paymentReports.map((report) => (
-                  <motion.div
-                    key={report.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
-                  >
-                    <div className="flex items-start justify-between mb-3">
-                      <div>
-                        <h4 className="font-semibold text-lg text-gray-900">{report.paymentPeriod}</h4>
-                        <p className="text-sm text-gray-700">
-                          Paid on: {new Date(report.datePaid).toLocaleDateString('en-US', {
-                            year: 'numeric',
-                            month: 'long',
-                            day: 'numeric',
-                          })}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getPaymentStatusColor(report.status)}`}>
-                          {report.status}
-                        </span>
-                        {/* NEW: Generate Invoice Button for Partial Payments */}
-                        {report.status === 'PARTIAL' && report.arrears > 0 && (
-                          <Button
-                            onClick={() => openPartialPaymentInvoiceDialog(report)}
-                            size="sm"
-                            className="bg-orange-600 hover:bg-orange-700 text-white text-xs px-3 py-1 h-auto"
-                          >
-                            <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                            </svg>
-                            Invoice Balance
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                      <div className="bg-gray-50 p-3 rounded">
-                        <p className="text-gray-700 text-xs mb-1">Rent</p>
-                        <p className="font-semibold text-gray-900">Ksh {report.rent.toLocaleString()}</p>
-                      </div>
-                      {report.serviceCharge && (
-                        <div className="bg-gray-50 p-3 rounded">
-                          <p className="text-gray-700 text-xs mb-1">Service Charge</p>
-                          <p className="font-semibold text-gray-900">Ksh {report.serviceCharge.toLocaleString()}</p>
-                        </div>
-                      )}
-                      {report.vat && (
-                        <div className="bg-gray-50 p-3 rounded">
-                          <p className="text-gray-700 text-xs mb-1">VAT</p>
-                          <p className="font-semibold text-gray-900">Ksh {report.vat.toLocaleString()}</p>
-                        </div>
-                      )}
-                      <div className="bg-blue-50 p-3 rounded">
-                        <p className="text-gray-700 text-xs mb-1">Total Due</p>
-                        <p className="font-semibold text-blue-700">Ksh {report.totalDue.toLocaleString()}</p>
-                      </div>
-                      <div className="bg-green-50 p-3 rounded">
-                        <p className="text-gray-700 text-xs mb-1">Amount Paid</p>
-                        <p className="font-semibold text-green-700">Ksh {report.amountPaid.toLocaleString()}</p>
-                      </div>
-                      <div className={`p-3 rounded ${report.arrears > 0 ? 'bg-red-50' : 'bg-gray-50'}`}>
-                        <p className="text-gray-700 text-xs mb-1">Arrears</p>
-                        <p className={`font-semibold ${report.arrears > 0 ? 'text-red-700' : 'text-gray-700'}`}>
-                          Ksh {report.arrears.toLocaleString()}
-                        </p>
-                      </div>
-                    </div>
-                    {report.notes && (
-                      <div className="mt-3 p-3 bg-yellow-50 rounded">
-                        <p className="text-xs text-gray-700 mb-1">Notes:</p>
-                        <p className="text-sm text-gray-900">{report.notes}</p>
-                      </div>
-                    )}
-                  </motion.div>
-                ))
-              )}
-            </div>
-            {/* Summary */}
-            {paymentReports.length > 0 && (
-              <div className="mt-6 p-6 bg-linear-to-r from-blue-50 to-purple-50 rounded-xl border-2 border-blue-200">
-                <h4 className="font-bold text-lg mb-4 text-gray-900">Payment Summary</h4>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  <div>
-                    <p className="text-sm text-gray-700 mb-1">Total Expected</p>
-                    <p className="text-2xl font-bold text-gray-900">
-                      Ksh {paymentReports.reduce((sum, r) => sum + r.totalDue, 0).toLocaleString()}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-700 mb-1">Total Paid</p>
-                    <p className="text-2xl font-bold text-green-600">
-                      Ksh {paymentReports.reduce((sum, r) => sum + r.amountPaid, 0).toLocaleString()}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-700 mb-1">Total Arrears</p>
-                    <p className="text-2xl font-bold text-red-600">
-                      Ksh {paymentReports.reduce((sum, r) => sum + r.arrears, 0).toLocaleString()}
-                    </p>
-                  </div>
+                <div className="text-sm text-yellow-900">
+                  Paid: Ksh {selectedPartialPayment.amountPaid.toLocaleString()} of Ksh {selectedPartialPayment.totalDue.toLocaleString()}
                 </div>
               </div>
-            )}
+              <div className="mt-2 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                <div className="text-sm text-blue-900 font-medium">
+                  Payment Policy: <span className="font-bold">{tenant.paymentPolicy}</span>
+                </div>
+              </div>
+            </>
+          )}
+          <div className="space-y-6 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="partialDueDate" className="text-sm font-semibold text-gray-800">
+                Due Date <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                id="partialDueDate"
+                type="date"
+                value={partialInvoiceForm.dueDate}
+                onChange={(e) => setPartialInvoiceForm({ ...partialInvoiceForm, dueDate: e.target.value })}
+                className="w-full"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="partialNotes" className="text-sm font-semibold text-gray-800">
+                Notes (Optional)
+              </Label>
+              <Textarea
+                id="partialNotes"
+                placeholder="Add any additional notes"
+                value={partialInvoiceForm.notes}
+                onChange={(e) => setPartialInvoiceForm({ ...partialInvoiceForm, notes: e.target.value })}
+                className="min-h-[100px]"
+              />
+            </div>
           </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowPartialPaymentInvoiceDialog(false);
+                setSelectedPartialPayment(null);
+              }}
+              disabled={generatingPartialInvoice}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleGeneratePartialPaymentInvoice}
+              disabled={generatingPartialInvoice || !partialInvoiceForm.dueDate}
+              className="bg-yellow-600 hover:bg-yellow-700"
+            >
+              {generatingPartialInvoice ? (
+                <>
+                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Generating...
+                </>
+              ) : (
+                'Generate Balance Invoice'
+              )}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* Bill Invoices Dialog */}
       <Dialog open={showBillInvoicesDialog} onOpenChange={setShowBillInvoicesDialog}>
-        <DialogContent className="sm:max-w-[800px] max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-w-6xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-2xl font-bold text-gray-900">Bill Invoices</DialogTitle>
+            <DialogTitle className="text-2xl font-bold text-heading-color">Bill Invoices</DialogTitle>
             <DialogDescription className="text-gray-700">
-              Bill payment history for {tenant.fullName}
+              <div className="flex items-center justify-between">
+                <span>All bill invoices for {tenant.fullName}</span>
+                <div className="flex gap-2">
+                  <Button
+                    onClick={handleDownloadBillPaymentReport}
+                    disabled={generatingBillPDF || billInvoices.length === 0}
+                    size="sm"
+                    variant="outline"
+                  >
+                    {generatingBillPDF ? (
+                      <>
+                        <svg className="animate-spin -ml-1 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                        Bill Report
+                      </>
+                    )}
+                  </Button>
+                  <Button
+                    onClick={handleDownloadComprehensiveReport}
+                    disabled={generatingComprehensivePDF || (paymentReports.length === 0 && billInvoices.length === 0)}
+                    size="sm"
+                  >
+                    {generatingComprehensivePDF ? (
+                      <>
+                        <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                        Full Report
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
-            {/* Download PDF Button */}
-            <div className="flex justify-end">
-              <Button
-                onClick={handleDownloadBillPaymentReport}
-                disabled={generatingBillPDF || billInvoices.length === 0}
-                className="bg-purple-600 hover:bg-purple-700 text-white"
-              >
-                {generatingBillPDF ? (
-                  <>
-                    <motion.div
-                      className="w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2"
-                      animate={{ rotate: 360 }}
-                      transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                    />
-                    Generating PDF...
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    Download Bill Report
-                  </>
-                )}
-              </Button>
-            </div>
-            {/* Bill Invoices List */}
-            <div className="space-y-3">
-              {billInvoicesLoading ? (
-                <div className="flex justify-center py-8">
+            {billInvoicesLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+              </div>
+            ) : billInvoices.length === 0 ? (
+              <div className="text-center py-12 text-gray-500">
+                <svg className="w-16 h-16 mx-auto mb-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <p className="text-lg font-medium">No bill invoices found</p>
+                <p className="text-sm mt-1">Bill invoices will appear here once generated</p>
+              </div>
+            ) : (
+              <div className="grid gap-4">
+                {billInvoices.map((billInvoice) => (
                   <motion.div
-                    className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full"
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                  />
-                </div>
-              ) : billInvoices.length === 0 ? (
-                <div className="text-center py-8">
-                  <svg className="w-16 h-16 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                  <p className="text-gray-700 mb-4">No bill invoices found</p>
-                  <Button
-                    onClick={() => router.push(`/properties/${params.id}/tenant-details/bills`)}
-                    className="bg-purple-600 hover:bg-purple-700"
-                  >
-                    Go to Bills
-                  </Button>
-                </div>
-              ) : (
-                billInvoices.map((invoice) => (
-                  <motion.div
-                    key={invoice.id}
-                    initial={{ opacity: 0, y: 10 }}
+                    key={billInvoice.id}
+                    initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
+                    className="p-6 border border-gray-200 rounded-xl hover:shadow-lg transition-shadow bg-white"
                   >
-                    <div className="flex items-start justify-between mb-3">
-                      <div>
-                        <h4 className="font-semibold text-lg text-gray-900">{invoice.invoiceNumber}</h4>
-                        <p className="text-sm text-gray-700">
-                          {invoice.billType} - {new Date(invoice.issueDate).toLocaleDateString()}
-                        </p>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <h3 className="text-lg font-bold text-gray-900">{billInvoice.invoiceNumber}</h3>
+                          <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getStatusColor(billInvoice.status)}`}>
+                            {billInvoice.status}
+                          </span>
+                          <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getPaymentPolicyColor(billInvoice.paymentPolicy)}`}>
+                            {billInvoice.paymentPolicy}
+                          </span>
+                          <span className="px-3 py-1 rounded-full text-xs font-semibold border bg-purple-100 text-purple-800 border-purple-200">
+                            {billInvoice.billType}
+                          </span>
+                        </div>
                       </div>
-                      <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getStatusColor(invoice.status)}`}>
-                        {invoice.status}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm mb-3">
-                      <div className="bg-gray-50 p-3 rounded">
-                        <p className="text-gray-700 text-xs mb-1">Units</p>
-                        <p className="font-semibold text-gray-900">{invoice.units.toFixed(2)}</p>
+                      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+                        <div>
+                          <p className="text-gray-500 font-medium">Issue Date</p>
+                          <p className="text-gray-900 font-semibold">
+                            {new Date(billInvoice.issueDate).toLocaleDateString()}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-gray-500 font-medium">Due Date</p>
+                          <p className="text-gray-900 font-semibold">
+                            {new Date(billInvoice.dueDate).toLocaleDateString()}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-gray-500 font-medium">Units</p>
+                          <p className="text-gray-900 font-bold">{billInvoice.units}</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-500 font-medium">Grand Total</p>
+                          <p className="text-gray-900 font-bold">Ksh {billInvoice.grandTotal.toLocaleString()}</p>
+                        </div>
+                        {billInvoice.balance > 0 && (
+                          <div>
+                            <p className="text-gray-500 font-medium">Balance</p>
+                            <p className="text-red-700 font-bold">Ksh {billInvoice.balance.toLocaleString()}</p>
+                          </div>
+                        )}
                       </div>
-                      <div className="bg-gray-50 p-3 rounded">
-                        <p className="text-gray-700 text-xs mb-1">Rate</p>
-                        <p className="font-semibold text-gray-900">Ksh {invoice.chargePerUnit.toFixed(2)}</p>
-                      </div>
-                      <div className="bg-blue-50 p-3 rounded">
-                        <p className="text-gray-700 text-xs mb-1">Total Amount</p>
-                        <p className="font-semibold text-blue-700">Ksh {invoice.totalAmount.toLocaleString()}</p>
-                      </div>
-                      <div className="bg-green-50 p-3 rounded">
-                        <p className="text-gray-700 text-xs mb-1">Amount Paid</p>
-                        <p className="font-semibold text-green-700">Ksh {invoice.amountPaid.toLocaleString()}</p>
-                      </div>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <div>
-                        <p className="text-sm text-gray-700">Due Date: {new Date(invoice.dueDate).toLocaleDateString()}</p>
-                        <p className={`text-sm font-semibold ${invoice.balance > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                          Balance: Ksh {invoice.balance.toLocaleString()}
-                        </p>
-                      </div>
-                      <Button
-                        onClick={async () => {
-                          try {
-                            const blob = await billInvoicesAPI.download(invoice.id);
-                            const url = window.URL.createObjectURL(blob);
-                            const link = document.createElement('a');
-                            link.href = url;
-                            link.download = `${invoice.invoiceNumber}.pdf`;
-                            document.body.appendChild(link);
-                            link.click();
-                            document.body.removeChild(link);
-                            window.URL.revokeObjectURL(url);
-                            toast.success('Bill invoice downloaded successfully');
-                          } catch (error) {
-                            console.error('Error downloading bill invoice:', error);
-                            toast.error('Failed to download bill invoice');
-                          }
-                        }}
-                        variant="outline"
-                        size="sm"
-                      >
-                        <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                        Download PDF
-                      </Button>
+                      {billInvoice.notes && (
+                        <div className="text-sm">
+                          <p className="text-gray-500 font-medium">Notes</p>
+                          <p className="text-gray-700">{billInvoice.notes}</p>
+                        </div>
+                      )}
                     </div>
                   </motion.div>
-                ))
-              )}
-            </div>
-            {/* Summary */}
-            {billInvoices.length > 0 && (
-              <div className="mt-6 p-6 bg-linear-to-r from-purple-50 to-pink-50 rounded-xl border-2 border-purple-200">
-                <h4 className="font-bold text-lg mb-4 text-gray-900">Bill Payment Summary</h4>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  <div>
-                    <p className="text-sm text-gray-700 mb-1">Total Bills</p>
-                    <p className="text-2xl font-bold text-gray-900">
-                      Ksh {billInvoices.reduce((sum, inv) => sum + inv.grandTotal, 0).toLocaleString()}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-700 mb-1">Total Paid</p>
-                    <p className="text-2xl font-bold text-green-600">
-                      Ksh {billInvoices.reduce((sum, inv) => sum + inv.amountPaid, 0).toLocaleString()}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-700 mb-1">Total Balance</p>
-                    <p className="text-2xl font-bold text-red-600">
-                      Ksh {billInvoices.reduce((sum, inv) => sum + inv.balance, 0).toLocaleString()}
-                    </p>
-                  </div>
-                </div>
+                ))}
               </div>
             )}
           </div>

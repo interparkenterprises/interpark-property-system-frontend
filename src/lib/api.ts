@@ -22,6 +22,8 @@ import {
   UpdateActivationRequest,
   ActivationsListResponse,
   ActivationStatus,
+  PaymentPolicy,
+  BillInvoiceStatsByPaymentPolicy,
 } from '@/types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.interparkpropertysystem.co.ke/api';
@@ -554,6 +556,7 @@ export const paymentsAPI = {
   },
 };
 
+// Invoice API functions
 export const invoicesAPI = {
   generateInvoice: async (data: GenerateInvoiceRequest): Promise<Invoice> => {
     try {
@@ -564,10 +567,28 @@ export const invoicesAPI = {
     }
   },
 
+  getAllInvoices: async (params?: {
+    page?: number;
+    limit?: number;
+    status?: InvoiceStatus;
+    paymentPolicy?: PaymentPolicy;
+    propertyId?: string;
+    startDate?: string;
+    endDate?: string;
+  }): Promise<{ data: Invoice[]; meta: any }> => {
+    try {
+      const response = await api.get('/invoices', { params });
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
   getInvoicesByTenant: async (tenantId: string, params?: {
     page?: number;
     limit?: number;
     status?: InvoiceStatus;
+    paymentPolicy?: PaymentPolicy;
   }): Promise<{ data: Invoice[]; meta: any }> => {
     try {
       const response = await api.get(`/invoices/tenant/${tenantId}`, { params });
@@ -598,6 +619,17 @@ export const invoicesAPI = {
     }
   },
 
+  updateInvoicePaymentPolicy: async (id: string, data: {
+    paymentPolicy: PaymentPolicy;
+  }): Promise<Invoice> => {
+    try {
+      const response = await api.patch(`/invoices/${id}/payment-policy`, data);
+      return response.data.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
   downloadInvoice: async (id: string): Promise<Blob> => {
     try {
       const response = await api.get(`/invoices/${id}/download`, {
@@ -608,7 +640,7 @@ export const invoicesAPI = {
       return handleApiError(error);
     }
   },
-  // FIXED: Get all partial payments using axios
+
   getPartialPayments: async (propertyId?: string, page = 1, limit = 10) => {
     try {
       const params: any = {
@@ -624,7 +656,6 @@ export const invoicesAPI = {
     }
   },
 
-  // FIXED: Generate invoice from partial payment using axios
   generateFromPartialPayment: async (data: {
     paymentReportId: string;
     dueDate: string;
@@ -638,6 +669,7 @@ export const invoicesAPI = {
     }
   },
 };
+
 
 export const incomesAPI = {
   getAll: async (): Promise<Income[]> => {
@@ -1262,8 +1294,8 @@ export const offerLettersAPI = {
   },
 };
 
+// Bill Invoice API functions
 export const billInvoicesAPI = {
-  // Generate invoice for a bill
   generate: async (data: GenerateBillInvoiceRequest): Promise<BillInvoice> => {
     try {
       const response = await api.post('/bill-invoices/generate', data);
@@ -1283,13 +1315,13 @@ export const billInvoicesAPI = {
     }
   },
 
-  // Get all bill invoices
   getAll: async (params?: {
     page?: number;
     limit?: number;
     status?: InvoiceStatus;
     tenantId?: string;
     billType?: BillType;
+    paymentPolicy?: PaymentPolicy;
   }): Promise<BillInvoiceResponse> => {
     try {
       const response = await api.get('/bill-invoices', { params });
@@ -1309,12 +1341,58 @@ export const billInvoicesAPI = {
     }
   },
 
-  // Get bill invoices by tenant
+  getByPaymentPolicy: async (policy: PaymentPolicy, params?: {
+    page?: number;
+    limit?: number;
+    status?: InvoiceStatus;
+    billType?: BillType;
+  }): Promise<BillInvoiceResponse> => {
+    try {
+      const response = await api.get(`/bill-invoices/payment-policy/${policy}`, { params });
+      
+      if (!response.data || !response.data.success) {
+        throw new Error('Invalid response from server');
+      }
+
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to load bill invoices by payment policy:', error);
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to fetch bill invoices by payment policy';
+      throw new Error(message);
+    }
+  },
+
+  getStatsByPaymentPolicy: async (params?: {
+    startDate?: string;
+    endDate?: string;
+  }): Promise<BillInvoiceStatsByPaymentPolicy> => {
+    try {
+      const response = await api.get('/bill-invoices/stats/payment-policy', { params });
+      
+      if (!response.data || !response.data.success) {
+        throw new Error('Invalid response from server');
+      }
+
+      return response.data.data;
+    } catch (error: any) {
+      console.error('Failed to load bill invoice statistics:', error);
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to fetch bill invoice statistics';
+      throw new Error(message);
+    }
+  },
+
   getByTenant: async (tenantId: string, params?: {
     page?: number;
     limit?: number;
     status?: InvoiceStatus;
     billType?: BillType;
+    paymentPolicy?: PaymentPolicy;
   }): Promise<BillInvoiceResponse> => {
     try {
       const response = await api.get(`/bill-invoices/tenant/${tenantId}`, { params });
@@ -1334,7 +1412,6 @@ export const billInvoicesAPI = {
     }
   },
 
-  // Get single bill invoice by ID
   getById: async (id: string): Promise<BillInvoice> => {
     try {
       const response = await api.get(`/bill-invoices/${id}`);
@@ -1354,7 +1431,6 @@ export const billInvoicesAPI = {
     }
   },
 
-  // Update bill invoice payment
   updatePayment: async (id: string, data: UpdateBillInvoicePaymentRequest): Promise<BillInvoice> => {
     try {
       const response = await api.patch(`/bill-invoices/${id}/payment`, data);
@@ -1374,7 +1450,27 @@ export const billInvoicesAPI = {
     }
   },
 
-  // Record payment for bill invoice
+  updatePaymentPolicy: async (id: string, data: {
+    paymentPolicy: PaymentPolicy;
+  }): Promise<BillInvoice> => {
+    try {
+      const response = await api.patch(`/bill-invoices/${id}/payment-policy`, data);
+      
+      if (!response.data || !response.data.success) {
+        throw new Error('Invalid response from server');
+      }
+
+      return response.data.data;
+    } catch (error: any) {
+      console.error('Failed to update bill invoice payment policy:', error);
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to update bill invoice payment policy';
+      throw new Error(message);
+    }
+  },
+
   recordPayment: async (id: string, data: {
     amountPaid: number;
     paymentDate: string;
@@ -1398,14 +1494,12 @@ export const billInvoicesAPI = {
     }
   },
 
-  // Download bill invoice PDF
   download: async (id: string): Promise<Blob> => {
     try {
       const response = await api.get(`/bill-invoices/${id}/download`, {
         responseType: 'blob',
       });
       
-      // Check if we got a valid blob response
       if (!response.data || response.data.size === 0) {
         throw new Error('Received empty PDF file');
       }
@@ -1414,14 +1508,12 @@ export const billInvoicesAPI = {
     } catch (error: any) {
       console.error('Failed to download bill invoice:', error);
       
-      // Check if it's a JSON error response in the blob
       if (error.response?.data instanceof Blob) {
         try {
           const errorText = await error.response.data.text();
           const errorData = JSON.parse(errorText);
           throw new Error(errorData.error || 'Failed to download bill invoice');
         } catch (parseError) {
-          // If we can't parse as JSON, use generic error
           throw new Error('Failed to download bill invoice: Invalid PDF format');
         }
       }
@@ -1434,7 +1526,6 @@ export const billInvoicesAPI = {
     }
   },
 
-  // Delete bill invoice
   delete: async (id: string): Promise<void> => {
     try {
       const response = await api.delete(`/bill-invoices/${id}`);

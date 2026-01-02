@@ -225,6 +225,8 @@ export interface PaymentPreview {
   totalDue: number;
 }
 
+
+// Invoice Interface
 export interface Invoice {
   id: string;
   invoiceNumber: string;
@@ -242,6 +244,7 @@ export interface Invoice {
   amountPaid: number;
   balance: number;
   status: InvoiceStatus;
+  paymentPolicy: PaymentPolicy; // NEW: Added payment policy
   pdfUrl?: string;
   notes?: string;
   createdAt: string;
@@ -434,6 +437,7 @@ export interface Bill {
   billInvoices?: BillInvoice[];
 }
 
+// Bill Invoice Interface
 export interface BillInvoice {
   id: string;
   invoiceNumber: string;
@@ -459,11 +463,47 @@ export interface BillInvoice {
   amountPaid: number;
   balance: number;
   status: InvoiceStatus;
+  paymentPolicy: PaymentPolicy; // NEW: Added payment policy
   pdfUrl?: string;
   notes?: string;
   createdAt: string;
   updatedAt: string;
 }
+
+// Bill Invoice Statistics by Payment Policy Interface
+export interface BillInvoiceStatsByPaymentPolicy {
+  MONTHLY: {
+    count: number;
+    totalAmount: number;
+    totalPaid: number;
+    totalBalance: number;
+    paid: { count: number; amount: number };
+    unpaid: { count: number; amount: number };
+    partial: { count: number; amount: number };
+    overdue: { count: number; amount: number };
+  };
+  QUARTERLY: {
+    count: number;
+    totalAmount: number;
+    totalPaid: number;
+    totalBalance: number;
+    paid: { count: number; amount: number };
+    unpaid: { count: number; amount: number };
+    partial: { count: number; amount: number };
+    overdue: { count: number; amount: number };
+  };
+  ANNUAL: {
+    count: number;
+    totalAmount: number;
+    totalPaid: number;
+    totalBalance: number;
+    paid: { count: number; amount: number };
+    unpaid: { count: number; amount: number };
+    partial: { count: number; amount: number };
+    overdue: { count: number; amount: number };
+  };
+}
+
 
 export interface CreateBillRequest {
   tenantId: string;
@@ -508,6 +548,7 @@ export interface GenerateBillInvoiceRequest {
   billId: string;
   dueDate: string;
   notes?: string;
+  paymentPolicy?: PaymentPolicy;
 }
 
 export interface UpdateBillInvoicePaymentRequest {
