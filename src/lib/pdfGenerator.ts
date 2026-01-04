@@ -243,7 +243,7 @@ export const generatePaymentReportPDF = async (
   }
 };
 
-// NEW: Bill Invoice Report PDF Generation
+// NEW: Bill Invoice Report PDF Generation - Optimized for single page
 export const generateBillInvoiceReportPDF = async (
   tenant: Tenant,
   billInvoices: BillInvoice[]
@@ -251,6 +251,7 @@ export const generateBillInvoiceReportPDF = async (
   const pdf = new jsPDF();
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
+  const margin = 15;
   let yPosition = 20;
 
   try {
@@ -259,21 +260,13 @@ export const generateBillInvoiceReportPDF = async (
     pdf.setFont('helvetica', 'bold');
     pdf.text(companyInfo.name, pageWidth / 2, yPosition, { align: 'center' });
     
-    yPosition += 7;
-    pdf.setFontSize(10);
-    pdf.setFont('helvetica', 'normal');
-    pdf.text(`Phone: ${companyInfo.phone} | Email: ${companyInfo.email}`, pageWidth / 2, yPosition, { align: 'center' });
-    
-    yPosition += 5;
-    pdf.text(companyInfo.website, pageWidth / 2, yPosition, { align: 'center' });
-    
-    yPosition += 15;
+    yPosition += 10;
 
     // Title
-    pdf.setFontSize(18);
+    pdf.setFontSize(14);
     pdf.setFont('helvetica', 'bold');
     pdf.text('BILL PAYMENT REPORT', pageWidth / 2, yPosition, { align: 'center' });
-    yPosition += 10;
+    yPosition += 6;
 
     // Report date
     pdf.setFontSize(10);
@@ -288,53 +281,55 @@ export const generateBillInvoiceReportPDF = async (
       yPosition,
       { align: 'center' }
     );
-    yPosition += 15;
+    yPosition += 10;
 
-    // Tenant Information Box
+    // Tenant Information Box - more compact
     pdf.setFillColor(240, 240, 240);
-    pdf.rect(15, yPosition, pageWidth - 30, 45, 'F');
-    
-    pdf.setFontSize(12);
-    pdf.setFont('helvetica', 'bold');
-    pdf.text('TENANT INFORMATION', 20, yPosition + 8);
+    pdf.rect(margin, yPosition, pageWidth - (margin * 2), 30, 'F');
     
     pdf.setFontSize(10);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('TENANT INFORMATION', margin + 5, yPosition + 7);
+    
+    pdf.setFontSize(9);
+    let infoY = yPosition + 13;
+    
+    // Left column
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Name:', margin + 5, infoY);
     pdf.setFont('helvetica', 'normal');
-    let infoY = yPosition + 15;
+    pdf.text(tenant.fullName, margin + 20, infoY);
     
     pdf.setFont('helvetica', 'bold');
-    pdf.text('Name:', 20, infoY);
+    pdf.text('Contact:', margin + 5, infoY + 6);
     pdf.setFont('helvetica', 'normal');
-    pdf.text(tenant.fullName, 50, infoY);
+    pdf.text(tenant.contact || 'N/A', margin + 25, infoY + 6);
     
-    infoY += 7;
-    pdf.setFont('helvetica', 'bold');
-    pdf.text('Contact:', 20, infoY);
-    pdf.setFont('helvetica', 'normal');
-    pdf.text(tenant.contact || 'N/A', 50, infoY);
-    
-    infoY += 7;
-    pdf.setFont('helvetica', 'bold');
-    pdf.text('Unit:', 20, infoY);
-    pdf.setFont('helvetica', 'normal');
-    pdf.text(tenant.unit?.type || 'N/A', 50, infoY);
-    
+    // Right column
     if (tenant.KRAPin) {
       pdf.setFont('helvetica', 'bold');
-      pdf.text('KRA PIN:', pageWidth / 2 + 10, yPosition + 15);
+      pdf.text('KRA PIN:', pageWidth / 2, infoY);
       pdf.setFont('helvetica', 'normal');
-      pdf.text(tenant.KRAPin, pageWidth / 2 + 35, yPosition + 15);
+      pdf.text(tenant.KRAPin, pageWidth / 2 + 20, infoY);
     }
+    
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Unit:', pageWidth / 2, infoY + 6);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(tenant.unit?.type || 'N/A', pageWidth / 2 + 15, infoY + 6);
 
-    yPosition += 55;
+    yPosition += 35;
 
     // Bill Payment History Title
-    pdf.setFontSize(14);
+    pdf.setFontSize(12);
     pdf.setFont('helvetica', 'bold');
-    pdf.text('BILL PAYMENT HISTORY', 20, yPosition);
-    yPosition += 8;
+    pdf.text('BILL PAYMENT HISTORY', margin, yPosition);
+    yPosition += 5;
 
-    // Bill Invoices Table
+    // Calculate available space for table before footer
+    const footerHeight = 40;
+    const availableHeight = pageHeight - yPosition - footerHeight;
+    
     if (billInvoices.length > 0) {
       const tableData = billInvoices.map((invoice) => [
         invoice.billType,
@@ -351,6 +346,7 @@ export const generateBillInvoiceReportPDF = async (
         invoice.status,
       ]);
 
+      // Create the main table
       autoTable(pdf, {
         startY: yPosition,
         head: [
@@ -375,31 +371,45 @@ export const generateBillInvoiceReportPDF = async (
           fillColor: [41, 128, 185],
           textColor: 255,
           fontStyle: 'bold',
-          fontSize: 8,
-        },
-        bodyStyles: {
           fontSize: 7,
         },
+        bodyStyles: {
+          fontSize: 6,
+          cellPadding: 2,
+        },
         columnStyles: {
-          0: { cellWidth: 15 },
-          1: { cellWidth: 18 },
-          2: { cellWidth: 16 },
-          3: { cellWidth: 16 },
-          4: { cellWidth: 12 },
-          5: { cellWidth: 14 },
-          6: { cellWidth: 16 },
-          7: { cellWidth: 12 },
-          8: { cellWidth: 16 },
-          9: { cellWidth: 16 },
-          10: { cellWidth: 16 },
-          11: { cellWidth: 14 },
+          0: { cellWidth: 13, fontSize: 6 },
+          1: { cellWidth: 16, fontSize: 6 },
+          2: { cellWidth: 14, fontSize: 6 },
+          3: { cellWidth: 14, fontSize: 6 },
+          4: { cellWidth: 10, fontSize: 6 },
+          5: { cellWidth: 12, fontSize: 6 },
+          6: { cellWidth: 14, fontSize: 6 },
+          7: { cellWidth: 10, fontSize: 6 },
+          8: { cellWidth: 14, fontSize: 6 },
+          9: { cellWidth: 14, fontSize: 6 },
+          10: { cellWidth: 14, fontSize: 6 },
+          11: { cellWidth: 12, fontSize: 6 },
         },
         alternateRowStyles: {
           fillColor: [245, 245, 245],
         },
-        margin: { top: yPosition, left: 10, right: 10 },
+        margin: { top: yPosition, left: margin, right: margin },
+        tableWidth: pageWidth - (margin * 2),
+        pageBreak: 'auto',
+        // Prevent table from overlapping footer
+        didDrawPage: function (data: any) {
+          // Check if we're getting too close to footer
+          if (data.cursor && data.cursor.y > pageHeight - footerHeight - 20) {
+            // Add page if needed
+            pdf.addPage();
+            (this as any).settings.startY = margin;
+          }
+        },
       });
 
+      const finalY = (pdf as any).lastAutoTable.finalY + 5;
+      
       // Calculate totals
       const totalUnits = billInvoices.reduce((sum, inv) => sum + inv.units, 0);
       const totalAmount = billInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0);
@@ -408,61 +418,95 @@ export const generateBillInvoiceReportPDF = async (
       const totalPaid = billInvoices.reduce((sum, inv) => sum + inv.amountPaid, 0);
       const totalBalance = billInvoices.reduce((sum, inv) => sum + inv.balance, 0);
 
-      const finalY = (pdf as any).lastAutoTable.finalY + 10;
+      // Create compact summary RIGHT AFTER the table (not on separate pages)
+      const summaryY = Math.max(finalY, margin);
+      
+      // Ensure summary doesn't overlap footer
+      if (summaryY < pageHeight - footerHeight - 30) {
+        // Create a simple summary table integrated with the main table
+        const summaryRows = [
+          ['Total Units:', totalUnits.toFixed(2), '', ''],
+          ['Total Amount:', `Ksh ${totalAmount.toLocaleString()}`, 'Total VAT:', `Ksh ${totalVAT.toLocaleString()}`],
+          ['Grand Total:', `Ksh ${grandTotal.toLocaleString()}`, 'Total Paid:', `Ksh ${totalPaid.toLocaleString()}`],
+          ['', '', 'Total Balance:', `Ksh ${totalBalance.toLocaleString()}`]
+        ];
 
-      // Summary Box
-      pdf.setFillColor(240, 240, 240);
-      pdf.rect(pageWidth - 85, finalY, 70, 55, 'F');
-      
-      pdf.setFontSize(11);
-      pdf.setFont('helvetica', 'bold');
-      pdf.text('SUMMARY', pageWidth - 80, finalY + 8);
-      
-      pdf.setFontSize(9);
-      let summaryY = finalY + 15;
-      
-      pdf.setFont('helvetica', 'normal');
-      pdf.text('Total Units:', pageWidth - 80, summaryY);
-      pdf.text(totalUnits.toFixed(2), pageWidth - 25, summaryY, { align: 'right' });
-      
-      summaryY += 6;
-      pdf.text('Total Amount:', pageWidth - 80, summaryY);
-      pdf.text(`Ksh ${totalAmount.toLocaleString()}`, pageWidth - 25, summaryY, { align: 'right' });
-      
-      summaryY += 6;
-      pdf.text('Total VAT:', pageWidth - 80, summaryY);
-      pdf.text(`Ksh ${totalVAT.toLocaleString()}`, pageWidth - 25, summaryY, { align: 'right' });
-      
-      summaryY += 6;
-      pdf.setFont('helvetica', 'bold');
-      pdf.text('Grand Total:', pageWidth - 80, summaryY);
-      pdf.text(`Ksh ${grandTotal.toLocaleString()}`, pageWidth - 25, summaryY, { align: 'right' });
-      
-      summaryY += 6;
-      pdf.setTextColor(0, 128, 0);
-      pdf.text('Total Paid:', pageWidth - 80, summaryY);
-      pdf.text(`Ksh ${totalPaid.toLocaleString()}`, pageWidth - 25, summaryY, { align: 'right' });
-      
-      summaryY += 6;
-      pdf.setTextColor(255, 0, 0);
-      pdf.text('Total Balance:', pageWidth - 80, summaryY);
-      pdf.text(`Ksh ${totalBalance.toLocaleString()}`, pageWidth - 25, summaryY, { align: 'right' });
-      
-      pdf.setTextColor(0, 0, 0);
-
-      yPosition = finalY + 65;
+        autoTable(pdf, {
+          startY: summaryY,
+          body: summaryRows,
+          theme: 'plain',
+          bodyStyles: {
+            fontSize: 8,
+            cellPadding: 3,
+          },
+          columnStyles: {
+            0: { cellWidth: 30, fontStyle: 'bold', halign: 'right' },
+            1: { cellWidth: 40, halign: 'right' },
+            2: { cellWidth: 30, fontStyle: 'bold', halign: 'right' },
+            3: { cellWidth: 40, halign: 'right' },
+          },
+          styles: {
+            lineColor: [200, 200, 200],
+            lineWidth: 0.1,
+          },
+          margin: { left: margin, right: margin },
+          tableWidth: pageWidth - (margin * 2),
+          // Color coding
+          didParseCell: function (data: any) {
+            if (data.section === 'body') {
+              // Total Paid
+              if (data.row.index === 2 && data.column.index === 3) {
+                data.cell.styles.textColor = [0, 128, 0]; // Green
+              }
+              // Total Balance
+              if (data.row.index === 3 && data.column.index === 3) {
+                data.cell.styles.textColor = [255, 0, 0]; // Red
+              }
+            }
+          },
+        });
+      }
     } else {
       pdf.setFontSize(10);
       pdf.setFont('helvetica', 'italic');
-      pdf.text('No bill payment records found.', 20, yPosition);
-      yPosition += 20;
+      pdf.text('No bill payment records found.', margin, yPosition);
     }
 
-    // Add footer with company info
-    const footerY = pageHeight - 20;
+    // Add detailed footer with company contact info
+    const footerY = pageHeight - 30;
+    
+    // Footer separator line
+    pdf.setDrawColor(200, 200, 200);
+    pdf.line(margin, footerY - 5, pageWidth - margin, footerY - 5);
+    
+    // Company contact information in footer
     pdf.setFontSize(8);
     pdf.setFont('helvetica', 'normal');
-    pdf.text(`© ${new Date().getFullYear()} ${companyInfo.name}`, pageWidth / 2, footerY, { align: 'center' });
+    
+    // Contact info line
+    pdf.text(
+      `Phone: ${companyInfo.phone} | Email: ${companyInfo.email}`,
+      pageWidth / 2,
+      footerY,
+      { align: 'center' }
+    );
+    
+    // Website line
+    pdf.text(
+      companyInfo.website,
+      pageWidth / 2,
+      footerY + 5,
+      { align: 'center' }
+    );
+    
+    // Copyright line
+    pdf.setFontSize(7);
+    pdf.text(
+      `© ${new Date().getFullYear()} ${companyInfo.name}`,
+      pageWidth / 2,
+      footerY + 10,
+      { align: 'center' }
+    );
     
     // Save the PDF
     const fileName = `Bill_Payment_Report_${tenant.fullName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`;
@@ -472,6 +516,7 @@ export const generateBillInvoiceReportPDF = async (
     throw new Error(`Failed to generate bill payment report: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 };
+
 
 // NEW: Comprehensive Report PDF Generation (Rent + Bills Combined)
 export const generateComprehensiveReportPDF = async (
@@ -483,21 +528,14 @@ export const generateComprehensiveReportPDF = async (
   const pdf = new jsPDF();
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
+  const margin = 15;
   let yPosition = 20;
 
   try {
-    // Add company header
+    // Add company header (name only now)
     pdf.setFontSize(16);
     pdf.setFont('helvetica', 'bold');
     pdf.text(companyInfo.name, pageWidth / 2, yPosition, { align: 'center' });
-    
-    yPosition += 7;
-    pdf.setFontSize(10);
-    pdf.setFont('helvetica', 'normal');
-    pdf.text(`Phone: ${companyInfo.phone} | Email: ${companyInfo.email}`, pageWidth / 2, yPosition, { align: 'center' });
-    
-    yPosition += 5;
-    pdf.text(companyInfo.website, pageWidth / 2, yPosition, { align: 'center' });
     
     yPosition += 15;
 
@@ -522,60 +560,58 @@ export const generateComprehensiveReportPDF = async (
     );
     yPosition += 15;
 
-    // Tenant Information Box
+    // Tenant Information Box - more compact
     pdf.setFillColor(240, 240, 240);
-    pdf.rect(15, yPosition, pageWidth - 30, 45, 'F');
+    pdf.rect(margin, yPosition, pageWidth - (margin * 2), 40, 'F');
     
     pdf.setFontSize(12);
     pdf.setFont('helvetica', 'bold');
-    pdf.text('TENANT INFORMATION', 20, yPosition + 8);
+    pdf.text('TENANT INFORMATION', margin + 5, yPosition + 8);
     
     pdf.setFontSize(10);
     pdf.setFont('helvetica', 'normal');
     let infoY = yPosition + 15;
     
+    // Two-column layout for tenant info
     pdf.setFont('helvetica', 'bold');
-    pdf.text('Name:', 20, infoY);
+    pdf.text('Name:', margin + 5, infoY);
     pdf.setFont('helvetica', 'normal');
-    pdf.text(tenant.fullName, 50, infoY);
+    pdf.text(tenant.fullName, margin + 25, infoY);
     
-    infoY += 7;
-    pdf.setFont('helvetica', 'bold');
-    pdf.text('Contact:', 20, infoY);
-    pdf.setFont('helvetica', 'normal');
-    pdf.text(tenant.contact || 'N/A', 50, infoY);
-    
-    infoY += 7;
-    pdf.setFont('helvetica', 'bold');
-    pdf.text('Unit:', 20, infoY);
-    pdf.setFont('helvetica', 'normal');
-    pdf.text(tenant.unit?.type || 'N/A', 50, infoY);
-    
-    infoY += 7;
-    pdf.setFont('helvetica', 'bold');
-    pdf.text('Monthly Rent:', 20, infoY);
-    pdf.setFont('helvetica', 'normal');
-    pdf.text(`Ksh ${tenant.rent.toLocaleString()}`, 50, infoY);
-
     if (tenant.KRAPin) {
       pdf.setFont('helvetica', 'bold');
-      pdf.text('KRA PIN:', pageWidth / 2 + 10, yPosition + 15);
+      pdf.text('KRA PIN:', pageWidth - 100, infoY);
       pdf.setFont('helvetica', 'normal');
-      pdf.text(tenant.KRAPin, pageWidth / 2 + 35, yPosition + 15);
+      pdf.text(tenant.KRAPin, pageWidth - 70, infoY);
     }
+    
+    infoY += 7;
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Contact:', margin + 5, infoY);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(tenant.contact || 'N/A', margin + 30, infoY);
+    
+    infoY += 7;
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Unit:', margin + 5, infoY);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(tenant.unit?.type || 'N/A', margin + 25, infoY);
+    
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Monthly Rent:', pageWidth - 100, infoY);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(`Ksh ${tenant.rent.toLocaleString()}`, pageWidth - 60, infoY);
 
-    yPosition += 55;
+    yPosition += 50;
 
-    // === RENT PAYMENT SECTION (Integrated with Invoice References) ===
+    // === RENT PAYMENT SECTION ===
     pdf.setFontSize(14);
     pdf.setFont('helvetica', 'bold');
-    pdf.text('RENT PAYMENT HISTORY', 20, yPosition);
+    pdf.text('RENT PAYMENT HISTORY', margin, yPosition);
     yPosition += 8;
 
     if (paymentReports.length > 0) {
-      // Create a combined dataset that includes invoice information
       const rentTableData = paymentReports.map((report) => {
-        // Find corresponding invoice if available
         const relatedInvoice = invoices?.find(inv => 
           inv.totalDue === report.totalDue && 
           inv.amountPaid === report.amountPaid
@@ -619,48 +655,63 @@ export const generateComprehensiveReportPDF = async (
           fillColor: [41, 128, 185],
           textColor: 255,
           fontStyle: 'bold',
-          fontSize: 8,
-        },
-        bodyStyles: {
           fontSize: 7,
         },
+        bodyStyles: {
+          fontSize: 6,
+          cellPadding: 2,
+        },
         columnStyles: {
-          0: { cellWidth: 20 },
-          1: { cellWidth: 22 },
-          2: { cellWidth: 18 },
-          3: { cellWidth: 18 },
-          4: { cellWidth: 16 },
-          5: { cellWidth: 16 },
-          6: { cellWidth: 14 },
-          7: { cellWidth: 18 },
-          8: { cellWidth: 18 },
-          9: { cellWidth: 16 },
-          10: { cellWidth: 14 },
+          0: { cellWidth: 18, fontSize: 6 },
+          1: { cellWidth: 20, fontSize: 6 },
+          2: { cellWidth: 16, fontSize: 6 },
+          3: { cellWidth: 16, fontSize: 6 },
+          4: { cellWidth: 14, fontSize: 6 },
+          5: { cellWidth: 14, fontSize: 6 },
+          6: { cellWidth: 12, fontSize: 6 },
+          7: { cellWidth: 16, fontSize: 6 },
+          8: { cellWidth: 16, fontSize: 6 },
+          9: { cellWidth: 14, fontSize: 6 },
+          10: { cellWidth: 12, fontSize: 6 },
         },
         alternateRowStyles: {
           fillColor: [245, 245, 245],
         },
-        margin: { top: yPosition },
+        margin: { top: yPosition, left: margin, right: margin },
+        tableWidth: pageWidth - (margin * 2),
+        didDrawPage: function (data: any) {
+          // Check if we need to add page
+          if (data.cursor && data.cursor.y > pageHeight - 80) {
+            pdf.addPage();
+            (this as any).settings.startY = margin;
+          }
+        },
       });
 
-      yPosition = (pdf as any).lastAutoTable.finalY + 15;
+      yPosition = (pdf as any).lastAutoTable.finalY + 10;
     } else {
       pdf.setFontSize(10);
       pdf.setFont('helvetica', 'italic');
-      pdf.text('No rent payment records found.', 20, yPosition);
+      pdf.text('No rent payment records found.', margin, yPosition);
       yPosition += 15;
     }
 
-    // Check if we need a new page for bills
-    if (yPosition > pageHeight - 100) {
-      pdf.addPage();
-      yPosition = 20;
-    }
-
     // === BILL PAYMENT SECTION ===
+    // Check if we have enough space for bill section title + at least some rows
+    const spaceNeededForBillTitle = 30;
+    const spaceNeededForBillTable = billInvoices.length > 0 ? Math.min(billInvoices.length * 8 + 30, 150) : 20;
+    const spaceNeededForSummary = 60;
+    
+    const totalSpaceNeeded = spaceNeededForBillTitle + spaceNeededForBillTable + spaceNeededForSummary;
+    
+    if (yPosition + totalSpaceNeeded > pageHeight - 40) {
+      pdf.addPage();
+      yPosition = margin;
+    }
+    
     pdf.setFontSize(14);
     pdf.setFont('helvetica', 'bold');
-    pdf.text('BILL PAYMENT HISTORY', 20, yPosition);
+    pdf.text('BILL PAYMENT HISTORY', margin, yPosition);
     yPosition += 8;
 
     if (billInvoices.length > 0) {
@@ -701,48 +752,59 @@ export const generateComprehensiveReportPDF = async (
           fillColor: [220, 53, 69],
           textColor: 255,
           fontStyle: 'bold',
-          fontSize: 8,
-        },
-        bodyStyles: {
           fontSize: 7,
         },
+        bodyStyles: {
+          fontSize: 6,
+          cellPadding: 2,
+        },
         columnStyles: {
-          0: { cellWidth: 16 },
-          1: { cellWidth: 20 },
-          2: { cellWidth: 16 },
-          3: { cellWidth: 12 },
-          4: { cellWidth: 14 },
-          5: { cellWidth: 16 },
-          6: { cellWidth: 12 },
-          7: { cellWidth: 16 },
-          8: { cellWidth: 16 },
-          9: { cellWidth: 16 },
-          10: { cellWidth: 14 },
+          0: { cellWidth: 14, fontSize: 6 },
+          1: { cellWidth: 18, fontSize: 6 },
+          2: { cellWidth: 14, fontSize: 6 },
+          3: { cellWidth: 10, fontSize: 6 },
+          4: { cellWidth: 12, fontSize: 6 },
+          5: { cellWidth: 14, fontSize: 6 },
+          6: { cellWidth: 10, fontSize: 6 },
+          7: { cellWidth: 14, fontSize: 6 },
+          8: { cellWidth: 14, fontSize: 6 },
+          9: { cellWidth: 14, fontSize: 6 },
+          10: { cellWidth: 12, fontSize: 6 },
         },
         alternateRowStyles: {
           fillColor: [245, 245, 245],
         },
-        margin: { top: yPosition, left: 10, right: 10 },
+        margin: { top: yPosition, left: margin, right: margin },
+        tableWidth: pageWidth - (margin * 2),
+        // Keep bill table on same page if possible
+        pageBreak: 'avoid',
+        didDrawPage: function (data: any) {
+          // Only add page if absolutely necessary (table is very long)
+          if (data.cursor && data.cursor.y > pageHeight - 100) {
+            pdf.addPage();
+            (this as any).settings.startY = margin;
+          }
+        },
       });
 
-      yPosition = (pdf as any).lastAutoTable.finalY + 15;
+      yPosition = (pdf as any).lastAutoTable.finalY + 10;
     } else {
       pdf.setFontSize(10);
       pdf.setFont('helvetica', 'italic');
-      pdf.text('No bill payment records found.', 20, yPosition);
+      pdf.text('No bill payment records found.', margin, yPosition);
       yPosition += 15;
     }
 
-    // Check if we need a new page for summary
-    if (yPosition > pageHeight - 100) {
-      pdf.addPage();
-      yPosition = 20;
-    }
-
     // === COMPREHENSIVE SUMMARY ===
+    // Ensure summary is on same page as bill table
+    if (yPosition + 60 > pageHeight - 40) {
+      pdf.addPage();
+      yPosition = margin;
+    }
+    
     pdf.setFontSize(14);
     pdf.setFont('helvetica', 'bold');
-    pdf.text('COMPREHENSIVE SUMMARY', 20, yPosition);
+    pdf.text('COMPREHENSIVE SUMMARY', margin, yPosition);
     yPosition += 8;
 
     // Calculate totals
@@ -758,23 +820,21 @@ export const generateComprehensiveReportPDF = async (
     const overallPaid = rentPaid + billsPaid;
     const overallBalance = rentArrears + billsBalance;
 
-    // Create table data for comprehensive summary
     const summaryData = [
       ['RENT', `Ksh ${rentTotal.toLocaleString()}`, `Ksh ${rentPaid.toLocaleString()}`, `Ksh ${rentArrears.toLocaleString()}`],
       ['BILLS', `Ksh ${billsTotal.toLocaleString()}`, `Ksh ${billsPaid.toLocaleString()}`, `Ksh ${billsBalance.toLocaleString()}`],
       ['OVERALL', `Ksh ${overallTotal.toLocaleString()}`, `Ksh ${overallPaid.toLocaleString()}`, `Ksh ${overallBalance.toLocaleString()}`]
     ];
 
-    // Apply conditional coloring for the last row (OVERALL)
     const didDrawCell = (data: any) => {
-      if (data.column.index === 1 && data.row.index === 2) { // Overall Total Due
+      if (data.column.index === 1 && data.row.index === 2) {
         data.cell.styles.fontStyle = 'bold';
         data.cell.styles.fillColor = [41, 128, 185];
         data.cell.styles.textColor = 255;
-      } else if (data.column.index === 2 && data.row.index === 2) { // Overall Paid
+      } else if (data.column.index === 2 && data.row.index === 2) {
         data.cell.styles.fontStyle = 'bold';
         data.cell.styles.textColor = [0, 128, 0];
-      } else if (data.column.index === 3 && data.row.index === 2) { // Overall Balance
+      } else if (data.column.index === 3 && data.row.index === 2) {
         data.cell.styles.fontStyle = 'bold';
         data.cell.styles.textColor = [255, 0, 0];
       }
@@ -791,16 +851,14 @@ export const generateComprehensiveReportPDF = async (
         fillColor: [52, 58, 64],
         textColor: 255,
         fontStyle: 'bold',
-        fontSize: 9,
+        fontSize: 8,
       },
       bodyStyles: {
-        fontSize: 9,
+        fontSize: 8,
+        cellPadding: 4,
       },
       columnStyles: {
-        0: { 
-          cellWidth: 30,
-          fontStyle: 'bold'
-        },
+        0: { cellWidth: 30, fontStyle: 'bold' },
         1: { cellWidth: 40 },
         2: { cellWidth: 40 },
         3: { cellWidth: 40 },
@@ -809,16 +867,57 @@ export const generateComprehensiveReportPDF = async (
         fillColor: [245, 245, 245],
       },
       didDrawCell: didDrawCell,
-      margin: { top: yPosition, left: 20, right: 20 },
+      margin: { top: yPosition, left: margin, right: margin },
+      tableWidth: pageWidth - (margin * 2),
     });
 
-    yPosition = (pdf as any).lastAutoTable.finalY + 15;
+    yPosition = (pdf as any).lastAutoTable.finalY + 20;
 
-    // Add footer with company info
-    const footerY = pageHeight - 20;
-    pdf.setFontSize(8);
-    pdf.setFont('helvetica', 'normal');
-    pdf.text(`© ${new Date().getFullYear()} ${companyInfo.name}`, pageWidth / 2, footerY, { align: 'center' });
+    // === ADD FOOTER ONLY ON LAST PAGE ===
+    const addFooter = (currentPdf: jsPDF) => {
+      const currentPage = currentPdf.internal.pages.length;
+      
+      // Set to last page
+      currentPdf.setPage(currentPage);
+      
+      const footerY = pageHeight - 20;
+      
+      // Footer separator line
+      currentPdf.setDrawColor(200, 200, 200);
+      currentPdf.line(margin, footerY - 25, pageWidth - margin, footerY - 25);
+      
+      // Company contact information in footer
+      currentPdf.setFontSize(9);
+      currentPdf.setFont('helvetica', 'normal');
+      
+      // Contact info line
+      currentPdf.text(
+        `Phone: ${companyInfo.phone} | Email: ${companyInfo.email}`,
+        pageWidth / 2,
+        footerY - 15,
+        { align: 'center' }
+      );
+      
+      // Website line
+      currentPdf.text(
+        companyInfo.website,
+        pageWidth / 2,
+        footerY - 10,
+        { align: 'center' }
+      );
+      
+      // Copyright line
+      currentPdf.setFontSize(8);
+      currentPdf.text(
+        `© ${new Date().getFullYear()} ${companyInfo.name}`,
+        pageWidth / 2,
+        footerY - 5,
+        { align: 'center' }
+      );
+    };
+
+    // Add footer only to last page
+    addFooter(pdf);
     
     // Save the PDF
     const fileName = `Comprehensive_Report_${tenant.fullName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`;

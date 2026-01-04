@@ -108,7 +108,7 @@ export const DialogDescription: React.FC<DialogDescriptionProps> = ({
   className = '',
 }) => {
   return (
-    <p className={`text-sm text-gray-500 mt-1 ${className}`}>{children}</p>
+    <div className={`text-sm text-gray-500 mt-1 ${className}`}>{children}</div>
   );
 };
 
