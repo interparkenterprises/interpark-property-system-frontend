@@ -1086,123 +1086,132 @@ export default function TenantDetailPage() {
 
       {/* Create Payment Dialog */}
       <Dialog open={showCreatePaymentDialog} onOpenChange={setShowCreatePaymentDialog}>
-        <DialogContent className="sm:max-w-[600px]">
-          <DialogHeader>
-            <DialogTitle className="text-2xl font-bold text-heading-color">Record Payment</DialogTitle>
-            <DialogDescription className="text-gray-700">
-              Record a new payment for {tenant.fullName}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-6 py-4">
-            <div className="p-4 bg-linear-to-r from-green-50 to-green-100 rounded-xl border border-green-200">
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <p className="text-gray-600 font-medium">Rent</p>
-                  <p className="text-gray-900 font-bold">Ksh {rent.toLocaleString()}</p>
-                </div>
-                {serviceCharge > 0 && (
+        <DialogContent className="sm:max-w-[600px] max-h-[90vh] flex flex-col p-0">
+          <div className="px-6 pt-6 pb-0">
+            <DialogHeader>
+              <DialogTitle className="text-2xl font-bold text-heading-color">Record Payment</DialogTitle>
+              <DialogDescription className="text-gray-700">
+                Record a new payment for {tenant.fullName}
+              </DialogDescription>
+            </DialogHeader>
+          </div>
+          
+          {/* Scrollable content area */}
+          <div className="flex-1 overflow-y-auto px-6 py-4">
+            <div className="space-y-6">
+              <div className="p-4 bg-linear-to-r from-green-50 to-green-100 rounded-xl border border-green-200">
+                <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
-                    <p className="text-gray-600 font-medium">Service Charge</p>
-                    <p className="text-gray-900 font-bold">Ksh {serviceCharge.toLocaleString()}</p>
+                    <p className="text-gray-800 font-medium">Rent</p>
+                    <p className="text-gray-900 font-bold">Ksh {rent.toLocaleString()}</p>
                   </div>
-                )}
-                {vat > 0 && (
+                  {serviceCharge > 0 && (
+                    <div>
+                      <p className="text-gray-800 font-medium">Service Charge</p>
+                      <p className="text-gray-900 font-bold">Ksh {serviceCharge.toLocaleString()}</p>
+                    </div>
+                  )}
+                  {vat > 0 && (
+                    <div>
+                      <p className="text-gray-800 font-medium">VAT</p>
+                      <p className="text-gray-900 font-bold">Ksh {vat.toLocaleString()}</p>
+                    </div>
+                  )}
                   <div>
-                    <p className="text-gray-600 font-medium">VAT</p>
-                    <p className="text-gray-900 font-bold">Ksh {vat.toLocaleString()}</p>
+                    <p className="text-gray-800 font-medium">Total Due</p>
+                    <p className="text-gray-900 font-bold text-lg">Ksh {totalDue.toLocaleString()}</p>
                   </div>
-                )}
-                <div>
-                  <p className="text-gray-600 font-medium">Total Due</p>
-                  <p className="text-gray-900 font-bold text-lg">Ksh {totalDue.toLocaleString()}</p>
                 </div>
               </div>
-            </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="paymentPeriod" className="text-sm font-semibold text-gray-800">
-                Payment Period <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                id="paymentPeriod"
-                placeholder="e.g., January 2025"
-                value={paymentForm.paymentPeriod}
-                onChange={(e) => setPaymentForm({ ...paymentForm, paymentPeriod: e.target.value })}
-                className="w-full"
-              />
-            </div>
+              <div className="space-y-2">
+                <Label htmlFor="paymentPeriod" className="text-sm font-semibold text-gray-800">
+                  Payment Period <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  id="paymentPeriod"
+                  type="month"
+                  value={paymentForm.paymentPeriod}
+                  onChange={(e) => setPaymentForm({ ...paymentForm, paymentPeriod: e.target.value })}
+                  className="w-full text-gray-900"
+                />
+              </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="datePaid" className="text-sm font-semibold text-gray-800">
-                Date Paid <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                id="datePaid"
-                type="date"
-                value={paymentForm.datePaid}
-                onChange={(e) => setPaymentForm({ ...paymentForm, datePaid: e.target.value })}
-                className="w-full"
-              />
-            </div>
+              <div className="space-y-2">
+                <Label htmlFor="datePaid" className="text-sm font-semibold text-gray-800">
+                  Date Paid <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  id="datePaid"
+                  type="date"
+                  value={paymentForm.datePaid}
+                  onChange={(e) => setPaymentForm({ ...paymentForm, datePaid: e.target.value })}
+                  className="w-full text-gray-900"
+                />
+              </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="amountPaid" className="text-sm font-semibold text-gray-800">
-                Amount Paid <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                id="amountPaid"
-                type="number"
-                placeholder="Enter amount"
-                value={paymentForm.amountPaid}
-                onChange={(e) => setPaymentForm({ ...paymentForm, amountPaid: e.target.value })}
-                className="w-full"
-              />
-            </div>
+              <div className="space-y-2">
+                <Label htmlFor="amountPaid" className="text-sm font-semibold text-gray-800">
+                  Amount Paid <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  id="amountPaid"
+                  type="number"
+                  placeholder="Enter amount"
+                  value={paymentForm.amountPaid}
+                  onChange={(e) => setPaymentForm({ ...paymentForm, amountPaid: e.target.value })}
+                  className="w-full text-gray-900"
+                />
+              </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="status" className="text-sm font-semibold text-gray-800">
-                Payment Status
-              </Label>
-              <Select
-                value={paymentForm.status}
-                onValueChange={(value: PaymentStatus) => setPaymentForm({ ...paymentForm, status: value })}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="PAID">Paid</SelectItem>
-                  <SelectItem value="PARTIAL">Partial</SelectItem>
-                  <SelectItem value="UNPAID">Unpaid</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+              <div className="space-y-2">
+                <Label htmlFor="status" className="text-sm font-semibold text-gray-900">
+                  Payment Status
+                </Label>
+                <Select
+                  value={paymentForm.status}
+                  onValueChange={(value: PaymentStatus) => setPaymentForm({ ...paymentForm, status: value })}
+                >
+                  <SelectTrigger className="w-full text-gray-900">
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PAID">Paid</SelectItem>
+                    <SelectItem value="PARTIAL">Partial</SelectItem>
+                    <SelectItem value="UNPAID">Unpaid</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="paymentNotes" className="text-sm font-semibold text-gray-800">
-                Notes (Optional)
-              </Label>
-              <Textarea
-                id="paymentNotes"
-                placeholder="Add any additional notes"
-                value={paymentForm.notes}
-                onChange={(e) => setPaymentForm({ ...paymentForm, notes: e.target.value })}
-                className="min-h-20"
-              />
+              <div className="space-y-2">
+                <Label htmlFor="paymentNotes" className="text-sm font-semibold text-gray-800">
+                  Notes (Optional)
+                </Label>
+                <Textarea
+                  id="paymentNotes"
+                  placeholder="Add any additional notes"
+                  value={paymentForm.notes}
+                  onChange={(e) => setPaymentForm({ ...paymentForm, notes: e.target.value })}
+                  className="min-h-20 text-gray-900"
+                />
+              </div>
             </div>
           </div>
-          <DialogFooter>
+          
+          {/* Fixed footer with buttons */}
+          <DialogFooter className="px-6 py-4 border-t bg-gray-50">
             <Button
               variant="outline"
               onClick={() => setShowCreatePaymentDialog(false)}
               disabled={creatingPayment}
+              className="min-w-24"
             >
               Cancel
             </Button>
             <Button
               onClick={handleCreatePayment}
               disabled={creatingPayment || !paymentForm.paymentPeriod || !paymentForm.datePaid || !paymentForm.amountPaid}
-              className="bg-blue-600 hover:bg-blue-700"
+              className="bg-blue-600 hover:bg-blue-700 min-w-24"
             >
               {creatingPayment ? (
                 <>
