@@ -463,45 +463,11 @@ export interface BillInvoice {
   amountPaid: number;
   balance: number;
   status: InvoiceStatus;
-  paymentPolicy: PaymentPolicy; // NEW: Added payment policy
+  //paymentPolicy: PaymentPolicy; // NEW: Added payment policy
   pdfUrl?: string;
   notes?: string;
   createdAt: string;
   updatedAt: string;
-}
-
-// Bill Invoice Statistics by Payment Policy Interface
-export interface BillInvoiceStatsByPaymentPolicy {
-  MONTHLY: {
-    count: number;
-    totalAmount: number;
-    totalPaid: number;
-    totalBalance: number;
-    paid: { count: number; amount: number };
-    unpaid: { count: number; amount: number };
-    partial: { count: number; amount: number };
-    overdue: { count: number; amount: number };
-  };
-  QUARTERLY: {
-    count: number;
-    totalAmount: number;
-    totalPaid: number;
-    totalBalance: number;
-    paid: { count: number; amount: number };
-    unpaid: { count: number; amount: number };
-    partial: { count: number; amount: number };
-    overdue: { count: number; amount: number };
-  };
-  ANNUAL: {
-    count: number;
-    totalAmount: number;
-    totalPaid: number;
-    totalBalance: number;
-    paid: { count: number; amount: number };
-    unpaid: { count: number; amount: number };
-    partial: { count: number; amount: number };
-    overdue: { count: number; amount: number };
-  };
 }
 
 
@@ -548,7 +514,7 @@ export interface GenerateBillInvoiceRequest {
   billId: string;
   dueDate: string;
   notes?: string;
-  paymentPolicy?: PaymentPolicy;
+  //paymentPolicy?: PaymentPolicy;
 }
 
 export interface UpdateBillInvoicePaymentRequest {

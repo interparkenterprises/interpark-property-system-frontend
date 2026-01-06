@@ -93,10 +93,18 @@ export default function TenantDetailPage() {
   const fetchInvoices = async () => {
     try {
       setInvoicesLoading(true);
-      const response = await invoicesAPI.getInvoicesByTenant(tenantId);
-      setInvoices(response.data);
+      
+      const response = await invoicesAPI.getInvoicesByTenant(tenantId, {
+        page: 1,
+        limit: 1000, // Large number to get all
+        //sortBy: 'createdAt',
+        //sortOrder: 'desc'
+      });
+      setInvoices(response.data || []);
+      
     } catch (error) {
       console.error('Error fetching invoices:', error);
+      toast.error('Failed to load invoices');
     } finally {
       setInvoicesLoading(false);
     }
@@ -124,12 +132,14 @@ export default function TenantDetailPage() {
   const fetchBillInvoices = async () => {
     try {
       setBillInvoicesLoading(true);
-      const response = await billInvoicesAPI.getByTenant(tenantId);
+      // If API supports pagination, get all pages
+      const response = await billInvoicesAPI.getByTenant(tenantId, {
+        page: 1,
+        limit: 1000, // Increase limit to get more invoices
+      });
       setBillInvoices(response.data || []);
     } catch (error) {
       console.error('Error fetching bill invoices:', error);
-      toast.error('Failed to load bill invoices');
-      setBillInvoices([]);
     } finally {
       setBillInvoicesLoading(false);
     }
@@ -800,9 +810,19 @@ export default function TenantDetailPage() {
           </div>
           <div className="space-y-6">
             <div className="p-6 bg-linear-to-r from-green-50 to-green-100 rounded-xl border border-green-200">
-              <p className="text-sm font-semibold text-gray-800 mb-2">Monthly Rent</p>
+              <p className="text-sm font-semibold text-gray-800 mb-2">
+                {/* Dynamic heading based on payment policy */}
+                {tenant.paymentPolicy === 'MONTHLY' && 'Monthly Rent'}
+                {tenant.paymentPolicy === 'QUARTERLY' && 'Quarterly Rent'}
+                {tenant.paymentPolicy === 'ANNUAL' && 'Annual Rent'}
+              </p>
               <p className="text-4xl font-bold text-gray-900">Ksh {tenant.rent.toLocaleString()}</p>
-              <p className="text-sm text-gray-700 mt-2">Per month</p>
+              <p className="text-sm text-gray-700 mt-2">
+                {/* Dynamic description based on payment policy */}
+                {tenant.paymentPolicy === 'MONTHLY' && 'Per month'}
+                {tenant.paymentPolicy === 'QUARTERLY' && 'Per quarter'}
+                {tenant.paymentPolicy === 'ANNUAL' && 'Per year'}
+              </p>
             </div>
             {tenant.deposit && (
               <div className="p-4 bg-gray-50 rounded-xl">
@@ -1521,9 +1541,7 @@ export default function TenantDetailPage() {
                           <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getStatusColor(billInvoice.status)}`}>
                             {billInvoice.status}
                           </span>
-                          <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getPaymentPolicyColor(billInvoice.paymentPolicy)}`}>
-                            {billInvoice.paymentPolicy}
-                          </span>
+                          
                           <span className="px-3 py-1 rounded-full text-xs font-semibold border bg-purple-100 text-purple-800 border-purple-200">
                             {billInvoice.billType}
                           </span>

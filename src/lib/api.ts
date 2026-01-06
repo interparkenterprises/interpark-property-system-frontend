@@ -23,7 +23,6 @@ import {
   ActivationsListResponse,
   ActivationStatus,
   PaymentPolicy,
-  BillInvoiceStatsByPaymentPolicy,
 } from '@/types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.interparkpropertysystem.co.ke/api';
@@ -1321,8 +1320,7 @@ export const billInvoicesAPI = {
     status?: InvoiceStatus;
     tenantId?: string;
     billType?: BillType;
-    paymentPolicy?: PaymentPolicy;
-  }): Promise<BillInvoiceResponse> => {
+  }): Promise<BillInvoiceResponse> => { // Removed paymentPolicy from params
     try {
       const response = await api.get('/bill-invoices', { params });
       
@@ -1341,59 +1339,18 @@ export const billInvoicesAPI = {
     }
   },
 
-  getByPaymentPolicy: async (policy: PaymentPolicy, params?: {
-    page?: number;
-    limit?: number;
-    status?: InvoiceStatus;
-    billType?: BillType;
-  }): Promise<BillInvoiceResponse> => {
-    try {
-      const response = await api.get(`/bill-invoices/payment-policy/${policy}`, { params });
-      
-      if (!response.data || !response.data.success) {
-        throw new Error('Invalid response from server');
-      }
+  // REMOVED: getByPaymentPolicy function since paymentPolicy is removed from backend
+  // getByPaymentPolicy: async (policy: PaymentPolicy, params?: { ... }) => ...
 
-      return response.data;
-    } catch (error: any) {
-      console.error('Failed to load bill invoices by payment policy:', error);
-      const message =
-        error?.response?.data?.message ||
-        error?.message ||
-        'Failed to fetch bill invoices by payment policy';
-      throw new Error(message);
-    }
-  },
-
-  getStatsByPaymentPolicy: async (params?: {
-    startDate?: string;
-    endDate?: string;
-  }): Promise<BillInvoiceStatsByPaymentPolicy> => {
-    try {
-      const response = await api.get('/bill-invoices/stats/payment-policy', { params });
-      
-      if (!response.data || !response.data.success) {
-        throw new Error('Invalid response from server');
-      }
-
-      return response.data.data;
-    } catch (error: any) {
-      console.error('Failed to load bill invoice statistics:', error);
-      const message =
-        error?.response?.data?.message ||
-        error?.message ||
-        'Failed to fetch bill invoice statistics';
-      throw new Error(message);
-    }
-  },
+  // REMOVED: getStatsByPaymentPolicy function since paymentPolicy is removed from backend
+  // getStatsByPaymentPolicy: async (params?: { ... }): Promise<BillInvoiceStatsByPaymentPolicy> => ...
 
   getByTenant: async (tenantId: string, params?: {
     page?: number;
     limit?: number;
     status?: InvoiceStatus;
     billType?: BillType;
-    paymentPolicy?: PaymentPolicy;
-  }): Promise<BillInvoiceResponse> => {
+  }): Promise<BillInvoiceResponse> => { // Removed paymentPolicy from params
     try {
       const response = await api.get(`/bill-invoices/tenant/${tenantId}`, { params });
       
@@ -1450,26 +1407,8 @@ export const billInvoicesAPI = {
     }
   },
 
-  updatePaymentPolicy: async (id: string, data: {
-    paymentPolicy: PaymentPolicy;
-  }): Promise<BillInvoice> => {
-    try {
-      const response = await api.patch(`/bill-invoices/${id}/payment-policy`, data);
-      
-      if (!response.data || !response.data.success) {
-        throw new Error('Invalid response from server');
-      }
-
-      return response.data.data;
-    } catch (error: any) {
-      console.error('Failed to update bill invoice payment policy:', error);
-      const message =
-        error?.response?.data?.message ||
-        error?.message ||
-        'Failed to update bill invoice payment policy';
-      throw new Error(message);
-    }
-  },
+  // REMOVED: updatePaymentPolicy function since paymentPolicy is removed from backend
+  // updatePaymentPolicy: async (id: string, data: { paymentPolicy: PaymentPolicy; }): Promise<BillInvoice> => ...
 
   recordPayment: async (id: string, data: {
     amountPaid: number;

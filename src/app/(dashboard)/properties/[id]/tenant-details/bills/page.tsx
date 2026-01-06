@@ -114,7 +114,7 @@ export default function TenantBillsPage() {
       setBillsLoading(true);
       const response = await billsAPI.getByTenant(tenantId, {
         page: currentPage,
-        limit: 10,
+        limit: 10,//adjust limit as needed to get more/all bills
       });
       setBills(response.bills);
       setTotalPages(response.pagination.totalPages);
@@ -130,7 +130,11 @@ export default function TenantBillsPage() {
   const fetchBillInvoices = async () => {
     try {
       setBillInvoicesLoading(true);
-      const response = await billInvoicesAPI.getByTenant(tenantId);
+      // If API supports pagination, get all pages
+      const response = await billInvoicesAPI.getByTenant(tenantId, {
+        page: 1,
+        limit: 1000, // Increase limit to get more invoices
+      });
       setBillInvoices(response.data || []);
     } catch (error) {
       console.error('Error fetching bill invoices:', error);
@@ -325,14 +329,12 @@ export default function TenantBillsPage() {
     try {
         setGeneratingInvoice(true);
         
-        // Use the tenant's payment policy from the tenant object
-        const paymentPolicy: PaymentPolicy = tenant.paymentPolicy || 'MONTHLY';
-        
+        // Payment now occurs monthly by default, no need to pass paymentPolicy
         const response = await billInvoicesAPI.generate({
           billId: selectedBill.id,
           dueDate: billInvoiceForm.dueDate,
-          notes: billInvoiceForm.notes || `Invoice for remaining balance of Ksh ${remainingBalance.toLocaleString()}`,
-          paymentPolicy: paymentPolicy // Pass the tenant's payment policy
+          notes: billInvoiceForm.notes || `Invoice for remaining balance of Ksh ${remainingBalance.toLocaleString()}`
+          // Removed: paymentPolicy: paymentPolicy
         });
         
         toast.success('Bill invoice generated successfully!');
@@ -358,34 +360,6 @@ export default function TenantBillsPage() {
         }
     } finally {
         setGeneratingInvoice(false);
-    }
-  };
-
-  const handleGenerateRegularInvoice = async () => {
-    if (!tenant) return;
-    
-    // This is for regular rent invoices (not bill invoices)
-    try {
-      setGeneratingInvoice(true);
-      
-      // Use the tenant's payment policy
-      const paymentPolicy: PaymentPolicy = tenant.paymentPolicy || 'MONTHLY';
-      
-      // You would call the invoicesAPI.generateInvoice here
-      // Example:
-      // const invoice = await invoicesAPI.generateInvoice({
-      //   tenantId: tenant.id,
-      //   paymentPolicy: paymentPolicy,
-      //   dueDate: billInvoiceForm.dueDate,
-      //   notes: billInvoiceForm.notes
-      // });
-      
-      toast.success('Invoice generated successfully!');
-    } catch (error) {
-      console.error('Error generating invoice:', error);
-      toast.error('Failed to generate invoice');
-    } finally {
-      setGeneratingInvoice(false);
     }
   };
 
@@ -621,7 +595,7 @@ export default function TenantBillsPage() {
           <div className="flex items-center gap-4 mt-2">
             <p className="text-gray-600">Manage water and electricity bills</p>
             <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getPaymentPolicyColor(tenant.paymentPolicy)}`}>
-              Payment Policy: {tenant.paymentPolicy}
+              Payment Policy: MONTHLY
             </span>
           </div>
         </div>
@@ -710,7 +684,7 @@ export default function TenantBillsPage() {
         <div className="p-6 border-b border-gray-200">
           <h2 className="text-xl font-bold text-heading-color">Bills History</h2>
           <p className="text-sm text-gray-600 mt-1">
-            Tenant Payment Policy: <span className="font-semibold">{tenant.paymentPolicy}</span>
+            Tenant Payment Policy: <span className="font-semibold">Monthly</span>
           </p>
         </div>
         {billsLoading ? (
@@ -906,7 +880,7 @@ export default function TenantBillsPage() {
             </DialogDescription>
             <div className="mt-2">
               <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getPaymentPolicyColor(tenant.paymentPolicy)}`}>
-                Payment Policy: {tenant.paymentPolicy}
+                Payment Policy: MONTHLY
               </span>
             </div>
           </DialogHeader>
@@ -1388,7 +1362,7 @@ export default function TenantBillsPage() {
                 setSelectedBillInvoice(null);
                 setPaymentAmount('');
               }}
-              disabled={paying || recordingPayment}
+              disabled={(paying || recordingPayment) || !paymentAmount || parseFloat(paymentAmount) <= 0}
             >
               Cancel
             </Button>
@@ -1424,7 +1398,7 @@ export default function TenantBillsPage() {
             </DialogDescription>
             <div className="mt-2">
               <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getPaymentPolicyColor(tenant.paymentPolicy)}`}>
-                Payment Policy: {tenant.paymentPolicy}
+                Payment Policy: MONTHLY
               </span>
             </div>
             </DialogHeader>
@@ -1533,7 +1507,7 @@ export default function TenantBillsPage() {
             </DialogDescription>
             <div className="mt-2">
               <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getPaymentPolicyColor(tenant.paymentPolicy)}`}>
-                Payment Policy: {tenant.paymentPolicy}
+                Payment Policy: MONTHLY
               </span>
             </div>
           </DialogHeader>
@@ -1568,9 +1542,7 @@ export default function TenantBillsPage() {
                         <p className="text-sm text-gray-700">
                           {invoice.billType} - {new Date(invoice.issueDate).toLocaleDateString()}
                         </p>
-                        <p className="text-xs text-gray-600 mt-1">
-                          Payment Policy: <span className="font-semibold">{invoice.paymentPolicy}</span>
-                        </p>
+                        
                       </div>
                       <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getStatusColor(invoice.status)}`}>
                         {invoice.status}
