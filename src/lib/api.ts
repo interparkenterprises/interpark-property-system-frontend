@@ -23,6 +23,10 @@ import {
   ActivationsListResponse,
   ActivationStatus,
   PaymentPolicy,
+  DeleteInvoiceRequest,
+  DeleteInvoiceResponse,
+  DeleteBillInvoiceRequest,
+  DeleteBillInvoiceResponse
 } from '@/types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.interparkpropertysystem.co.ke/api';
