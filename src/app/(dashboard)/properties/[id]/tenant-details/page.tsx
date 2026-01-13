@@ -50,6 +50,8 @@ export default function TenantDetailPage() {
   const [generating, setGenerating] = useState(false);
   const [creatingPayment, setCreatingPayment] = useState(false);
   const [generatingPartialInvoice, setGeneratingPartialInvoice] = useState(false);
+  const [deletingInvoiceId, setDeletingInvoiceId] = useState<string | null>(null); // Add state for tracking deletion
+  const [deletingBillInvoiceId, setDeletingBillInvoiceId] = useState<string | null>(null);
   
   const [invoiceForm, setInvoiceForm] = useState({
     dueDate: '',
@@ -437,6 +439,48 @@ export default function TenantDetailPage() {
         return 'bg-indigo-100 text-indigo-800 border-indigo-200';
       default:
         return 'bg-gray-100 text-gray-800 border-gray-200';
+    }
+  };
+
+  // delete function for invoices
+    const handleDeleteInvoice = async (invoiceId: string, invoiceNumber: string) => {
+    if (!confirm(`Are you sure you want to delete invoice ${invoiceNumber}? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      setDeletingInvoiceId(invoiceId);
+      await invoicesAPI.deleteInvoice(invoiceId);
+      toast.success(`Invoice ${invoiceNumber} deleted successfully!`);
+      
+      // Update the invoices list by removing the deleted invoice
+      setInvoices(prevInvoices => prevInvoices.filter(invoice => invoice.id !== invoiceId));
+    } catch (error) {
+      console.error('Error deleting invoice:', error);
+      toast.error('Failed to delete invoice');
+    } finally {
+      setDeletingInvoiceId(null);
+    }
+  };
+
+  // delete function for bill-invoices
+  const handleDeleteBillInvoice = async (billInvoiceId: string, invoiceNumber: string) => {
+    if (!confirm(`Are you sure you want to delete bill invoice ${invoiceNumber}? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      setDeletingBillInvoiceId(billInvoiceId);
+      await billInvoicesAPI.deleteBillInvoice(billInvoiceId);
+      toast.success(`Bill invoice ${invoiceNumber} deleted successfully!`);
+      
+      // Update the bill invoices list by removing the deleted invoice
+      setBillInvoices(prevInvoices => prevInvoices.filter(invoice => invoice.id !== billInvoiceId));
+    } catch (error) {
+      console.error('Error deleting bill invoice:', error);
+      toast.error('Failed to delete bill invoice');
+    } finally {
+      setDeletingBillInvoiceId(null);
     }
   };
 
@@ -1095,6 +1139,30 @@ export default function TenantDetailPage() {
                         </svg>
                         Download
                       </Button>
+                       <Button
+                          onClick={() => handleDeleteInvoice(invoice.id, invoice.invoiceNumber)}
+                          variant="destructive"
+                          size="sm"
+                          disabled={deletingInvoiceId === invoice.id}
+                          className="w-full border-2 border-red-500 text-red-600 hover:bg-red-50 hover:text-red-700 hover:border-red-600 font-medium transition-all duration-200"
+                        >
+                          {deletingInvoiceId === invoice.id ? (
+                            <>
+                              <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                              </svg>
+                              Deleting...
+                            </>
+                          ) : (
+                            <>
+                              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                              Delete
+                            </>
+                          )}
+                        </Button>
                     </div>
                   </motion.div>
                 ))}
@@ -1582,6 +1650,32 @@ export default function TenantDetailPage() {
                         </div>
                       )}
                     </div>
+                    <div className="flex flex-col gap-2 ml-4 shrink-0">
+                      <Button
+                        onClick={() => handleDeleteBillInvoice(billInvoice.id, billInvoice.invoiceNumber)}
+                        variant="destructive"
+                        size="sm"
+                        disabled={deletingBillInvoiceId === billInvoice.id}
+                        className="w-full bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-medium shadow-md hover:shadow-lg transition-all duration-200 border border-red-700"
+                      >
+                        {deletingBillInvoiceId === billInvoice.id ? (
+                          <>
+                            <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            Deleting...
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                            Delete
+                          </>
+                        )}
+                        </Button>
+                    </div>  
                   </motion.div>
                 ))}
               </div>

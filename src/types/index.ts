@@ -259,6 +259,43 @@ export interface GenerateInvoiceRequest {
   dueDate: string;
   notes?: string;
 }
+// Invoice Delete Request Interface
+export interface DeleteInvoiceRequest {
+  deletePaymentReport?: boolean;
+  deleteLinkedInvoices?: boolean;
+  force?: boolean;
+}
+
+// Invoice Delete Response Interface
+export interface DeleteInvoiceResponse {
+  success: boolean;
+  data: {
+    invoiceDeleted: boolean;
+    paymentReportDeleted: boolean;
+    linkedInvoicesDeleted: number;
+    totalPdfsDeleted: number;
+    invoiceInfo: {
+      id: string;
+      invoiceNumber: string;
+      tenantName: string;
+      propertyName: string;
+      createdAt: string;
+    };
+    paymentReportInfo?: {
+      id: string;
+      status: PaymentStatus;
+      totalLinkedInvoices: number;
+      linkedInvoices?: Array<{
+        id: string;
+        invoiceNumber: string;
+        tenantName: string;
+        createdAt: string;
+      }>;
+    };
+    paymentReportRemains?: boolean;
+  };
+  message: string;
+}
 
 export type IncomeFrequency = 'MONTHLY' | 'QUARTERLY' | 'ANNUAL';
 
@@ -469,7 +506,52 @@ export interface BillInvoice {
   createdAt: string;
   updatedAt: string;
 }
+// Bill Invoice Delete Request Interface
+export interface DeleteBillInvoiceRequest {
+  deletePaymentReport?: boolean;
+  deleteLinkedInvoices?: boolean;
+  force?: boolean;
+}
 
+// Bill Invoice Delete Response Interface
+export interface DeleteBillInvoiceResponse {
+  success: boolean;
+  data: {
+    billInvoiceDeleted: boolean;
+    paymentReportDeleted: boolean;
+    linkedBillInvoicesDeleted: number;
+    totalPdfsDeleted: number;
+    invoiceInfo: {
+      id: string;
+      invoiceNumber: string;
+      tenantName: string;
+      propertyName: string;
+      billType: BillType;
+      grandTotal: number;
+      balance: number;
+      createdAt: string;
+    };
+    paymentReportInfo?: {
+      id: string;
+      status: PaymentStatus;
+      totalLinkedBillInvoices: number;
+      linkedBillInvoices?: Array<{
+        id: string;
+        invoiceNumber: string;
+        tenantName: string;
+        createdAt: string;
+      }>;
+    };
+    paymentReportRemains?: boolean;
+    billUpdated?: {
+      id: string;
+      previousAmountPaid: number;
+      newAmountPaid: number;
+      newStatus: BillStatus;
+    };
+  };
+  message: string;
+}
 
 export interface CreateBillRequest {
   tenantId: string;

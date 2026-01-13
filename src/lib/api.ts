@@ -655,6 +655,28 @@ export const invoicesAPI = {
     }
   },
 
+    // Enhanced delete invoice function
+  deleteInvoice: async (id: string, data?: DeleteInvoiceRequest): Promise<DeleteInvoiceResponse> => {
+    try {
+      const response = await api.delete(`/invoices/${id}`, {
+        data: data || {} // Pass the delete options in request body
+      });
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+    // Delete invoice PDF only
+  deleteInvoicePDF: async (id: string): Promise<{ success: boolean; message: string; data: any }> => {
+    try {
+      const response = await api.delete(`/invoices/${id}/pdf`);
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
   generateFromPartialPayment: async (data: {
     paymentReportId: string;
     dueDate: string;
@@ -1465,19 +1487,44 @@ export const billInvoicesAPI = {
     }
   },
 
-  delete: async (id: string): Promise<void> => {
+  // Enhanced delete bill invoice function
+  deleteBillInvoice: async (id: string, data?: DeleteBillInvoiceRequest): Promise<DeleteBillInvoiceResponse> => {
     try {
-      const response = await api.delete(`/bill-invoices/${id}`);
+      const response = await api.delete(`/bill-invoices/${id}`, {
+        data: data || {} // Pass the delete options in request body
+      });
       
       if (!response.data || !response.data.success) {
         throw new Error('Invalid response from server');
       }
+
+      return response.data;
     } catch (error: any) {
       console.error('Failed to delete bill invoice:', error);
       const message =
         error?.response?.data?.message ||
         error?.message ||
         'Failed to delete bill invoice';
+      throw new Error(message);
+    }
+  },
+
+    // Delete bill invoice PDF only
+  deleteBillInvoicePDF: async (id: string): Promise<{ success: boolean; message: string; data: any }> => {
+    try {
+      const response = await api.delete(`/bill-invoices/${id}/pdf`);
+      
+      if (!response.data || !response.data.success) {
+        throw new Error('Invalid response from server');
+      }
+
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to delete bill invoice PDF:', error);
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to delete bill invoice PDF';
       throw new Error(message);
     }
   },
