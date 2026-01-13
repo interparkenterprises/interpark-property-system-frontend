@@ -1141,7 +1141,7 @@ export default function TenantDetailPage() {
                       </Button>
                        <Button
                           onClick={() => handleDeleteInvoice(invoice.id, invoice.invoiceNumber)}
-                          variant="destructive"
+                          variant="outline"
                           size="sm"
                           disabled={deletingInvoiceId === invoice.id}
                           className="w-full border-2 border-red-500 text-red-600 hover:bg-red-50 hover:text-red-700 hover:border-red-600 font-medium transition-all duration-200"
@@ -1653,7 +1653,7 @@ export default function TenantDetailPage() {
                     <div className="flex flex-col gap-2 ml-4 shrink-0">
                       <Button
                         onClick={() => handleDeleteBillInvoice(billInvoice.id, billInvoice.invoiceNumber)}
-                        variant="destructive"
+                        variant="outline"
                         size="sm"
                         disabled={deletingBillInvoiceId === billInvoice.id}
                         className="w-full bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-medium shadow-md hover:shadow-lg transition-all duration-200 border border-red-700"
