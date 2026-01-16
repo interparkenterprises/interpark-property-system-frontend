@@ -315,19 +315,22 @@ export const exportPropertyToExcel = async (
         vatRate
       );
       
-      // Find tenant's income/payments
-      const tenantIncomes = property.incomes?.filter(income => income.tenantId === tenant?.id) || [];
-      const totalPaid = tenantIncomes.reduce((sum, income) => sum + income.amount, 0);
-      
       // Calculate amount payable based on VAT type
       let amountPayable = 0;
-      if (vatType === 'INCLUSIVE') {
+      if (vatType === 'EXCLUSIVE') {
+        // For EXCLUSIVE VAT, add VAT on top
+        amountPayable = (unit.rentAmount + serviceChargeValue) * (1 + (vatRate / 100));
+      } else if (vatType === 'INCLUSIVE') {
         // VAT is already included in rent, so amount payable is just rent + service charge
         amountPayable = unit.rentAmount + serviceChargeValue;
       } else {
-        // For EXCLUSIVE and NOT_APPLICABLE, amount payable is taxable amount + VAT
-        amountPayable = taxableAmount + vatAmount;
+        // NOT_APPLICABLE
+        amountPayable = unit.rentAmount + serviceChargeValue;
       }
+      
+      // Find tenant's income/payments
+      const tenantIncomes = property.incomes?.filter(income => income.tenantId === tenant?.id) || [];
+      const totalPaid = tenantIncomes.reduce((sum, income) => sum + income.amount, 0);
       
       const balance = amountPayable - totalPaid;
 
@@ -338,6 +341,7 @@ export const exportPropertyToExcel = async (
         serviceChargeType,
         vatAmount,
         vatType,
+        vatRate,
         taxableAmount,
         amountPayable,
         totalPaid,
@@ -416,6 +420,7 @@ export const exportPropertyToExcel = async (
         serviceChargeType, 
         vatAmount, 
         vatType,
+        vatRate,
         taxableAmount,
         amountPayable, 
         totalPaid, 
@@ -428,7 +433,7 @@ export const exportPropertyToExcel = async (
       const ratePerSqFt = unit.rentAmount / unit.sizeSqFt;
       const ratesDesc = `${Math.round(ratePerSqFt)} PER SQ/FT`;
 
-      // Format VAT display based on VAT type (for text display in VAT column)
+      // Format VAT display based on VAT type
       let vatDisplay = '';
       if (vatType === 'NOT_APPLICABLE') {
         vatDisplay = 'N/A';
@@ -446,6 +451,9 @@ export const exportPropertyToExcel = async (
         rentDisplayAmount = unit.rentAmount;
       }
 
+      // Calculate VAT rate decimal for formulas
+      const vatRateDecimal = vatRate / 100;
+
       const rowData = [
         unit.type?.substring(0, 3) || `U${unitIndex + 1}`, // A: ENTRANCE
         tenant?.fullName || 'VACANT', // B: TENANT NAME
@@ -458,16 +466,22 @@ export const exportPropertyToExcel = async (
         '', // I: ELECTRICITY/BCF
         rentDisplayAmount, // J: GROUND RENT (numeric value for formulas)
         '', // K: WATER BILL (empty for now)
-        vatAmount, // L: VAT (numeric value for formulas)
+        vatDisplay, // L: VAT (text display)
         serviceChargeValue, // M: SERVICE CHARGE (numeric value for formulas)
         {
-          formula: `SUM(J${currentRow}:M${currentRow})`,
-          result: rentDisplayAmount + serviceChargeValue + vatAmount
-        }, // N: Rent (formula - includes VAT for all types)
-        {
-          formula: `SUM(J${currentRow}:M${currentRow})`,
+          // Rent calculation
+          formula: vatType === 'EXCLUSIVE' 
+            ? `(J${currentRow}+M${currentRow})*(1+${vatRateDecimal})` // Add VAT for EXCLUSIVE
+            : `J${currentRow}+M${currentRow}`, // No VAT to add for INCLUSIVE and NOT_APPLICABLE
           result: amountPayable
-        }, // O: AMOUNT PAYABLE (formula)
+        }, // N: Rent
+        {
+          // Amount Payable (same as Rent)
+          formula: vatType === 'EXCLUSIVE' 
+            ? `(J${currentRow}+M${currentRow})*(1+${vatRateDecimal})` // Add VAT for EXCLUSIVE
+            : `J${currentRow}+M${currentRow}`, // No VAT to add for INCLUSIVE and NOT_APPLICABLE
+          result: amountPayable
+        }, // O: AMOUNT PAYABLE
         totalPaid > 0 ? totalPaid : '', // P: AMT PID (numeric!)
         tenantIncomes?.length > 0 ? new Date(tenantIncomes[0].createdAt).toLocaleDateString('en-GB') : '', // Q: DATE
         {
@@ -486,11 +500,6 @@ export const exportPropertyToExcel = async (
         const cell = row.getCell(10); // Column J is index 10
         cell.numFmt = '"Ksh "#,##0.00';
       }
-      
-      // Format VAT (Column L) as currency - but we need to display text
-      // Override the numeric value with formatted text display
-      const vatCell = row.getCell(12); // Column L is index 12
-      vatCell.value = vatDisplay; // Set the text display value
       
       // Format Service Charge (Column M) as currency
       if (serviceChargeValue > 0) {
@@ -514,8 +523,12 @@ export const exportPropertyToExcel = async (
       floorTotal.vat += vatAmount;
       floorTotal.serviceCharge += serviceChargeValue;
       
-      // Calculate total rent - always include VAT amount
-      floorTotal.rent += rentDisplayAmount + serviceChargeValue + vatAmount;
+      // Calculate total rent based on VAT type
+      if (vatType === 'EXCLUSIVE') {
+        floorTotal.rent += rentDisplayAmount + serviceChargeValue + vatAmount; // Add VAT for EXCLUSIVE
+      } else {
+        floorTotal.rent += rentDisplayAmount + serviceChargeValue; // VAT already included or not applicable
+      }
       floorTotal.amountPayable += amountPayable;
       floorTotal.amountPaid += totalPaid;
       floorTotal.balance += balance;
