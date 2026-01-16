@@ -8,21 +8,6 @@ export interface ExportSection {
 }
 
 // Helper functions for Excel generation
-// Note: addSectionTitle is commented out as it's currently unused
-// const addSectionTitle = (worksheet: ExcelJS.Worksheet, row: number, title: string) => {
-//   worksheet.mergeCells(`A${row}:R${row}`);
-//   const cell = worksheet.getCell(`A${row}`);
-//   cell.value = title.toUpperCase();
-//   cell.font = { size: 16, bold: true, color: { argb: 'FFFFFFFF' } };
-//   cell.fill = {
-//     type: 'pattern',
-//     pattern: 'solid',
-//     fgColor: { argb: 'FF0066B2' },
-//   };
-//   cell.alignment = { horizontal: 'center', vertical: 'middle' };
-//   worksheet.getRow(row).height = 30;
-// };
-
 const addSubsectionHeader = (worksheet: ExcelJS.Worksheet, row: number, title: string) => {
   worksheet.mergeCells(`A${row}:R${row}`);
   const cell = worksheet.getCell(`A${row}`);
@@ -75,7 +60,18 @@ const addTableRow = (
   const rowData = worksheet.getRow(row);
   data.forEach((value, index) => {
     const cell = rowData.getCell(index + 1);
-    cell.value = value;
+    
+    // Handle formula objects specially
+    if (value && typeof value === 'object' && ('formula' in value || 'result' in value)) {
+      if (value.formula) {
+        cell.value = { formula: value.formula };
+      } else if (value.result !== undefined) {
+        cell.value = value.result;
+      }
+    } else {
+      cell.value = value;
+    }
+    
     cell.font = { size: 10 };
     cell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
     cell.border = {
@@ -112,22 +108,27 @@ const addTotalRow = (
   // Deposit total
   worksheet.getCell(`H${totalRow}`).value = totals.deposit || 0;
   worksheet.getCell(`H${totalRow}`).font = { bold: true, size: 11 };
+  worksheet.getCell(`H${totalRow}`).numFmt = '"Ksh "#,##0.00';
   
   // Ground Rent total
   worksheet.getCell(`J${totalRow}`).value = totals.groundRent || 0;
   worksheet.getCell(`J${totalRow}`).font = { bold: true, size: 11 };
+  worksheet.getCell(`J${totalRow}`).numFmt = '"Ksh "#,##0.00';
   
   // Water Bill total
   worksheet.getCell(`K${totalRow}`).value = totals.waterBill || 0;
   worksheet.getCell(`K${totalRow}`).font = { bold: true, size: 11 };
+  worksheet.getCell(`K${totalRow}`).numFmt = '"Ksh "#,##0.00';
   
   // VAT total
   worksheet.getCell(`L${totalRow}`).value = totals.vat || 0;
   worksheet.getCell(`L${totalRow}`).font = { bold: true, size: 11 };
+  worksheet.getCell(`L${totalRow}`).numFmt = '"Ksh "#,##0.00';
   
   // Service Charge total
   worksheet.getCell(`M${totalRow}`).value = totals.serviceCharge || 0;
   worksheet.getCell(`M${totalRow}`).font = { bold: true, size: 11 };
+  worksheet.getCell(`M${totalRow}`).numFmt = '"Ksh "#,##0.00';
   
   // Rent total formula
   worksheet.getCell(`N${totalRow}`).value = {
@@ -135,6 +136,7 @@ const addTotalRow = (
     result: totals.rent || 0
   };
   worksheet.getCell(`N${totalRow}`).font = { bold: true, size: 11 };
+  worksheet.getCell(`N${totalRow}`).numFmt = '"Ksh "#,##0.00';
   
   // Amount Payable formula
   worksheet.getCell(`O${totalRow}`).value = {
@@ -142,6 +144,7 @@ const addTotalRow = (
     result: totals.amountPayable || 0
   };
   worksheet.getCell(`O${totalRow}`).font = { bold: true, size: 11 };
+  worksheet.getCell(`O${totalRow}`).numFmt = '"Ksh "#,##0.00';
   
   // Amount Paid formula
   worksheet.getCell(`P${totalRow}`).value = {
@@ -149,6 +152,7 @@ const addTotalRow = (
     result: totals.amountPaid || 0
   };
   worksheet.getCell(`P${totalRow}`).font = { bold: true, size: 11 };
+  worksheet.getCell(`P${totalRow}`).numFmt = '"Ksh "#,##0.00';
   
   // Balance formula
   worksheet.getCell(`R${totalRow}`).value = {
@@ -156,6 +160,7 @@ const addTotalRow = (
     result: totals.balance || 0
   };
   worksheet.getCell(`R${totalRow}`).font = { bold: true, size: 11 };
+  worksheet.getCell(`R${totalRow}`).numFmt = '"Ksh "#,##0.00';
   
   // Format total row
   for (let col = 1; col <= 18; col++) {
@@ -177,20 +182,23 @@ const calculateVAT = (
   rentAmount: number,
   serviceChargeValue: number,
   vatType: VATType = 'NOT_APPLICABLE',
-  vatRate: number = 0.16 // Default VAT rate of 16%
+  vatRate: number = 16 // Default VAT rate of 16% (not 0.16)
 ): { vatAmount: number; taxableAmount: number } => {
+  
+  // Convert percentage to decimal for calculation
+  const vatRateDecimal = vatRate / 100;
+  
   switch (vatType) {
     case 'INCLUSIVE':
       // VAT is already included in the rent amount
-      // We need to extract VAT from the total
       const totalInclusive = rentAmount + serviceChargeValue;
-      const vatAmount = totalInclusive - (totalInclusive / (1 + vatRate));
+      const vatAmount = totalInclusive - (totalInclusive / (1 + vatRateDecimal));
       return { vatAmount, taxableAmount: totalInclusive - vatAmount };
       
     case 'EXCLUSIVE':
       // VAT needs to be added on top of the rent amount
       const taxableAmount = rentAmount + serviceChargeValue;
-      const vatExclusive = taxableAmount * vatRate;
+      const vatExclusive = taxableAmount * vatRateDecimal;
       return { vatAmount: vatExclusive, taxableAmount };
       
     case 'NOT_APPLICABLE':
@@ -299,7 +307,7 @@ export const exportPropertyToExcel = async (
 
       // Calculate VAT based on tenant's VAT type
       const vatType = tenant?.vatType || 'NOT_APPLICABLE';
-      const vatRate = tenant?.vatRate || 0.16; // Default to 16% if not specified
+      const vatRate = tenant?.vatRate || 16; // Default to 16% if not specified
       const { vatAmount, taxableAmount } = calculateVAT(
         unit.rentAmount,
         serviceChargeValue,
@@ -420,7 +428,7 @@ export const exportPropertyToExcel = async (
       const ratePerSqFt = unit.rentAmount / unit.sizeSqFt;
       const ratesDesc = `${Math.round(ratePerSqFt)} PER SQ/FT`;
 
-      // Format VAT display based on VAT type
+      // Format VAT display based on VAT type (for text display in VAT column)
       let vatDisplay = '';
       if (vatType === 'NOT_APPLICABLE') {
         vatDisplay = 'N/A';
@@ -439,49 +447,75 @@ export const exportPropertyToExcel = async (
       }
 
       const rowData = [
-        unit.type?.substring(0, 3) || `U${unitIndex + 1}`, // ENTRANCE
-        tenant?.fullName || 'VACANT', // TENANT NAME
-        tenant?.contact || '-', // TELEPHONE NUMBER
-        `${unit.sizeSqFt}Sq/ft`, // SQUARE FEET
-        floorName, // LOCATION
-        ratesDesc, // RATES
-        tenant?.fullName ? (unit.type || 'RETAIL') : 'VACANT', // NATURE OF THE BUSINESS
-        '', // DEPOSIT (not in current data model)
-        '', // ELECTRICITY/BCF (not in current data model)
-        `Ksh ${rentDisplayAmount.toLocaleString()}`, // GROUND RENT PER MONTH (adjusted for VAT)
-        '', // WATER BILL (not in current data model)
-        vatDisplay, // VAT with type indicator
-        serviceChargeValue > 0 ? `Ksh ${serviceChargeValue.toLocaleString()}` : '-', // SERVICE CHARGE
+        unit.type?.substring(0, 3) || `U${unitIndex + 1}`, // A: ENTRANCE
+        tenant?.fullName || 'VACANT', // B: TENANT NAME
+        tenant?.contact || '-', // C: TELEPHONE NUMBER
+        `${unit.sizeSqFt}Sq/ft`, // D: SQUARE FEET
+        floorName, // E: LOCATION
+        ratesDesc, // F: RATES
+        tenant?.fullName ? (unit.type || 'RETAIL') : 'VACANT', // G: NATURE OF BUSINESS
+        '', // H: DEPOSIT
+        '', // I: ELECTRICITY/BCF
+        rentDisplayAmount, // J: GROUND RENT (numeric value for formulas)
+        '', // K: WATER BILL (empty for now)
+        vatAmount, // L: VAT (numeric value for formulas)
+        serviceChargeValue, // M: SERVICE CHARGE (numeric value for formulas)
         {
           formula: `SUM(J${currentRow}:M${currentRow})`,
-          result: rentDisplayAmount + serviceChargeValue + (vatType === 'EXCLUSIVE' ? vatAmount : 0)
-        }, // Rent (formula - adjusted for VAT type)
+          result: rentDisplayAmount + serviceChargeValue + vatAmount
+        }, // N: Rent (formula - includes VAT for all types)
         {
           formula: `SUM(J${currentRow}:M${currentRow})`,
           result: amountPayable
-        }, // AMOUNT PAYABLE (formula)
-        totalPaid > 0 ? `Ksh ${totalPaid.toLocaleString()}` : '', // AMT PID
-        tenantIncomes?.length > 0 ? new Date(tenantIncomes[0].createdAt).toLocaleDateString('en-GB') : '', // DATE
+        }, // O: AMOUNT PAYABLE (formula)
+        totalPaid > 0 ? totalPaid : '', // P: AMT PID (numeric!)
+        tenantIncomes?.length > 0 ? new Date(tenantIncomes[0].createdAt).toLocaleDateString('en-GB') : '', // Q: DATE
         {
           formula: `O${currentRow}-P${currentRow}`,
           result: balance
-        } // BALANCE (formula)
+        } // R: BALANCE (formula)
       ];
 
       addTableRow(worksheet, currentRow, rowData, unitIndex % 2 === 0);
+      
+      // Apply number formatting AFTER adding the row
+      const row = worksheet.getRow(currentRow);
+      
+      // Format Ground Rent (Column J) as currency
+      if (rentDisplayAmount > 0) {
+        const cell = row.getCell(10); // Column J is index 10
+        cell.numFmt = '"Ksh "#,##0.00';
+      }
+      
+      // Format VAT (Column L) as currency - but we need to display text
+      // Override the numeric value with formatted text display
+      const vatCell = row.getCell(12); // Column L is index 12
+      vatCell.value = vatDisplay; // Set the text display value
+      
+      // Format Service Charge (Column M) as currency
+      if (serviceChargeValue > 0) {
+        const cell = row.getCell(13); // Column M is index 13
+        cell.numFmt = '"Ksh "#,##0.00';
+      }
+      
+      // Format Amount Paid (Column P) as currency
+      if (totalPaid > 0) {
+        const cell = row.getCell(16); // Column P is index 16
+        cell.numFmt = '"Ksh "#,##0.00';
+      }
+      
+      // Format Rent, Amount Payable, and Balance columns
+      row.getCell(14).numFmt = '"Ksh "#,##0.00'; // Column N: Rent
+      row.getCell(15).numFmt = '"Ksh "#,##0.00'; // Column O: Amount Payable
+      row.getCell(18).numFmt = '"Ksh "#,##0.00'; // Column R: Balance
       
       // Update floor totals
       floorTotal.groundRent += rentDisplayAmount;
       floorTotal.vat += vatAmount;
       floorTotal.serviceCharge += serviceChargeValue;
       
-      // Calculate total rent based on VAT type
-      if (vatType === 'INCLUSIVE') {
-        floorTotal.rent += rentDisplayAmount + serviceChargeValue;
-      } else {
-        floorTotal.rent += rentDisplayAmount + serviceChargeValue + vatAmount;
-      }
-      
+      // Calculate total rent - always include VAT amount
+      floorTotal.rent += rentDisplayAmount + serviceChargeValue + vatAmount;
       floorTotal.amountPayable += amountPayable;
       floorTotal.amountPaid += totalPaid;
       floorTotal.balance += balance;
@@ -538,20 +572,28 @@ export const exportPropertyToExcel = async (
     '',
     '',
     '',
-    `Ksh ${grandTotals.deposit.toLocaleString()}`,
+    grandTotals.deposit, // H: Deposit (numeric)
     '',
-    `Ksh ${grandTotals.groundRent.toLocaleString()}`,
-    `Ksh ${grandTotals.waterBill.toLocaleString()}`,
-    `Ksh ${grandTotals.vat.toLocaleString()}`,
-    `Ksh ${grandTotals.serviceCharge.toLocaleString()}`,
-    `Ksh ${grandTotals.rent.toLocaleString()}`,
-    `Ksh ${grandTotals.amountPayable.toLocaleString()}`,
-    `Ksh ${grandTotals.amountPaid.toLocaleString()}`,
+    grandTotals.groundRent, // J: Ground Rent (numeric)
+    grandTotals.waterBill, // K: Water Bill (numeric)
+    grandTotals.vat, // L: VAT (numeric)
+    grandTotals.serviceCharge, // M: Service Charge (numeric)
+    grandTotals.rent, // N: Total Rent (numeric)
+    grandTotals.amountPayable, // O: Total Payable (numeric)
+    grandTotals.amountPaid, // P: Total Paid (numeric)
     '',
-    `Ksh ${grandTotals.balance.toLocaleString()}`
+    grandTotals.balance // R: Total Balance (numeric)
   ];
 
   addTableRow(worksheet, currentRow, summaryData);
+  
+  // Apply number formatting to summary row
+  const summaryRow = worksheet.getRow(currentRow);
+  [8, 10, 11, 12, 13, 14, 15, 18].forEach(colIndex => {
+    const cell = summaryRow.getCell(colIndex);
+    cell.numFmt = '"Ksh "#,##0.00';
+  });
+  
   currentRow++;
 
   // Add financial summary section (similar to previous format)
