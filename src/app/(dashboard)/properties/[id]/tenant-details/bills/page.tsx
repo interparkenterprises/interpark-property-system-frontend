@@ -238,74 +238,124 @@ export default function TenantBillsPage() {
 
   const handlePayBill = async () => {
     if (!selectedBill) return;
+    
+    // Parse the payment amount with proper float handling
     const amount = parseFloat(paymentAmount);
-    if (!amount || amount <= 0) {
-        toast.error('Please enter a valid payment amount');
-        return;
+    if (isNaN(amount) || amount <= 0) {
+      toast.error('Please enter a valid payment amount');
+      return;
     }
     
+    // Calculate remaining balance with proper rounding
     const remainingBalance = selectedBill.grandTotal - (selectedBill.amountPaid || 0);
-    if (amount > remainingBalance) {
-        toast.error(`Payment amount cannot exceed the remaining balance of Ksh ${remainingBalance.toLocaleString()}`);
-        return;
+    
+    // Use a tolerance of 0.01 for floating point precision issues
+    const tolerance = 0.01;
+    const roundedRemainingBalance = Math.round(remainingBalance * 100) / 100;
+    const roundedAmount = Math.round(amount * 100) / 100;
+    
+    // Check if payment exceeds remaining balance (with tolerance)
+    if (roundedAmount > roundedRemainingBalance + tolerance) {
+      toast.error(`Payment amount cannot exceed the remaining balance of Ksh ${remainingBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+      return;
     }
-
+    
+    // Check if amount is effectively the same as remaining balance (within tolerance)
+    const isFullPayment = Math.abs(roundedAmount - roundedRemainingBalance) <= tolerance;
+    
+    // If it's a full payment, use the exact remaining balance to avoid floating point issues
+    const finalPaymentAmount = isFullPayment ? remainingBalance : amount;
+    
     try {
-        setPaying(true);
-        const response = await billsAPI.payBill(selectedBill.id, { amount });
-        
-        if (response.success) {
+      setPaying(true);
+      
+      // Send payment with properly rounded amount
+      const response = await billsAPI.payBill(selectedBill.id, { 
+        amount: parseFloat(finalPaymentAmount.toFixed(2))
+      });
+      
+      if (response.success) {
         toast.success(response.message || 'Payment recorded successfully!');
         setShowPayDialog(false);
         setSelectedBill(null);
         setPaymentAmount('');
         fetchBills();
-        fetchBillInvoices(); // Refresh invoices to show the newly generated one
-        } else {
+        fetchBillInvoices();
+      } else {
         toast.error(response.message || 'Failed to record payment');
-        }
+      }
     } catch (error: any) {
-        console.error('Error paying bill:', error);
-        // Provide more specific error messages
-        if (error.message?.includes('exceeds bill total') || error.message?.includes('maximum payment')) {
+      console.error('Error paying bill:', error);
+      
+      // Provide more specific error messages
+      if (error.message?.includes('exceeds bill total') || error.message?.includes('maximum payment')) {
         toast.error(error.message);
-        } else if (error.message?.includes('Duplicate payment')) {
+      } else if (error.message?.includes('Duplicate payment')) {
         toast.error('This payment appears to have already been processed');
-        } else {
+      } else if (error.message?.includes('precision') || error.message?.includes('decimal')) {
+        // Handle decimal precision errors
+        toast.error('Please enter payment amount with up to 2 decimal places');
+      } else {
         toast.error('Failed to record payment. Please try again.');
-        }
+      }
     } finally {
-        setPaying(false);
+      setPaying(false);
     }
   };
 
   const handleRecordBillInvoicePayment = async () => {
     if (!selectedBillInvoice) return;
+    
+    // Parse the payment amount with proper float handling
     const amount = parseFloat(paymentAmount);
-    if (!amount || amount <= 0) {
+    if (isNaN(amount) || amount <= 0) {
       toast.error('Please enter a valid payment amount');
       return;
     }
+    
+    // Calculate remaining balance with proper rounding
     const remainingBalance = selectedBillInvoice.grandTotal - selectedBillInvoice.amountPaid;
-    if (amount > remainingBalance) {
-      toast.error(`Payment amount cannot exceed the remaining balance of Ksh ${remainingBalance.toLocaleString()}`);
+    
+    // Use a tolerance of 0.01 for floating point precision issues
+    const tolerance = 0.01;
+    const roundedRemainingBalance = Math.round(remainingBalance * 100) / 100;
+    const roundedAmount = Math.round(amount * 100) / 100;
+    
+    // Check if payment exceeds remaining balance (with tolerance)
+    if (roundedAmount > roundedRemainingBalance + tolerance) {
+      toast.error(`Payment amount cannot exceed the remaining balance of Ksh ${remainingBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
       return;
     }
+    
+    // Check if amount is effectively the same as remaining balance (within tolerance)
+    const isFullPayment = Math.abs(roundedAmount - roundedRemainingBalance) <= tolerance;
+    
+    // If it's a full payment, use the exact remaining balance to avoid floating point issues
+    const finalPaymentAmount = isFullPayment ? remainingBalance : amount;
+    
     try {
       setRecordingPayment(true);
+      
       await billInvoicesAPI.recordPayment(selectedBillInvoice.id, {
-        amountPaid: amount,
+        amountPaid: parseFloat(finalPaymentAmount.toFixed(2)),
         paymentDate: new Date().toISOString().split('T')[0],
         notes: `Payment recorded for bill invoice ${selectedBillInvoice.invoiceNumber}`
       });
+      
       toast.success('Payment recorded successfully!');
       setShowPayDialog(false);
       setSelectedBillInvoice(null);
       setPaymentAmount('');
       fetchBillInvoices();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error recording bill invoice payment:', error);
-      toast.error('Failed to record payment');
+      
+      // Handle specific error cases
+      if (error.message?.includes('precision') || error.message?.includes('decimal')) {
+        toast.error('Please enter payment amount with up to 2 decimal places');
+      } else {
+        toast.error('Failed to record payment');
+      }
     } finally {
       setRecordingPayment(false);
     }
@@ -1315,13 +1365,6 @@ export default function TenantBillsPage() {
                   placeholder="0.00"
                   value={paymentAmount}
                   onChange={(e) => setPaymentAmount(e.target.value)}
-                  max={
-                    selectedBill 
-                      ? selectedBill.grandTotal - (selectedBill.amountPaid || 0)
-                      : selectedBillInvoice
-                      ? selectedBillInvoice.grandTotal - selectedBillInvoice.amountPaid
-                      : 0
-                  }
                   required
                   className="text-gray-900 placeholder:text-gray-500"
                 />
