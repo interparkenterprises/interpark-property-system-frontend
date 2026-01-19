@@ -1139,7 +1139,7 @@ export default function TenantDetailPage() {
                         </svg>
                         Download
                       </Button>
-                       <Button
+                      {/* <Button
                           onClick={() => handleDeleteInvoice(invoice.id, invoice.invoiceNumber)}
                           variant="outline"
                           size="sm"
@@ -1162,7 +1162,7 @@ export default function TenantDetailPage() {
                               Delete
                             </>
                           )}
-                        </Button>
+                        </Button> */}
                     </div>
                   </motion.div>
                 ))}
@@ -1650,13 +1650,13 @@ export default function TenantDetailPage() {
                         </div>
                       )}
                     </div>
-                    <div className="flex flex-col gap-2 ml-4 shrink-0">
-                      <Button
+                    {/*<div className="flex flex-col gap-2 ml-4 shrink-0">
+                     <Button
                         onClick={() => handleDeleteBillInvoice(billInvoice.id, billInvoice.invoiceNumber)}
                         variant="outline"
                         size="sm"
                         disabled={deletingBillInvoiceId === billInvoice.id}
-                        className="w-full bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-medium shadow-md hover:shadow-lg transition-all duration-200 border border-red-700"
+                        className="w-full bg-linear-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-medium shadow-md hover:shadow-lg transition-all duration-200 border border-red-700"
                       >
                         {deletingBillInvoiceId === billInvoice.id ? (
                           <>
@@ -1675,7 +1675,7 @@ export default function TenantDetailPage() {
                           </>
                         )}
                         </Button>
-                    </div>  
+                    </div> */} 
                   </motion.div>
                 ))}
               </div>
