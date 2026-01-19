@@ -2,6 +2,23 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Property, ArrearsResponse } from '@/types';
 
+// Helper function to format currency values in a compact way
+function formatCurrency(value: number): string {
+  if (value >= 1000000000) {
+    return `Ksh ${(value / 1000000000).toFixed(2)}B`;
+  } else if (value >= 1000000) {
+    return `Ksh ${(value / 1000000).toFixed(2)}M`;
+  } else if (value >= 1000) {
+    return `Ksh ${(value / 1000).toFixed(1)}K`;
+  }
+  return `Ksh ${value.toLocaleString()}`;
+}
+
+// Helper function to get the full display value (for when compact isn't needed)
+function getFullCurrencyDisplay(value: number): string {
+  return `Ksh ${value.toLocaleString()}`;
+}
+
 /**
  * Export Arrears Report to PDF
  * @param property - Property data
@@ -59,18 +76,18 @@ export async function exportArrearsToPDF(
     62
   );
 
-  // Table data with numbering
+  // Table data with numbering - use compact format for large numbers in table
   const tableData = arrearsData.arrears.map((item, index) => [
-    (index + 1).toString(), // Numbering 1, 2, 3, etc.
+    (index + 1).toString(),
     item.tenantName,
     item.unitType,
     item.unitNo,
     item.floor,
     item.invoiceNumber,
     item.invoiceType === 'RENT' ? 'Rent' : `Bill (${item.billType})`,
-    `Ksh ${item.expectedAmount.toLocaleString()}`,
-    `Ksh ${item.paidAmount.toLocaleString()}`,
-    `Ksh ${item.balance.toLocaleString()}`,
+    formatCurrency(item.expectedAmount),
+    formatCurrency(item.paidAmount),
+    formatCurrency(item.balance),
     item.status === 'UNPAID' ? 'Unpaid' : 'Partial',
   ]);
 
@@ -79,7 +96,7 @@ export async function exportArrearsToPDF(
   const totalPaid = arrearsData.summary.totalPaid;
   const totalArrears = arrearsData.summary.totalArrears;
 
-  // Generate table using autoTable WITHOUT footer
+  // Generate table using autoTable with optimized column widths
   autoTable(doc, {
     startY: 70,
     head: [
@@ -120,14 +137,15 @@ export async function exportArrearsToPDF(
       3: { cellWidth: 20 },
       4: { cellWidth: 15 },
       5: { cellWidth: 30 },
-      6: { cellWidth: 30, halign: 'center' },
-      7: { cellWidth: 25, halign: 'right' },
-      8: { cellWidth: 25, halign: 'right' },
-      9: { cellWidth: 25, halign: 'right', fontStyle: 'bold', textColor: [220, 53, 69] },
+      6: { cellWidth: 25, halign: 'center' },
+      7: { cellWidth: 30, halign: 'right' }, // Increased width for Expected column
+      8: { cellWidth: 30, halign: 'right' }, // Increased width for Paid column
+      9: { cellWidth: 30, halign: 'right', fontStyle: 'bold', textColor: [220, 53, 69] }, // Increased width for Balance column
       10: { cellWidth: 20, halign: 'center' },
     },
     margin: { left: 14, right: 14 },
     styles: { overflow: 'linebreak' },
+    tableWidth: 'auto', // Allow table to use available width
   });
 
   // Get the final Y position of the table
@@ -143,32 +161,85 @@ export async function exportArrearsToPDF(
   doc.setLineWidth(0.5);
   doc.line(lineStartX, totalsSectionY, lineEndX, totalsSectionY);
 
-  // Add custom totals section (without table cells)
+  // Add custom totals section
   const totalsY = totalsSectionY + 8;
   
   // Calculate positions based on the table column positions
   const totalLabelX = 14 + 15 + 35 + 25 + 20 + 15 + 30; // Sum of previous column widths
-  const expectedX = totalLabelX + 30; // After "Type" column
-  const paidX = expectedX + 25; // After "Expected" column
-  const balanceX = paidX + 25; // After "Paid" column
+  let expectedX = totalLabelX + 25; // After "Type" column
+  let paidX = expectedX + 30; // After "Expected" column
+  let balanceX = paidX + 30; // After "Paid" column
 
-  // Set font style for totals
+  // Get display values for totals (use full display for totals for clarity)
+  const totalExpectedStr = getFullCurrencyDisplay(totalExpected);
+  const totalPaidStr = getFullCurrencyDisplay(totalPaid);
+  const totalArrearsStr = getFullCurrencyDisplay(totalArrears);
+
+  // Set font for width calculations
   doc.setFontSize(9);
   doc.setFont('helvetica', 'bold');
+
+  // Calculate text widths
+  const textWidthExpected = doc.getTextWidth(totalExpectedStr);
+  const textWidthPaid = doc.getTextWidth(totalPaidStr);
+  const textWidthArrears = doc.getTextWidth(totalArrearsStr);
+
+  // Define minimum column widths based on actual content
+  const minExpectedWidth = Math.max(30, textWidthExpected + 5);
+  const minPaidWidth = Math.max(30, textWidthPaid + 5);
+  const minArrearsWidth = Math.max(30, textWidthArrears + 5);
+
+  // Adjust positions if needed to prevent overlap
+  const availableWidth = pageWidth - 28 - totalLabelX; // Total available width for the 3 columns
+  const totalNeededWidth = minExpectedWidth + minPaidWidth + minArrearsWidth;
+  
+  if (totalNeededWidth > availableWidth) {
+    // Scale down the column widths proportionally
+    const scaleFactor = availableWidth / totalNeededWidth;
+    expectedX = totalLabelX + (minExpectedWidth * scaleFactor) / 3;
+    paidX = expectedX + (minExpectedWidth * scaleFactor);
+    balanceX = paidX + (minPaidWidth * scaleFactor);
+  }
+
+  // Set font style for totals
   doc.setTextColor(0, 0, 0);
 
   // Draw "Total" label
   doc.text('Total', totalLabelX + 15, totalsY, { align: 'center' });
 
-  // Draw total expected amount (right-aligned)
-  doc.text(`Ksh ${totalExpected.toLocaleString()}`, expectedX + 23, totalsY, { align: 'right' });
+  // Helper function to draw value with overflow protection
+  const drawTotalValue = (value: string, x: number, y: number, isRed = false) => {
+    const maxWidth = 30; // Maximum width before we need to adjust
+    
+    if (isRed) {
+      doc.setTextColor(220, 53, 69); // Red for arrears
+    }
+    
+    const textWidth = doc.getTextWidth(value);
+    
+    if (textWidth <= maxWidth) {
+      // Value fits, draw normally
+      doc.text(value, x, y, { align: 'right' });
+    } else {
+      // Value is too wide, use compact format
+      const compactValue = formatCurrency(isRed ? totalArrears : 
+                                        (value === totalExpectedStr ? totalExpected : totalPaid));
+      doc.text(compactValue, x, y, { align: 'right' });
+    }
+    
+    if (isRed) {
+      doc.setTextColor(0, 0, 0); // Reset to black
+    }
+  };
 
-  // Draw total paid amount (right-aligned)
-  doc.text(`Ksh ${totalPaid.toLocaleString()}`, paidX + 23, totalsY, { align: 'right' });
-
-  // Draw total balance/arrears (right-aligned, in red)
-  doc.setTextColor(220, 53, 69); // Red color for balance
-  doc.text(`Ksh ${totalArrears.toLocaleString()}`, balanceX + 23, totalsY, { align: 'right' });
+  // Draw total expected amount
+  drawTotalValue(totalExpectedStr, expectedX + 28, totalsY, false);
+  
+  // Draw total paid amount
+  drawTotalValue(totalPaidStr, paidX + 28, totalsY, false);
+  
+  // Draw total balance/arrears
+  drawTotalValue(totalArrearsStr, balanceX + 28, totalsY, true);
 
   // Add footer to all pages
   const pageCount = doc.getNumberOfPages();
