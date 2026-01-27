@@ -225,6 +225,72 @@ export interface PaymentPreview {
   totalDue: number;
 }
 
+export interface CreatePaymentReportRequest {
+  tenantId: string;
+  amountPaid: number;
+  invoiceIds?: string[]; // Array of invoice IDs being paid
+  billInvoiceIds?: string[]; // Array of bill invoice IDs being paid
+  notes?: string;
+  paymentPeriod?: string; // Date string for the payment period
+  autoGenerateBalanceInvoice?: boolean;
+  createMissingInvoices?: boolean;
+  updateExistingInvoices?: boolean; // Flag to update existing invoices
+}
+
+// Add this interface for the response (optional, for better type safety)
+export interface CreatePaymentReportResponse {
+  paymentReport: {
+    id: string;
+    tenantId: string;
+    amountPaid: number;
+    arrears: number;
+    status: PaymentStatus;
+    paymentPeriod: string;
+    datePaid: string;
+    notes: string | null;
+  };
+  income: {
+    id: string;
+    propertyId: string;
+    amount: number;
+    frequency: IncomeFrequency;
+  };
+  invoices: Array<{
+    id: string;
+    invoiceNumber: string;
+    previousBalance?: number;
+    paymentApplied?: number;
+    newAmountPaid: number;
+    newBalance: number;
+    newStatus: InvoiceStatus;
+    previousStatus?: InvoiceStatus;
+    wasAutoPaid?: boolean;
+    paymentPolicy: PaymentPolicy;
+  }>;
+  billInvoices: Array<{
+    id: string;
+    invoiceNumber: string;
+    amountPaid: number;
+    balance: number;
+    status: InvoiceStatus;
+  }>;
+  balanceInvoice: {
+    id: string;
+    invoiceNumber: string;
+    amountDue: number;
+    paymentPolicy: PaymentPolicy;
+  } | null;
+  existingInvoicesUpdated?: {
+    count: number;
+    totalApplied: number;
+    remainingPayment: number;
+  };
+  commission?: {
+    id: string;
+    commissionAmount: number;
+    status: CommissionStatus;
+  };
+}
 
 // Invoice Interface
 export interface Invoice {
@@ -442,6 +508,57 @@ export interface CommissionStats {
     month: string;
     amount: number;
   }>;
+}
+
+// Commission Invoice Types
+export interface CommissionInvoice {
+  id: string;
+  invoiceNumber: string;
+  invoiceDate: string;
+  commissionId: string;
+  commission?: ManagerCommission;
+  propertyName: string;
+  lrNumber?: string | null;
+  landlordName: string;
+  landlordAddress?: string | null;
+  description: string;
+  collectionAmount: number;
+  commissionRate: number; // Stored as decimal (e.g., 0.085 for 8.5%)
+  commissionAmount: number;
+  vatRate: number;
+  vatAmount: number;
+  totalAmount: number;
+  bankName: string;
+  accountName: string;
+  accountNumber: string;
+  branch?: string | null;
+  bankCode?: string | null;
+  swiftCode?: string | null;
+  currency: string;
+  pdfUrl: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GenerateCommissionInvoiceRequest {
+  description: string;
+  vatRate?: number;
+  bankName: string;
+  accountName: string;
+  accountNumber: string;
+  branch?: string;
+  bankCode?: string;
+  swiftCode?: string;
+  currency?: string;
+}
+
+export interface CommissionInvoiceResponse {
+  success: boolean;
+  message: string;
+  data: {
+    invoice: CommissionInvoice;
+    commission: ManagerCommission;
+  };
 }
 
 // Bill Types
@@ -1123,4 +1240,126 @@ export interface ActivationFormData {
 export interface ManagerSignatureData {
   managerName: string;
   managerDesignation: string;
+}
+
+// Demand Letter Types
+export type DemandLetterStatus = 
+  | 'DRAFT' 
+  | 'GENERATED' 
+  | 'SENT' 
+  | 'ACKNOWLEDGED' 
+  | 'SETTLED' 
+  | 'ESCALATED';
+
+export interface DemandLetter {
+  id: string;
+  letterNumber: string;
+  tenantId: string;
+  propertyId: string;
+  landlordId: string;
+  unitId: string;
+  invoiceId?: string | null;
+  generatedById?: string;
+  
+  // Basic information
+  issueDate: string;
+  outstandingAmount: number;
+  rentalPeriod: string;
+  dueDate: string;
+  demandPeriod: string;
+  
+  // Contact information
+  landlordContact?: string;
+  tenantContact?: string;
+  
+  // References
+  referenceNumber: string;
+  previousInvoiceRef?: string | null;
+  
+  // Financial details
+  partialPayment?: number | null;
+  partialPaymentDate?: string | null;
+  paymentPolicy?: string;  // Backend stores as string
+  
+  // Document
+  documentUrl?: string | null;
+  notes?: string | null;
+  status: DemandLetterStatus;
+  
+  // Timestamps
+  generatedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  
+  // Relations (optional in response)
+  tenant?: Tenant;
+  property?: Property;
+  landlord?: Landlord;
+  unit?: Unit;
+  invoice?: Invoice;
+  generatedBy?: {
+    id: string;
+    name: string;
+    email: string;
+    role: string;
+  };
+}
+
+export interface GenerateDemandLetterRequest {
+  tenantId: string;
+  invoiceId?: string;  // Backend expects invoiceId, not propertyId
+  outstandingAmount: number;  // Required by backend
+  rentalPeriod: string;  // Required by backend
+  dueDate: string;  // Required by backend
+  demandPeriod?: string;
+  partialPayment?: number;
+  partialPaymentDate?: string;
+  referenceNumber?: string;
+  notes?: string;
+}
+
+export interface UpdateDemandLetterStatusRequest {
+  status: DemandLetterStatus;
+  notes?: string;
+}
+
+export interface DemandLetterQueryParams {
+  tenantId?: string;
+  propertyId?: string;
+  landlordId?: string;
+  status?: DemandLetterStatus;
+  startDate?: string;
+  endDate?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface OverdueInvoicesResponse {
+  invoices: Invoice[];
+  totalOutstanding: number;
+  count: number;
+  originalCount: number;
+  deduplicationApplied: boolean;
+}
+
+export interface BatchGenerateRequest {
+  tenantIds: string[];
+  demandPeriod?: string;
+  notes?: string;
+}
+
+export interface BatchGenerateResponse {
+  success: Array<{
+    tenantId: string;
+    tenantName: string;
+    demandLetterId: string;
+    letterNumber: string;
+    outstandingAmount: number;
+    invoiceCount: number;
+    deduplicationApplied: boolean;
+  }>;
+  failed: Array<{
+    tenantId: string;
+    reason: string;
+  }>;
 }

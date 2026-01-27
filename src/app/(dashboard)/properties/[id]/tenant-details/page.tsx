@@ -2,8 +2,8 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { motion, Variants } from 'framer-motion';
-import { Tenant, Invoice, InvoiceStatus, PaymentReport, PaymentStatus, BillInvoice, PaymentPolicy } from '@/types';
-import { tenantsAPI, invoicesAPI, paymentsAPI, billInvoicesAPI } from '@/lib/api';
+import { Tenant, Invoice, InvoiceStatus, PaymentReport, PaymentStatus, BillInvoice, PaymentPolicy, DemandLetter, DemandLetterStatus, CreatePaymentReportRequest } from '@/types';
+import { tenantsAPI, invoicesAPI, paymentsAPI, billInvoicesAPI, demandLettersAPI } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -16,13 +16,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { Switch } from '@/components/ui/Switch';
 import { toast } from 'sonner';
 import { generatePaymentReportPDF, generateBillInvoiceReportPDF, generateComprehensiveReportPDF } from '@/lib/pdfGenerator';
 
@@ -33,16 +27,20 @@ export default function TenantDetailPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [paymentReports, setPaymentReports] = useState<PaymentReport[]>([]);
   const [billInvoices, setBillInvoices] = useState<BillInvoice[]>([]);
+  const [demandLetters, setDemandLetters] = useState<DemandLetter[]>([]);
   const [loading, setLoading] = useState(true);
   const [invoicesLoading, setInvoicesLoading] = useState(false);
   const [paymentReportsLoading, setPaymentReportsLoading] = useState(false);
   const [billInvoicesLoading, setBillInvoicesLoading] = useState(false);
+  const [demandLettersLoading, setDemandLettersLoading] = useState(false);
   const [showInvoiceDialog, setShowInvoiceDialog] = useState(false);
   const [showInvoicesList, setShowInvoicesList] = useState(false);
   const [showPaymentReportsDialog, setShowPaymentReportsDialog] = useState(false);
   const [showCreatePaymentDialog, setShowCreatePaymentDialog] = useState(false);
   const [showBillInvoicesDialog, setShowBillInvoicesDialog] = useState(false);
   const [showPartialPaymentInvoiceDialog, setShowPartialPaymentInvoiceDialog] = useState(false);
+  const [showDemandLetterDialog, setShowDemandLetterDialog] = useState(false);
+  const [showDemandLettersListDialog, setShowDemandLettersListDialog] = useState(false);
   const [selectedPartialPayment, setSelectedPartialPayment] = useState<PaymentReport | null>(null);
   const [generatingPDF, setGeneratingPDF] = useState(false);
   const [generatingBillPDF, setGeneratingBillPDF] = useState(false);
@@ -50,6 +48,18 @@ export default function TenantDetailPage() {
   const [generating, setGenerating] = useState(false);
   const [creatingPayment, setCreatingPayment] = useState(false);
   const [generatingPartialInvoice, setGeneratingPartialInvoice] = useState(false);
+  const [createMissingInvoices, setCreateMissingInvoices] = useState<boolean>(true);
+  const [autoGenerateBalanceInvoice, setAutoGenerateBalanceInvoice] = useState<boolean>(true);
+  const [updateExistingInvoices, setUpdateExistingInvoices] = useState<boolean>(true);
+  const [generatingDemandLetter, setGeneratingDemandLetter] = useState(false);
+  const [outstandingInvoices, setOutstandingInvoices] = useState<Invoice[]>([]);
+  const [outstandingBillInvoices, setOutstandingBillInvoices] = useState<BillInvoice[]>([]);
+  const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<string[]>([]);
+  const [selectedBillInvoiceIds, setSelectedBillInvoiceIds] = useState<string[]>([]);
+  const [loadingOutstanding, setLoadingOutstanding] = useState(false);
+  const [showInvoiceSelection, setShowInvoiceSelection] = useState(true);
+  const [overdueInvoices, setOverdueInvoices] = useState<Invoice[]>([]);
+  const [showOverdueInvoicesDialog, setShowOverdueInvoicesDialog] = useState(false);
   const [deletingInvoiceId, setDeletingInvoiceId] = useState<string | null>(null); // Add state for tracking deletion
   const [deletingBillInvoiceId, setDeletingBillInvoiceId] = useState<string | null>(null);
   
@@ -70,6 +80,10 @@ export default function TenantDetailPage() {
     dueDate: '',
     notes: '',
   });
+  const [demandLetterForm, setDemandLetterForm] = useState({
+    demandPeriod: '',
+    notes: '',
+  });
 
   const tenantId = params.id as string;
 
@@ -78,6 +92,8 @@ export default function TenantDetailPage() {
     fetchInvoices();
     fetchPaymentReports();
     fetchBillInvoices();
+    fetchDemandLetters();
+    fetchOutstandingInvoices(); 
   }, [tenantId]);
 
   const fetchTenant = async () => {
@@ -146,6 +162,67 @@ export default function TenantDetailPage() {
       setBillInvoicesLoading(false);
     }
   };
+  const fetchDemandLetters = async () => {
+    try {
+      setDemandLettersLoading(true);
+      const response = await demandLettersAPI.getAll({ tenantId });
+      setDemandLetters(response.data || []); // Extract data from response
+    } catch (error) {
+      console.error('Error fetching demand letters:', error);
+      toast.error('Failed to load demand letters');
+    } finally {
+      setDemandLettersLoading(false);
+    }
+  };
+  const fetchOverdueInvoices = async () => {
+    try {
+      const response = await demandLettersAPI.getOverdueInvoices(tenantId);
+      // The API returns an object with invoices array and other properties
+      return response?.invoices || []; // Extract invoices array from response
+    } catch (error) {
+      console.error('Error fetching overdue invoices:', error);
+      toast.error('Failed to load overdue invoices');
+      return [];
+    }
+  };
+
+  const handleViewOverdueInvoices = async () => {
+    try {
+      setLoadingOutstanding(true);
+      const overdue = await fetchOverdueInvoices();
+      setOverdueInvoices(overdue);
+      
+      if (overdue.length === 0) {
+        toast.info('No overdue invoices found for this tenant');
+      } else {
+        setShowOverdueInvoicesDialog(true);
+        toast.success(`Found ${overdue.length} overdue invoice(s)`);
+      }
+    } catch (error) {
+      console.error('Error fetching overdue invoices:', error);
+      toast.error('Failed to load overdue invoices');
+    } finally {
+      setLoadingOutstanding(false);
+    }
+  };
+
+  const fetchOutstandingInvoices = async () => {
+    if (!tenantId) return;
+    
+    try {
+      setLoadingOutstanding(true);
+      const data = await paymentsAPI.getOutstandingInvoices(tenantId, true);
+      setOutstandingInvoices(data.rentInvoices || []);
+      setOutstandingBillInvoices(data.billInvoices || []);
+    } catch (error) {
+      console.error('Error fetching outstanding invoices:', error);
+      toast.error('Failed to load outstanding invoices');
+    } finally {
+      setLoadingOutstanding(false);
+    }
+  };
+
+
 
   const calculatePaymentAmounts = () => {
     if (!tenant) return { rent: 0, serviceCharge: 0, vat: 0, totalDue: 0 };
@@ -179,8 +256,8 @@ export default function TenantDetailPage() {
   };
 
   const handleCreatePayment = async () => {
-    if (!paymentForm.paymentPeriod || !paymentForm.datePaid || !paymentForm.amountPaid) {
-      toast.error('Please fill in all required fields');
+    if (!paymentForm.paymentPeriod || !paymentForm.amountPaid) {
+      toast.error('Please fill in the payment period and amount');
       return;
     }
 
@@ -192,25 +269,28 @@ export default function TenantDetailPage() {
 
     try {
       setCreatingPayment(true);
-      const { rent, serviceCharge, vat, totalDue } = calculatePaymentAmounts();
-
-      const paymentData: Partial<PaymentReport> = {
-        tenantId,
-        rent,
-        serviceCharge: serviceCharge > 0 ? serviceCharge : undefined,
-        vat: vat > 0 ? vat : undefined,
-        totalDue,
+      
+      // Create the request object with selected invoices
+      const paymentData: CreatePaymentReportRequest = {
+        tenantId: tenantId!,
         amountPaid,
-        arrears: Math.max(0, totalDue - amountPaid),
-        status: paymentForm.status,
-        paymentPeriod: paymentForm.paymentPeriod,
-        datePaid: paymentForm.datePaid,
         notes: paymentForm.notes || undefined,
+        paymentPeriod: paymentForm.paymentPeriod,
+        // Use selected invoice IDs (empty array if none selected)
+        invoiceIds: selectedInvoiceIds,
+        billInvoiceIds: selectedBillInvoiceIds,
+        autoGenerateBalanceInvoice,
+        createMissingInvoices,
+        updateExistingInvoices
       };
 
-      await paymentsAPI.createPaymentReport(paymentData);
+      const response = await paymentsAPI.createPaymentReport(paymentData);
+      
       toast.success('Payment report created successfully!');
+      
       setShowCreatePaymentDialog(false);
+      
+      // Reset form and selections
       setPaymentForm({
         paymentPeriod: '',
         datePaid: new Date().toISOString().split('T')[0],
@@ -218,7 +298,21 @@ export default function TenantDetailPage() {
         notes: '',
         status: 'PAID',
       });
+      
+      // Reset invoice selections
+      setSelectedInvoiceIds([]);
+      setSelectedBillInvoiceIds([]);
+      setShowInvoiceSelection(true);
+      
+      // Reset switches to default
+      setCreateMissingInvoices(true);
+      setAutoGenerateBalanceInvoice(true);
+      setUpdateExistingInvoices(true);
+      
+      // Refresh data
       fetchPaymentReports();
+      fetchInvoices();
+      
     } catch (error) {
       console.error('Error creating payment report:', error);
       toast.error('Failed to create payment report');
@@ -226,6 +320,7 @@ export default function TenantDetailPage() {
       setCreatingPayment(false);
     }
   };
+
 
   const handleGenerateInvoice = async () => {
     if (!invoiceForm.dueDate) {
@@ -308,6 +403,49 @@ export default function TenantDetailPage() {
       setGeneratingPartialInvoice(false);
     }
   };
+  const handleGenerateDemandLetter = async () => {
+    if (!tenant) {
+      toast.error('Tenant information not available');
+      return;
+    }
+
+    try {
+      setGeneratingDemandLetter(true);
+      toast.loading('Generating demand letter...');
+      
+      // Auto-generate demand letter for the tenant
+      const demandLetter = await demandLettersAPI.autoGenerate(tenantId);
+      
+      toast.dismiss();
+      toast.success(`Demand letter ${demandLetter.letterNumber} generated successfully!`);
+      setShowDemandLetterDialog(false);
+      setDemandLetterForm({ demandPeriod: '', notes: '' });
+      fetchDemandLetters();
+      
+      // Optionally download the PDF immediately
+      if (demandLetter.documentUrl) {
+        await demandLettersAPI.downloadPDF(demandLetter.id);
+      }
+    } catch (error: any) {
+      console.error('Error generating demand letter:', error);
+      toast.dismiss();
+      toast.error(error.message || 'Failed to generate demand letter');
+    } finally {
+      setGeneratingDemandLetter(false);
+    }
+  };
+
+  const handleDownloadDemandLetter = async (demandLetterId: string) => {
+    try {
+      await demandLettersAPI.downloadPDF(demandLetterId);
+      toast.success('Demand letter download started');
+    } catch (error) {
+      console.error('Error downloading demand letter:', error);
+      toast.error('Failed to download demand letter');
+    }
+  };
+
+
 
   const openPartialPaymentInvoiceDialog = (payment: PaymentReport) => {
     setSelectedPartialPayment(payment);
@@ -423,6 +561,25 @@ export default function TenantDetailPage() {
       case 'PARTIAL':
         return 'bg-yellow-100 text-yellow-800 border-yellow-200';
       case 'UNPAID':
+        return 'bg-red-100 text-red-800 border-red-200';
+      default:
+        return 'bg-gray-100 text-gray-800 border-gray-200';
+    }
+  };
+
+    const getDemandLetterStatusColor = (status: DemandLetterStatus) => {
+    switch (status) {
+      case 'DRAFT':
+        return 'bg-gray-100 text-gray-800 border-gray-200';
+      case 'GENERATED':
+        return 'bg-blue-100 text-blue-800 border-blue-200';
+      case 'SENT':
+        return 'bg-purple-100 text-purple-800 border-purple-200';
+      case 'ACKNOWLEDGED':
+        return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+      case 'SETTLED':
+        return 'bg-green-100 text-green-800 border-green-200';
+      case 'ESCALATED':
         return 'bg-red-100 text-red-800 border-red-200';
       default:
         return 'bg-gray-100 text-gray-800 border-gray-200';
@@ -672,6 +829,27 @@ export default function TenantDetailPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
             </svg>
             My Bills
+          </Button>
+                    {/* Demand Letter Button */}
+          <Button
+            onClick={() => setShowDemandLetterDialog(true)}
+            variant="outline"
+            className="px-6 py-3 border-2 border-red-600 text-red-600 hover:bg-red-50 transition-all duration-300 rounded-lg flex items-center gap-2"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            Demand Letter
+          </Button>
+          <Button
+            onClick={() => setShowDemandLettersListDialog(true)}
+            variant="outline"
+            className="px-6 py-3 border-2 border-orange-600 text-orange-600 hover:bg-orange-50 transition-all duration-300 rounded-lg flex items-center gap-2"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            View Demand Letters ({demandLetters.length})
           </Button>
         </div>
       </motion.div>
@@ -1174,7 +1352,7 @@ export default function TenantDetailPage() {
 
       {/* Create Payment Dialog */}
       <Dialog open={showCreatePaymentDialog} onOpenChange={setShowCreatePaymentDialog}>
-        <DialogContent className="sm:max-w-[600px] max-h-[90vh] flex flex-col p-0">
+        <DialogContent className="sm:max-w-[800px] max-h-[90vh] flex flex-col p-0">
           <div className="px-6 pt-6 pb-0">
             <DialogHeader>
               <DialogTitle className="text-2xl font-bold text-heading-color">Record Payment</DialogTitle>
@@ -1187,7 +1365,9 @@ export default function TenantDetailPage() {
           {/* Scrollable content area */}
           <div className="flex-1 overflow-y-auto px-6 py-4">
             <div className="space-y-6">
+              {/* Payment Information Card */}
               <div className="p-4 bg-linear-to-r from-green-50 to-green-100 rounded-xl border border-green-200">
+                <h3 className="text-lg font-semibold text-gray-800 mb-4">Payment Summary</h3>
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
                     <p className="text-gray-800 font-medium">Rent</p>
@@ -1205,83 +1385,354 @@ export default function TenantDetailPage() {
                       <p className="text-gray-900 font-bold">Ksh {vat.toLocaleString()}</p>
                     </div>
                   )}
-                  <div>
-                    <p className="text-gray-800 font-medium">Total Due</p>
+                  <div className="col-span-2 border-t pt-2">
+                    <p className="text-gray-800 font-medium">Total Due (Monthly)</p>
                     <p className="text-gray-900 font-bold text-lg">Ksh {totalDue.toLocaleString()}</p>
                   </div>
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="paymentPeriod" className="text-sm font-semibold text-gray-800">
-                  Payment Period <span className="text-red-500">*</span>
-                </Label>
-                <Input
-                  id="paymentPeriod"
-                  type="month"
-                  value={paymentForm.paymentPeriod}
-                  onChange={(e) => setPaymentForm({ ...paymentForm, paymentPeriod: e.target.value })}
-                  className="w-full text-gray-900"
-                />
+              {/* Outstanding Invoices Selection Section */}
+              <div className="p-4 bg-orange-50 rounded-xl border border-orange-200">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-800">Outstanding Invoices</h3>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowInvoiceSelection(!showInvoiceSelection)}
+                    className="text-sm"
+                  >
+                    {showInvoiceSelection ? 'Hide' : 'Show'}
+                  </Button>
+                </div>
+                
+                {showInvoiceSelection && (
+                  <>
+                    {loadingOutstanding ? (
+                      <div className="flex items-center justify-center py-8">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-600"></div>
+                      </div>
+                    ) : (
+                      <>
+                        {/* Rent Invoices */}
+                        {outstandingInvoices.length > 0 && (
+                          <div className="mb-4">
+                            <h4 className="text-sm font-semibold text-gray-700 mb-3">Rent Invoices</h4>
+                            <div className="space-y-2 max-h-60 overflow-y-auto">
+                              {outstandingInvoices.map((invoice) => (
+                                <label
+                                  key={invoice.id}
+                                  className={`flex items-start gap-3 p-3 rounded-lg border-2 transition-all cursor-pointer ${
+                                    selectedInvoiceIds.includes(invoice.id)
+                                      ? 'border-orange-500 bg-orange-100'
+                                      : 'border-gray-200 hover:border-orange-300 bg-white'
+                                  }`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedInvoiceIds.includes(invoice.id)}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setSelectedInvoiceIds([...selectedInvoiceIds, invoice.id]);
+                                      } else {
+                                        setSelectedInvoiceIds(selectedInvoiceIds.filter(id => id !== invoice.id));
+                                      }
+                                    }}
+                                    className="mt-1 h-4 w-4 text-orange-600 focus:ring-orange-500 border-gray-300 rounded"
+                                  />
+                                  <div className="flex-1">
+                                    <div className="flex items-center justify-between mb-1">
+                                      <span className="font-semibold text-sm text-gray-900">
+                                        {invoice.invoiceNumber}
+                                      </span>
+                                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(invoice.status)}`}>
+                                        {invoice.status}
+                                      </span>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
+                                      <div>
+                                        <span className="font-medium">Period:</span> {invoice.paymentPeriod}
+                                      </div>
+                                      <div>
+                                        <span className="font-medium">Due:</span> {new Date(invoice.dueDate).toLocaleDateString()}
+                                      </div>
+                                      <div>
+                                        <span className="font-medium">Total:</span> Ksh {invoice.totalDue.toLocaleString()}
+                                      </div>
+                                      <div>
+                                        <span className="font-medium">Balance:</span>{' '}
+                                        <span className="text-red-600 font-bold">
+                                          Ksh {invoice.balance.toLocaleString()}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Bill Invoices */}
+                        {outstandingBillInvoices.length > 0 && (
+                          <div>
+                            <h4 className="text-sm font-semibold text-gray-700 mb-3">Bill Invoices</h4>
+                            <div className="space-y-2 max-h-60 overflow-y-auto">
+                              {outstandingBillInvoices.map((billInvoice) => (
+                                <label
+                                  key={billInvoice.id}
+                                  className={`flex items-start gap-3 p-3 rounded-lg border-2 transition-all cursor-pointer ${
+                                    selectedBillInvoiceIds.includes(billInvoice.id)
+                                      ? 'border-orange-500 bg-orange-100'
+                                      : 'border-gray-200 hover:border-orange-300 bg-white'
+                                  }`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedBillInvoiceIds.includes(billInvoice.id)}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setSelectedBillInvoiceIds([...selectedBillInvoiceIds, billInvoice.id]);
+                                      } else {
+                                        setSelectedBillInvoiceIds(selectedBillInvoiceIds.filter(id => id !== billInvoice.id));
+                                      }
+                                    }}
+                                    className="mt-1 h-4 w-4 text-orange-600 focus:ring-orange-500 border-gray-300 rounded"
+                                  />
+                                  <div className="flex-1">
+                                    <div className="flex items-center justify-between mb-1">
+                                      <span className="font-semibold text-sm text-gray-900">
+                                        {billInvoice.invoiceNumber}
+                                      </span>
+                                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(billInvoice.status)}`}>
+                                        {billInvoice.status}
+                                      </span>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
+                                      <div>
+                                        <span className="font-medium">Type:</span> {billInvoice.billType}
+                                      </div>
+                                      <div>
+                                        <span className="font-medium">Due:</span> {new Date(billInvoice.dueDate).toLocaleDateString()}
+                                      </div>
+                                      <div>
+                                        <span className="font-medium">Total:</span> Ksh {billInvoice.grandTotal.toLocaleString()}
+                                      </div>
+                                      <div>
+                                        <span className="font-medium">Balance:</span>{' '}
+                                        <span className="text-red-600 font-bold">
+                                          Ksh {billInvoice.balance.toLocaleString()}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* No Outstanding Invoices Message */}
+                        {outstandingInvoices.length === 0 && outstandingBillInvoices.length === 0 && (
+                          <div className="text-center py-8 text-gray-500">
+                            <p className="text-sm">No outstanding invoices found</p>
+                            <p className="text-xs mt-1">Payment will be recorded without specific invoice selection</p>
+                          </div>
+                        )}
+
+                        {/* Selection Summary */}
+                        {(selectedInvoiceIds.length > 0 || selectedBillInvoiceIds.length > 0) && (
+                          <div className="mt-4 p-3 bg-white rounded-lg border border-orange-300">
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="font-semibold text-gray-700">
+                                Selected: {selectedInvoiceIds.length + selectedBillInvoiceIds.length} invoice(s)
+                              </span>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedInvoiceIds([]);
+                                  setSelectedBillInvoiceIds([]);
+                                }}
+                                className="text-xs text-orange-600 hover:text-orange-700"
+                              >
+                                Clear All
+                              </Button>
+                            </div>
+                            <p className="text-xs text-gray-600 mt-1">
+                              Total Balance: Ksh{' '}
+                              {(
+                                outstandingInvoices
+                                  .filter(inv => selectedInvoiceIds.includes(inv.id))
+                                  .reduce((sum, inv) => sum + inv.balance, 0) +
+                                outstandingBillInvoices
+                                  .filter(bi => selectedBillInvoiceIds.includes(bi.id))
+                                  .reduce((sum, bi) => sum + bi.balance, 0)
+                              ).toLocaleString()}
+                            </p>
+                          </div>
+                        )}
+
+                        {/* Auto-payment Notice */}
+                        {selectedInvoiceIds.length === 0 && selectedBillInvoiceIds.length === 0 && 
+                        (outstandingInvoices.length > 0 || outstandingBillInvoices.length > 0) && (
+                          <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                            <div className="flex items-start gap-2">
+                              <svg className="w-5 h-5 text-blue-600 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              </svg>
+                              <p className="text-xs text-blue-800">
+                                <strong>No invoices selected.</strong> Payment will be automatically applied to the oldest outstanding invoices first.
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </>
+                )}
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="datePaid" className="text-sm font-semibold text-gray-800">
-                  Date Paid <span className="text-red-500">*</span>
-                </Label>
-                <Input
-                  id="datePaid"
-                  type="date"
-                  value={paymentForm.datePaid}
-                  onChange={(e) => setPaymentForm({ ...paymentForm, datePaid: e.target.value })}
-                  className="w-full text-gray-900"
-                />
+              {/* Invoice Options Section */}
+              <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
+                <h3 className="text-lg font-semibold text-gray-800 mb-4">Invoice Options</h3>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label htmlFor="createMissingInvoices" className="text-sm font-semibold text-gray-800">
+                        Create Missing Invoice
+                      </Label>
+                      <p className="text-xs text-gray-600 mt-1">
+                        Automatically create an invoice if none exists for the period
+                      </p>
+                    </div>
+                    <Switch
+                      id="createMissingInvoices"
+                      checked={createMissingInvoices}
+                      onCheckedChange={setCreateMissingInvoices}
+                    />
+                  </div>
+                  
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label htmlFor="autoGenerateBalanceInvoice" className="text-sm font-semibold text-gray-800">
+                        Generate Balance Invoice
+                      </Label>
+                      <p className="text-xs text-gray-600 mt-1">
+                        Create a new invoice for remaining balance if payment is partial
+                      </p>
+                    </div>
+                    <Switch
+                      id="autoGenerateBalanceInvoice"
+                      checked={autoGenerateBalanceInvoice}
+                      onCheckedChange={setAutoGenerateBalanceInvoice}
+                    />
+                  </div>
+                  
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label htmlFor="updateExistingInvoices" className="text-sm font-semibold text-gray-800">
+                        Update Existing Invoices
+                      </Label>
+                      <p className="text-xs text-gray-600 mt-1">
+                        Apply payment to existing unpaid invoices
+                      </p>
+                    </div>
+                    <Switch
+                      id="updateExistingInvoices"
+                      checked={updateExistingInvoices}
+                      onCheckedChange={setUpdateExistingInvoices}
+                    />
+                  </div>
+                </div>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="amountPaid" className="text-sm font-semibold text-gray-800">
-                  Amount Paid <span className="text-red-500">*</span>
-                </Label>
-                <Input
-                  id="amountPaid"
-                  type="number"
-                  placeholder="Enter amount"
-                  value={paymentForm.amountPaid}
-                  onChange={(e) => setPaymentForm({ ...paymentForm, amountPaid: e.target.value })}
-                  className="w-full text-gray-900"
-                />
-              </div>
+              {/* Payment Details Form */}
+              <div className="space-y-6">
+                <div className="space-y-2">
+                  <Label htmlFor="paymentPeriod" className="text-sm font-semibold text-gray-800">
+                    Payment Period <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    id="paymentPeriod"
+                    type="month"
+                    value={paymentForm.paymentPeriod}
+                    onChange={(e) => setPaymentForm({ ...paymentForm, paymentPeriod: e.target.value })}
+                    className="w-full text-gray-900"
+                    required
+                  />
+                </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="status" className="text-sm font-semibold text-gray-900">
-                  Payment Status
-                </Label>
-                <Select
-                  value={paymentForm.status}
-                  onValueChange={(value: PaymentStatus) => setPaymentForm({ ...paymentForm, status: value })}
-                >
-                  <SelectTrigger className="w-full text-gray-900">
-                    <SelectValue placeholder="Select status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="PAID">Paid</SelectItem>
-                    <SelectItem value="PARTIAL">Partial</SelectItem>
-                    <SelectItem value="UNPAID">Unpaid</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+                <div className="space-y-2">
+                  <Label htmlFor="amountPaid" className="text-sm font-semibold text-gray-800">
+                    Amount Paid <span className="text-red-500">*</span>
+                  </Label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">Ksh</span>
+                    <Input
+                      id="amountPaid"
+                      type="number"
+                      placeholder="Enter amount"
+                      value={paymentForm.amountPaid}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, amountPaid: e.target.value })}
+                      className="w-full text-gray-900 pl-12"
+                      required
+                    />
+                  </div>
+                  <div className="text-xs text-gray-600 mt-1">
+                    {paymentForm.amountPaid && parseFloat(paymentForm.amountPaid) < totalDue && (
+                      <span className="text-orange-600 font-medium">
+                        Partial payment - {((parseFloat(paymentForm.amountPaid) / totalDue) * 100).toFixed(1)}% of total due
+                      </span>
+                    )}
+                    {paymentForm.amountPaid && parseFloat(paymentForm.amountPaid) > totalDue && (
+                      <span className="text-green-600 font-medium">
+                        Amount exceeds monthly total - excess will be applied to outstanding balances
+                      </span>
+                    )}
+                  </div>
+                </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="paymentNotes" className="text-sm font-semibold text-gray-800">
-                  Notes (Optional)
-                </Label>
-                <Textarea
-                  id="paymentNotes"
-                  placeholder="Add any additional notes"
-                  value={paymentForm.notes}
-                  onChange={(e) => setPaymentForm({ ...paymentForm, notes: e.target.value })}
-                  className="min-h-20 text-gray-900"
-                />
+                {/* Status Preview */}
+                <div className="p-3 bg-gray-50 rounded-lg border">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold text-gray-800">Expected Status:</span>
+                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                      !paymentForm.amountPaid || parseFloat(paymentForm.amountPaid) === 0 
+                        ? 'bg-gray-100 text-gray-800 border border-gray-300'
+                        : parseFloat(paymentForm.amountPaid) >= totalDue 
+                          ? 'bg-green-100 text-green-800 border border-green-300'
+                          : parseFloat(paymentForm.amountPaid) > 0
+                            ? 'bg-orange-100 text-orange-800 border border-orange-300'
+                            : 'bg-red-100 text-red-800 border border-red-300'
+                    }`}>
+                      {!paymentForm.amountPaid || parseFloat(paymentForm.amountPaid) === 0 
+                        ? 'UNPAID'
+                        : parseFloat(paymentForm.amountPaid) >= totalDue 
+                          ? 'PAID'
+                          : parseFloat(paymentForm.amountPaid) > 0
+                            ? 'PARTIAL'
+                            : 'UNPAID'
+                      }
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-600 mt-2">
+                    Status is automatically calculated based on the payment amount
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="paymentNotes" className="text-sm font-semibold text-gray-800">
+                    Notes (Optional)
+                  </Label>
+                  <Textarea
+                    id="paymentNotes"
+                    placeholder="Add any additional notes about this payment..."
+                    value={paymentForm.notes}
+                    onChange={(e) => setPaymentForm({ ...paymentForm, notes: e.target.value })}
+                    className="min-h-20 text-gray-900"
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -1290,7 +1741,11 @@ export default function TenantDetailPage() {
           <DialogFooter className="px-6 py-4 border-t bg-gray-50">
             <Button
               variant="outline"
-              onClick={() => setShowCreatePaymentDialog(false)}
+              onClick={() => {
+                setShowCreatePaymentDialog(false);
+                setSelectedInvoiceIds([]);
+                setSelectedBillInvoiceIds([]);
+              }}
               disabled={creatingPayment}
               className="min-w-24"
             >
@@ -1298,7 +1753,7 @@ export default function TenantDetailPage() {
             </Button>
             <Button
               onClick={handleCreatePayment}
-              disabled={creatingPayment || !paymentForm.paymentPeriod || !paymentForm.datePaid || !paymentForm.amountPaid}
+              disabled={creatingPayment || !paymentForm.paymentPeriod || !paymentForm.amountPaid}
               className="bg-blue-600 hover:bg-blue-700 min-w-24"
             >
               {creatingPayment ? (
@@ -1316,6 +1771,7 @@ export default function TenantDetailPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
 
       {/* Payment Reports Dialog */}
       <Dialog open={showPaymentReportsDialog} onOpenChange={setShowPaymentReportsDialog}>
@@ -1683,6 +2139,377 @@ export default function TenantDetailPage() {
           </div>
         </DialogContent>
       </Dialog>
+      {/* Demand Letter Generation Dialog */}
+      <Dialog open={showDemandLetterDialog} onOpenChange={setShowDemandLetterDialog}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
+          <div className="shrink-0 px-6 pt-6">
+            <DialogHeader>
+              <DialogTitle className="text-2xl font-bold text-heading-color">Generate Demand Letter</DialogTitle>
+              <DialogDescription className="text-gray-600">
+                Generate a demand letter for {tenant.fullName} based on overdue invoices. The system will automatically calculate outstanding amounts and generate the appropriate demand letter.
+              </DialogDescription>
+            </DialogHeader>
+          </div>
+          
+          {/* Scrollable content area */}
+          <div className="flex-1 overflow-y-auto pr-2 -mr-2">
+            <div className="space-y-6 py-4 pr-2">
+              {/* Show overdue invoices info */}
+              <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <div className="flex items-start gap-3">
+                  <svg className="w-5 h-5 text-yellow-600 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                  <div>
+                    <p className="text-sm font-semibold text-yellow-800 mb-1">Automatic Generation</p>
+                    <p className="text-sm text-yellow-700">
+                      The system will automatically fetch all overdue invoices for this tenant and calculate the total outstanding amount.
+                    </p>
+                    <Button
+                      onClick={handleViewOverdueInvoices}
+                      variant="outline"
+                      disabled={loadingOutstanding}
+                      className="text-yellow-700 hover:text-yellow-800 p-0 h-auto mt-2 flex items-center gap-1"
+                    >
+                      {loadingOutstanding && (
+                        <svg className="animate-spin h-4 w-4 text-yellow-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                      )}
+                      View overdue invoices
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Optional Notes */}
+              <div className="space-y-2">
+                <Label htmlFor="demand-notes" className="text-sm font-medium text-gray-700">
+                  Additional Notes (Optional)
+                  <span className="text-gray-400 ml-1 font-normal">
+                    - Add any instructions or specific details for the demand letter
+                  </span>
+                </Label>
+                <Textarea
+                  id="demand-notes"
+                  placeholder="Example: Include a 14-day payment deadline. Mention that legal action may be pursued if payment is not received. Note any previous payment arrangements that were not honored..."
+                  value={demandLetterForm.notes}
+                  onChange={(e) => setDemandLetterForm({ ...demandLetterForm, notes: e.target.value })}
+                  className="min-h-[120px] resize-y placeholder:text-gray-500 placeholder:italic placeholder:text-sm border-gray-300 focus:border-blue-500 focus:ring-blue-500"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  These notes will be incorporated into the demand letter content
+                </p>
+              </div>
+
+              {/* Info about what will be included */}
+              <div className="space-y-2 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <p className="text-sm font-semibold text-blue-800">The demand letter will include:</p>
+                <ul className="text-sm text-blue-700 space-y-1 list-disc list-inside">
+                  <li>All overdue invoices with dates and amounts</li>
+                  <li>Total outstanding balance</li>
+                  <li>Tenant and property information</li>
+                  <li>Payment instructions and deadline</li>
+                  <li>Legal notice and consequences</li>
+                </ul>
+              </div>
+              
+              {/* Additional content area if needed */}
+              <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                <p className="text-sm font-semibold text-gray-800 mb-2">Important Reminders:</p>
+                <ul className="text-sm text-gray-600 space-y-1 list-disc list-inside">
+                  <li>The demand letter will be saved to the tenant's documents</li>
+                  <li>A notification will be sent to the tenant</li>
+                  <li>You can preview the letter before finalizing</li>
+                  <li>The letter will be dated with today's date</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          
+          {/* Custom scrollbar styling */}
+          <style jsx>{`
+            .overflow-y-auto::-webkit-scrollbar {
+              width: 8px;
+            }
+            .overflow-y-auto::-webkit-scrollbar-track {
+              background: #f1f1f1;
+              border-radius: 4px;
+            }
+            .overflow-y-auto::-webkit-scrollbar-thumb {
+              background: #888;
+              border-radius: 4px;
+            }
+            .overflow-y-auto::-webkit-scrollbar-thumb:hover {
+              background: #555;
+            }
+          `}</style>
+          
+          <DialogFooter className="shrink-0 pt-4 border-t border-gray-200">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowDemandLetterDialog(false);
+                setDemandLetterForm({ demandPeriod: '', notes: '' });
+              }}
+              disabled={generatingDemandLetter}
+              className="px-6"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleGenerateDemandLetter}
+              disabled={generatingDemandLetter}
+              className="bg-red-600 hover:bg-red-700 text-white px-6"
+            >
+              {generatingDemandLetter ? (
+                <>
+                  <motion.div
+                    className="w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2"
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                  />
+                  Generating...
+                </>
+              ) : (
+                'Generate Demand Letter'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* Overdue Invoices Dialog */}
+      <Dialog open={showOverdueInvoicesDialog} onOpenChange={setShowOverdueInvoicesDialog}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-bold text-heading-color">Overdue Invoices</DialogTitle>
+            <DialogDescription className="text-gray-700">
+              Overdue invoices for {tenant.fullName}
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            {loadingOutstanding ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+              </div>
+            ) : overdueInvoices.length === 0 ? (
+              <div className="text-center py-12 text-gray-500">
+                <svg className="w-16 h-16 mx-auto mb-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <p className="text-lg font-medium">No overdue invoices found</p>
+                <p className="text-sm mt-1">All invoices are up to date</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-red-800">Total Overdue Amount</p>
+                      <p className="text-2xl font-bold text-red-700">
+                        Ksh {overdueInvoices.reduce((sum, invoice) => sum + invoice.balance, 0).toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-semibold text-red-800">Overdue Invoices</p>
+                      <p className="text-2xl font-bold text-red-700">{overdueInvoices.length}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid gap-4">
+                  {overdueInvoices.map((invoice) => (
+                    <motion.div
+                      key={invoice.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="p-6 border border-gray-200 rounded-xl hover:shadow-lg transition-shadow bg-white"
+                    >
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <h3 className="text-lg font-bold text-gray-900">{invoice.invoiceNumber}</h3>
+                            <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getStatusColor(invoice.status)}`}>
+                              {invoice.status}
+                            </span>
+                            <span className="px-3 py-1 rounded-full text-xs font-semibold border bg-red-100 text-red-800 border-red-200">
+                              OVERDUE
+                            </span>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm font-semibold text-red-700">Balance Due</p>
+                            <p className="text-lg font-bold text-red-700">Ksh {invoice.balance.toLocaleString()}</p>
+                          </div>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                          <div>
+                            <p className="text-gray-500 font-medium">Period</p>
+                            <p className="text-gray-900 font-semibold">{invoice.paymentPeriod}</p>
+                          </div>
+                          <div>
+                            <p className="text-gray-500 font-medium">Issue Date</p>
+                            <p className="text-gray-900 font-semibold">
+                              {new Date(invoice.issueDate).toLocaleDateString()}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-gray-500 font-medium">Due Date</p>
+                            <p className="text-gray-900 font-semibold">
+                              {new Date(invoice.dueDate).toLocaleDateString()}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-gray-500 font-medium">Days Overdue</p>
+                            <p className="text-red-700 font-bold">
+                              {Math.max(0, Math.floor((Date.now() - new Date(invoice.dueDate).getTime()) / (1000 * 60 * 60 * 24)))} days
+                            </p>
+                          </div>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-4 text-sm">
+                          <div>
+                            <p className="text-gray-500 font-medium">Total Due</p>
+                            <p className="text-gray-900 font-bold">Ksh {invoice.totalDue.toLocaleString()}</p>
+                          </div>
+                          <div>
+                            <p className="text-gray-500 font-medium">Amount Paid</p>
+                            <p className="text-green-700 font-semibold">Ksh {invoice.amountPaid.toLocaleString()}</p>
+                          </div>
+                        </div>
+                        
+                        {invoice.notes && (
+                          <div className="text-sm">
+                            <p className="text-gray-500 font-medium">Notes</p>
+                            <p className="text-gray-700">{invoice.notes}</p>
+                          </div>
+                        )}
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowOverdueInvoicesDialog(false)}
+              className="px-6"
+            >
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Demand Letters List Dialog */}
+      <Dialog open={showDemandLettersListDialog} onOpenChange={setShowDemandLettersListDialog}>
+        <DialogContent className="max-w-6xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-bold text-heading-color">Demand Letters</DialogTitle>
+            <DialogDescription>
+              All demand letters generated for {tenant.fullName}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {demandLettersLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <motion.div
+                  className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full"
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                />
+              </div>
+            ) : demandLetters.length === 0 ? (
+              <div className="text-center py-12">
+                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <svg className="w-8 h-8 text-gray-800" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                </div>
+                <p className="text-gray-800">No demand letters found</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-gray-200">
+                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Letter No.</th>
+                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Issue Date</th>
+                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Amount</th>
+                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Rental Period</th>
+                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Status</th>
+                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {demandLettersLoading ? (
+                      <tr>
+                        <td colSpan={6} className="py-8 text-center">
+                          <div className="flex items-center justify-center gap-2">
+                            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                            <span className="text-gray-700">Loading demand letters...</span>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : !Array.isArray(demandLetters) ? (
+                      <tr>
+                        <td colSpan={6} className="py-8 text-center text-red-500">
+                          Error: Invalid data format received
+                        </td>
+                      </tr>
+                    ) : demandLetters.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="py-8 text-center text-gray-500">
+                          No demand letters found for this tenant
+                        </td>
+                      </tr>
+                    ) : (
+                      demandLetters.map((letter) => (
+                        <tr key={letter.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                          <td className="py-3 px-4 font-semibold text-gray-900">{letter.letterNumber}</td>
+                          <td className="py-3 px-4 text-gray-800 font-medium">
+                            {letter.issueDate ? new Date(letter.issueDate).toLocaleDateString() : 'N/A'}
+                          </td>
+                          <td className="py-3 px-4 font-bold text-gray-900">
+                            Ksh {letter.outstandingAmount?.toLocaleString() ?? '0'}
+                          </td>
+                          <td className="py-3 px-4 text-gray-800 font-medium">{letter.rentalPeriod}</td>
+                          <td className="py-3 px-4">
+                            <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getDemandLetterStatusColor(letter.status)}`}>
+                              {letter.status}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleDownloadDemandLetter(letter.id)}
+                              className="flex items-center gap-2 text-gray-800 hover:text-gray-900 border-gray-400 hover:border-gray-600 bg-white hover:bg-gray-50 font-medium"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                              </svg>
+                              Download
+                            </Button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </motion.div>
   );
 }
+
+
+

@@ -3,13 +3,25 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { commissionsAPI } from '@/lib/api';
-import { ManagerCommission, CommissionStats } from '@/types';
+import { ManagerCommission, CommissionStats, GenerateCommissionInvoiceRequest } from '@/types';
 
 interface IncomeData {
   commissions: ManagerCommission[];
   stats: CommissionStats | null;
   loading: boolean;
   error: string | null;
+}
+
+interface InvoiceFormData {
+  description: string;
+  vatRate: number;
+  bankName: string;
+  accountName: string;
+  accountNumber: string;
+  branch: string;
+  bankCode: string;
+  swiftCode: string;
+  currency: string;
 }
 
 export default function MyIncomePage() {
@@ -22,6 +34,21 @@ export default function MyIncomePage() {
   });
   const [selectedPeriod, setSelectedPeriod] = useState<'all' | 'pending' | 'paid' | 'processing'>('all');
   const [updatingCommission, setUpdatingCommission] = useState<string | null>(null);
+  const [generatingInvoice, setGeneratingInvoice] = useState<string | null>(null);
+  const [downloadingInvoice, setDownloadingInvoice] = useState<string | null>(null);
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
+  const [selectedCommissionForInvoice, setSelectedCommissionForInvoice] = useState<string | null>(null);
+  const [invoiceFormData, setInvoiceFormData] = useState<InvoiceFormData>({
+    description: '',
+    vatRate: 16,
+    bankName: '',
+    accountName: '',
+    accountNumber: '',
+    branch: '',
+    bankCode: '',
+    swiftCode: '',
+    currency: 'KES',
+  });
 
   useEffect(() => {
     if (user?.id) {
@@ -43,8 +70,8 @@ export default function MyIncomePage() {
       console.log('Commissions response:', commissionsResponse);
       console.log('Stats response:', statsResponse);
 
-      // Ensure commissionsResponse is an array
-      const commissionsArray = Array.isArray(commissionsResponse) ? commissionsResponse : [];
+      // Handle the data structure - extract commissions from the response
+      const commissionsArray = commissionsResponse?.data || [];
       
       // Filter commissions based on selected period
       let filteredCommissions = commissionsArray;
@@ -101,6 +128,100 @@ export default function MyIncomePage() {
       alert(error instanceof Error ? error.message : 'Failed to update commission status');
     } finally {
       setUpdatingCommission(null);
+    }
+  };
+
+  const openInvoiceModal = (commissionId: string, commission: ManagerCommission) => {
+    setSelectedCommissionForInvoice(commissionId);
+    
+    // Pre-fill form data with sensible defaults
+    setInvoiceFormData({
+      description: `Management commission for ${commission.property?.name || 'property'} (${formatDate(commission.periodStart)} - ${formatDate(commission.periodEnd)})`,
+      vatRate: 16,
+      bankName: '',
+      accountName: user?.name || '',
+      accountNumber: '',
+      branch: '',
+      bankCode: '',
+      swiftCode: '',
+      currency: 'KES',
+    });
+    
+    setShowInvoiceModal(true);
+  };
+
+  const closeInvoiceModal = () => {
+    setShowInvoiceModal(false);
+    setSelectedCommissionForInvoice(null);
+    setInvoiceFormData({
+      description: '',
+      vatRate: 16,
+      bankName: '',
+      accountName: '',
+      accountNumber: '',
+      branch: '',
+      bankCode: '',
+      swiftCode: '',
+      currency: 'KES',
+    });
+  };
+
+  const handleGenerateInvoice = async () => {
+    if (!selectedCommissionForInvoice) return;
+
+    try {
+      setGeneratingInvoice(selectedCommissionForInvoice);
+      
+      const requestData: GenerateCommissionInvoiceRequest = {
+        description: invoiceFormData.description,
+        vatRate: invoiceFormData.vatRate,
+        bankName: invoiceFormData.bankName,
+        accountName: invoiceFormData.accountName,
+        accountNumber: invoiceFormData.accountNumber,
+        branch: invoiceFormData.branch || undefined,
+        bankCode: invoiceFormData.bankCode || undefined,
+        swiftCode: invoiceFormData.swiftCode || undefined,
+        currency: invoiceFormData.currency,
+      };
+
+      const response = await commissionsAPI.generateCommissionInvoice(
+        selectedCommissionForInvoice,
+        requestData
+      );
+
+      alert('Invoice generated successfully!');
+      closeInvoiceModal();
+      await fetchIncomeData(); // Refresh data
+    } catch (error) {
+      console.error('Error generating invoice:', error);
+      alert(error instanceof Error ? error.message : 'Failed to generate invoice');
+    } finally {
+      setGeneratingInvoice(null);
+    }
+  };
+
+  const handleDownloadInvoice = async (commissionId: string) => {
+    try {
+      setDownloadingInvoice(commissionId);
+      
+      const blob = await commissionsAPI.downloadCommissionInvoice(commissionId);
+      
+      // Create a download link
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `commission-invoice-${commissionId}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      
+      alert('Invoice downloaded successfully!');
+    } catch (error) {
+      console.error('Error downloading invoice:', error);
+      alert(error instanceof Error ? error.message : 'Failed to download invoice');
+    } finally {
+      setDownloadingInvoice(null);
     }
   };
 
@@ -390,36 +511,53 @@ export default function MyIncomePage() {
                           {commission.paidDate ? formatDate(commission.paidDate) : '-'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                          {commission.status === 'PENDING' && (
-                            <div className="flex space-x-2">
-                              <button
-                                onClick={() => handleMarkAsProcessing(commission.id)}
-                                disabled={updatingCommission === commission.id}
-                                className="text-blue-600 hover:text-blue-900 disabled:opacity-50 disabled:cursor-not-allowed"
-                              >
-                                {updatingCommission === commission.id ? 'Processing...' : 'Mark as Processing'}
-                              </button>
-                              <button
-                                onClick={() => handleMarkAsPaid(commission.id)}
-                                disabled={updatingCommission === commission.id}
-                                className="text-green-600 hover:text-green-900 disabled:opacity-50 disabled:cursor-not-allowed"
-                              >
-                                {updatingCommission === commission.id ? 'Processing...' : 'Mark as Paid'}
-                              </button>
-                            </div>
-                          )}
-                          {commission.status === 'PROCESSING' && (
-                            <button
-                              onClick={() => handleMarkAsPaid(commission.id)}
-                              disabled={updatingCommission === commission.id}
-                              className="text-green-600 hover:text-green-900 disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              {updatingCommission === commission.id ? 'Processing...' : 'Mark as Paid'}
-                            </button>
-                          )}
-                          {commission.status === 'PAID' && (
-                            <span className="text-gray-500">Completed</span>
-                          )}
+                          <div className="flex flex-col space-y-2">
+                            {/* Show different buttons based on status */}
+                            {commission.status === 'PENDING' && (
+                              <div className="flex space-x-2">
+                                <button
+                                  onClick={() => openInvoiceModal(commission.id, commission)}
+                                  disabled={generatingInvoice === commission.id}
+                                  className="inline-flex items-center px-2 py-1 border border-blue-600 text-xs font-medium rounded text-blue-600 bg-white hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                  </svg>
+                                  {generatingInvoice === commission.id ? 'Generating...' : 'Generate Invoice'}
+                                </button>
+                              </div>
+                            )}
+                            
+                            {commission.status === 'PROCESSING' && (
+                              <div className="flex space-x-2">
+                                <button
+                                  onClick={() => handleMarkAsPaid(commission.id)}
+                                  disabled={updatingCommission === commission.id}
+                                  className="inline-flex items-center px-2 py-1 border border-green-600 text-xs font-medium rounded text-green-600 bg-white hover:bg-green-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                  </svg>
+                                  {updatingCommission === commission.id ? 'Processing...' : 'Mark as Paid'}
+                                </button>
+                                
+                                <button
+                                  onClick={() => handleDownloadInvoice(commission.id)}
+                                  disabled={downloadingInvoice === commission.id}
+                                  className="inline-flex items-center px-2 py-1 border border-green-600 text-xs font-medium rounded text-green-600 bg-white hover:bg-green-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                  </svg>
+                                  {downloadingInvoice === commission.id ? 'Downloading...' : 'Download'}
+                                </button>
+                              </div>
+                            )}
+                            
+                            {commission.status === 'PAID' && (
+                              <span className="text-gray-500 text-xs">Completed</span>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -455,6 +593,175 @@ export default function MyIncomePage() {
           </div>
         )}
       </div>
+
+      {/* Invoice Generation Modal */}
+      {showInvoiceModal && (
+        <div className="fixed z-10 inset-0 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+          <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+            <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" aria-hidden="true" onClick={closeInvoiceModal}></div>
+            
+            <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+            
+            <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-2xl sm:w-full">
+              <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                <div className="sm:flex sm:items-start">
+                  <div className="mt-3 text-center sm:mt-0 sm:text-left w-full">
+                    <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4" id="modal-title">
+                      Generate Commission Invoice
+                    </h3>
+                    
+                    <div className="mt-4 space-y-4">
+                      <div>
+                        <label htmlFor="description" className="block text-sm font-medium text-gray-700">
+                          Description *
+                        </label>
+                        <textarea
+                          id="description"
+                          rows={3}
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                          value={invoiceFormData.description}
+                          onChange={(e) => setInvoiceFormData({ ...invoiceFormData, description: e.target.value })}
+                          required
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label htmlFor="vatRate" className="block text-sm font-medium text-gray-700">
+                            VAT Rate (%)
+                          </label>
+                          <input
+                            type="number"
+                            id="vatRate"
+                            step="0.01"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                            value={invoiceFormData.vatRate}
+                            onChange={(e) => setInvoiceFormData({ ...invoiceFormData, vatRate: parseFloat(e.target.value) })}
+                          />
+                        </div>
+
+                        <div>
+                          <label htmlFor="currency" className="block text-sm font-medium text-gray-700">
+                            Currency
+                          </label>
+                          <input
+                            type="text"
+                            id="currency"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                            value={invoiceFormData.currency}
+                            onChange={(e) => setInvoiceFormData({ ...invoiceFormData, currency: e.target.value })}
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label htmlFor="bankName" className="block text-sm font-medium text-gray-700">
+                          Bank Name *
+                        </label>
+                        <input
+                          type="text"
+                          id="bankName"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                          value={invoiceFormData.bankName}
+                          onChange={(e) => setInvoiceFormData({ ...invoiceFormData, bankName: e.target.value })}
+                          required
+                        />
+                      </div>
+
+                      <div>
+                        <label htmlFor="accountName" className="block text-sm font-medium text-gray-700">
+                          Account Name *
+                        </label>
+                        <input
+                          type="text"
+                          id="accountName"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                          value={invoiceFormData.accountName}
+                          onChange={(e) => setInvoiceFormData({ ...invoiceFormData, accountName: e.target.value })}
+                          required
+                        />
+                      </div>
+
+                      <div>
+                        <label htmlFor="accountNumber" className="block text-sm font-medium text-gray-700">
+                          Account Number *
+                        </label>
+                        <input
+                          type="text"
+                          id="accountNumber"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                          value={invoiceFormData.accountNumber}
+                          onChange={(e) => setInvoiceFormData({ ...invoiceFormData, accountNumber: e.target.value })}
+                          required
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label htmlFor="branch" className="block text-sm font-medium text-gray-700">
+                            Branch
+                          </label>
+                          <input
+                            type="text"
+                            id="branch"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                            value={invoiceFormData.branch}
+                            onChange={(e) => setInvoiceFormData({ ...invoiceFormData, branch: e.target.value })}
+                          />
+                        </div>
+
+                        <div>
+                          <label htmlFor="bankCode" className="block text-sm font-medium text-gray-700">
+                            Bank Code
+                          </label>
+                          <input
+                            type="text"
+                            id="bankCode"
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                            value={invoiceFormData.bankCode}
+                            onChange={(e) => setInvoiceFormData({ ...invoiceFormData, bankCode: e.target.value })}
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label htmlFor="swiftCode" className="block text-sm font-medium text-gray-700">
+                          SWIFT Code
+                        </label>
+                        <input
+                          type="text"
+                          id="swiftCode"
+                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                          value={invoiceFormData.swiftCode}
+                          onChange={(e) => setInvoiceFormData({ ...invoiceFormData, swiftCode: e.target.value })}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                <button
+                  type="button"
+                  onClick={handleGenerateInvoice}
+                  disabled={!invoiceFormData.description || !invoiceFormData.bankName || !invoiceFormData.accountName || !invoiceFormData.accountNumber || generatingInvoice !== null}
+                  className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {generatingInvoice ? 'Generating...' : 'Generate Invoice'}
+                </button>
+                <button
+                  type="button"
+                  onClick={closeInvoiceModal}
+                  disabled={generatingInvoice !== null}
+                  className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

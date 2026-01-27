@@ -26,7 +26,16 @@ import {
   DeleteInvoiceRequest,
   DeleteInvoiceResponse,
   DeleteBillInvoiceRequest,
-  DeleteBillInvoiceResponse
+  DeleteBillInvoiceResponse,
+  GenerateDemandLetterRequest,
+  DemandLetter,
+  DemandLetterQueryParams,
+  UpdateDemandLetterStatusRequest,
+  CreatePaymentReportRequest,
+  CreatePaymentReportResponse,
+  CommissionStatus,
+  GenerateCommissionInvoiceRequest,
+  CommissionInvoiceResponse
 } from '@/types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.interparkpropertysystem.co.ke/api';
@@ -486,7 +495,38 @@ export const paymentsAPI = {
     }
   },
 
-  createPaymentReport: async (data: Partial<PaymentReport>): Promise<PaymentReport> => {
+  getOutstandingInvoices: async (tenantId: string, includeBills: boolean = true): Promise<{
+    rentInvoices: Invoice[];
+    billInvoices: BillInvoice[];
+    totals: {
+      totalRentBalance: number;
+      totalBillBalance: number;
+      totalOutstanding: number;
+      invoiceCount: number;
+      billInvoiceCount: number;
+    };
+  }> => {
+    try {
+      const response = await api.get(`/payments/outstanding/${tenantId}`, {
+        params: { includeBills }
+      });
+      
+      if (!response.data || !response.data.success) {
+        throw new Error('Invalid response from server');
+      }
+
+      return response.data.data;
+    } catch (error: any) {
+      console.error('Failed to load outstanding invoices:', error);
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to fetch outstanding invoices';
+      throw new Error(message);
+    }
+  },
+
+  createPaymentReport: async (data: CreatePaymentReportRequest): Promise<CreatePaymentReportResponse> => {
     try {
       const response = await api.post('/payments', data);
       
@@ -789,13 +829,22 @@ export const serviceProvidersAPI = {
 };
 
 export const commissionsAPI = {
-  getManagerCommissions: async (managerId: string): Promise<ManagerCommission[]> => {
+  getManagerCommissions: async (managerId: string, params?: {
+    status?: string;
+    startDate?: string;
+    endDate?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<{ data: ManagerCommission[]; pagination: any }> => {
     try {
-      const response = await api.get(`/commissions/manager/${managerId}`);
+      const response = await api.get(`/commissions/manager/${managerId}`, { params });
       
       // Handle the nested data structure
-      if (response.data && response.data.success && Array.isArray(response.data.data)) {
-        return response.data.data;
+      if (response.data && response.data.success) {
+        return {
+          data: response.data.data || [],
+          pagination: response.data.pagination || {}
+        };
       } else {
         throw new Error('Invalid response format from server');
       }
@@ -817,13 +866,13 @@ export const commissionsAPI = {
           totalEarned: apiData.summary?.totalEarned || 0,
           totalPending: apiData.summary?.pendingAmount || 0,
           totalProcessing: apiData.summary?.processingAmount || 0,
-          totalPaid: apiData.summary?.totalEarned || 0, // Assuming totalEarned represents paid amount
+          totalPaid: apiData.summary?.totalEarned || 0,
           commissionsByProperty: Object.entries(apiData.propertyBreakdown || {}).map(([propertyName, propertyData]: [string, any]) => ({
-            propertyId: propertyName, // You might need to get actual property IDs
+            propertyId: propertyName,
             propertyName: propertyName,
             totalCommission: propertyData.totalAmount || 0,
           })),
-          monthlyBreakdown: [] // Add this if your API provides monthly data
+          monthlyBreakdown: []
         };
         
         return commissionStats;
@@ -835,13 +884,19 @@ export const commissionsAPI = {
     }
   },
   
-  getCommissionsByProperty: async (managerId: string, propertyId: string): Promise<ManagerCommission[]> => {
+  getCommissionsByProperty: async (managerId: string, propertyId: string, params?: {
+    page?: number;
+    limit?: number;
+  }): Promise<{ data: ManagerCommission[]; pagination: any }> => {
     try {
-      const response = await api.get(`/commissions/manager/${managerId}/property/${propertyId}`);
+      const response = await api.get(`/commissions/manager/${managerId}/property/${propertyId}`, { params });
       
       // Handle the nested data structure
-      if (response.data && response.data.success && Array.isArray(response.data.data)) {
-        return response.data.data;
+      if (response.data && response.data.success) {
+        return {
+          data: response.data.data || [],
+          pagination: response.data.pagination || {}
+        };
       } else {
         throw new Error('Invalid response format from server');
       }
@@ -865,9 +920,13 @@ export const commissionsAPI = {
     }
   },
   
-  updateCommissionStatus: async (id: string, status: string, paidDate?: string, notes?: string): Promise<ManagerCommission> => {
+  updateCommissionStatus: async (id: string, data: {
+    status?: CommissionStatus;
+    paidDate?: string;
+    notes?: string;
+  }): Promise<ManagerCommission> => {
     try {
-      const response = await api.put(`/commissions/${id}/status`, { status, paidDate, notes });
+      const response = await api.patch(`/commissions/${id}`, data);
       
       // Handle the nested data structure
       if (response.data && response.data.success && response.data.data) {
@@ -879,7 +938,8 @@ export const commissionsAPI = {
       return handleApiError(error);
     }
   },
-    markAsProcessing: async (id: string): Promise<ManagerCommission> => {
+  
+  markAsProcessing: async (id: string): Promise<ManagerCommission> => {
     try {
       const response = await api.patch(`/commissions/${id}/processing`);
       
@@ -906,6 +966,62 @@ export const commissionsAPI = {
       }
     } catch (error) {
       return handleApiError(error);
+    }
+  },
+
+  // NEW: Generate commission invoice
+  generateCommissionInvoice: async (
+    commissionId: string,
+    data: GenerateCommissionInvoiceRequest
+  ): Promise<CommissionInvoiceResponse> => {
+    try {
+      const response = await api.post(`/commissions/${commissionId}/commission-invoice`, data);
+      
+      if (response.data && response.data.success) {
+        return response.data;
+      } else {
+        throw new Error('Invalid response format from server');
+      }
+    } catch (error: any) {
+      console.error('Failed to generate commission invoice:', error);
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to generate commission invoice';
+      throw new Error(message);
+    }
+  },
+
+  // NEW: Download commission invoice PDF
+  downloadCommissionInvoice: async (commissionId: string): Promise<Blob> => {
+    try {
+      const response = await api.get(
+        `/commissions/${commissionId}/commission-invoice/download`,
+        {
+          responseType: 'blob',
+        }
+      );
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to download commission invoice:', error);
+      
+      // Special handling for blob error responses
+      if (error.response && error.response.data instanceof Blob) {
+        try {
+          const errorText = await error.response.data.text();
+          const errorData = JSON.parse(errorText);
+          throw new Error(errorData.message || 'Failed to download commission invoice');
+        } catch {
+          throw new Error('Failed to download commission invoice');
+        }
+      }
+      
+      // For non-blob errors
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to download commission invoice';
+      throw new Error(message);
     }
   },
 };
@@ -2002,6 +2118,220 @@ export const activationsAPI = {
       };
       
       throw new ApiError(message, additionalData);
+    }
+  },
+};
+
+// Demand Letters API
+export const demandLettersAPI = {
+  // Generate a new demand letter
+  generate: async (data: GenerateDemandLetterRequest): Promise<DemandLetter> => {
+    try {
+      const response = await api.post('/demand-letters/generate', data);
+      
+      // Backend returns { success, message, data }
+      return response.data.data;
+    } catch (error: any) {
+      console.error('Failed to generate demand letter:', error);
+      
+      const errorData = error?.response?.data;
+      const message = errorData?.message || error?.message || 'Failed to generate demand letter';
+      
+      throw new ApiError(message, {
+        statusCode: error?.response?.status,
+        ...errorData
+      });
+    }
+  },
+
+  // Auto-generate demand letter for a tenant
+  autoGenerate: async (tenantId: string, data?: { demandPeriod?: string; notes?: string }): Promise<DemandLetter> => {
+    try {
+      const response = await api.post(`/demand-letters/auto-generate/${tenantId}`, data || {});
+      
+      // Backend returns { success, message, data }
+      return response.data.data;
+    } catch (error: any) {
+      console.error('Failed to auto-generate demand letter:', error);
+      
+      const errorData = error?.response?.data;
+      const message = errorData?.message || error?.message || 'Failed to auto-generate demand letter';
+      
+      throw new ApiError(message, {
+        statusCode: error?.response?.status,
+        ...errorData
+      });
+    }
+  },
+
+  // Batch generate demand letters
+  batchGenerate: async (data: { tenantIds: string[]; demandPeriod?: string; notes?: string }): Promise<{
+    success: Array<{
+      tenantId: string;
+      tenantName: string;
+      demandLetterId: string;
+      letterNumber: string;
+      outstandingAmount: number;
+      invoiceCount: number;
+      deduplicationApplied: boolean;
+    }>;
+    failed: Array<{
+      tenantId: string;
+      reason: string;
+    }>;
+  }> => {
+    try {
+      const response = await api.post('/demand-letters/batch-generate', data);
+      
+      // Backend returns { success, message, data }
+      return response.data.data;
+    } catch (error: any) {
+      console.error('Failed to batch generate demand letters:', error);
+      
+      const errorData = error?.response?.data;
+      const message = errorData?.message || error?.message || 'Failed to batch generate demand letters';
+      
+      throw new ApiError(message, {
+        statusCode: error?.response?.status,
+        ...errorData
+      });
+    }
+  },
+
+  // Get all demand letters with filters
+  getAll: async (params?: DemandLetterQueryParams): Promise<{
+    data: DemandLetter[];
+    pagination: {
+      total: number;
+      page: number;
+      limit: number;
+      pages: number;
+    };
+  }> => {
+    try {
+      const response = await api.get('/demand-letters', { params });
+      
+      // Backend returns { success, data, pagination }
+      return {
+        data: response.data.data,
+        pagination: response.data.pagination
+      };
+    } catch (error: any) {
+      console.error('Failed to load demand letters:', error);
+      
+      const errorData = error?.response?.data;
+      const message = errorData?.message || error?.message || 'Failed to fetch demand letters';
+      
+      throw new ApiError(message, {
+        statusCode: error?.response?.status,
+        ...errorData
+      });
+    }
+  },
+
+  // Get single demand letter by ID
+  getById: async (id: string): Promise<DemandLetter> => {
+    try {
+      const response = await api.get(`/demand-letters/${id}`);
+      
+      // Backend returns { success, data }
+      return response.data.data;
+    } catch (error: any) {
+      console.error('Failed to load demand letter:', error);
+      
+      const errorData = error?.response?.data;
+      const message = errorData?.message || error?.message || 'Failed to fetch demand letter';
+      
+      throw new ApiError(message, {
+        statusCode: error?.response?.status,
+        ...errorData
+      });
+    }
+  },
+
+  // Get overdue invoices for a tenant
+  getOverdueInvoices: async (tenantId: string): Promise<{
+    invoices: Invoice[];
+    totalOutstanding: number;
+    count: number;
+    originalCount: number;
+    deduplicationApplied: boolean;
+  }> => {
+    try {
+      const response = await api.get(`/demand-letters/overdue-invoices/${tenantId}`);
+      
+      // Backend returns { success, data: { invoices, totalOutstanding, count, originalCount, deduplicationApplied } }
+      return response.data.data;
+    } catch (error: any) {
+      console.error('Failed to fetch overdue invoices:', error);
+      
+      const errorData = error?.response?.data;
+      const message = errorData?.message || error?.message || 'Failed to fetch overdue invoices';
+      
+      throw new ApiError(message, {
+        statusCode: error?.response?.status,
+        ...errorData
+      });
+    }
+  },
+
+  // Download demand letter PDF
+  downloadPDF: async (id: string): Promise<{ documentUrl: string; letterNumber: string }> => {
+    try {
+      const response = await api.get(`/demand-letters/${id}/download`);
+      
+      // Backend returns { success, data: { documentUrl, letterNumber } }
+      return response.data.data;
+    } catch (error: any) {
+      console.error('Failed to download demand letter PDF:', error);
+      
+      const errorData = error?.response?.data;
+      const message = errorData?.message || error?.message || 'Failed to download demand letter PDF';
+      
+      throw new ApiError(message, {
+        statusCode: error?.response?.status,
+        ...errorData
+      });
+    }
+  },
+
+  // Update demand letter status
+  updateStatus: async (id: string, data: UpdateDemandLetterStatusRequest): Promise<DemandLetter> => {
+    try {
+      const response = await api.patch(`/demand-letters/${id}/status`, data);
+      
+      // Backend returns { success, message, data }
+      return response.data.data;
+    } catch (error: any) {
+      console.error('Failed to update demand letter status:', error);
+      
+      const errorData = error?.response?.data;
+      const message = errorData?.message || error?.message || 'Failed to update demand letter status';
+      
+      throw new ApiError(message, {
+        statusCode: error?.response?.status,
+        ...errorData
+      });
+    }
+  },
+
+  // Delete demand letter
+  delete: async (id: string): Promise<void> => {
+    try {
+      const response = await api.delete(`/demand-letters/${id}`);
+      
+      // Backend returns { success, message }
+      // No data to return
+    } catch (error: any) {
+      console.error('Failed to delete demand letter:', error);
+      
+      const errorData = error?.response?.data;
+      const message = errorData?.message || error?.message || 'Failed to delete demand letter';
+      
+      throw new ApiError(message, {
+        statusCode: error?.response?.status,
+        ...errorData
+      });
     }
   },
 };
