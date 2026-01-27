@@ -1317,7 +1317,7 @@ export default function TenantDetailPage() {
                         </svg>
                         Download
                       </Button>
-                      {/* <Button
+                      { <Button
                           onClick={() => handleDeleteInvoice(invoice.id, invoice.invoiceNumber)}
                           variant="outline"
                           size="sm"
@@ -1340,7 +1340,8 @@ export default function TenantDetailPage() {
                               Delete
                             </>
                           )}
-                        </Button> */}
+                        </Button> 
+                      }
                     </div>
                   </motion.div>
                 ))}
@@ -2106,7 +2107,7 @@ export default function TenantDetailPage() {
                         </div>
                       )}
                     </div>
-                    {/*<div className="flex flex-col gap-2 ml-4 shrink-0">
+                    <div className="flex flex-col gap-2 ml-4 shrink-0">
                      <Button
                         onClick={() => handleDeleteBillInvoice(billInvoice.id, billInvoice.invoiceNumber)}
                         variant="outline"
@@ -2131,7 +2132,7 @@ export default function TenantDetailPage() {
                           </>
                         )}
                         </Button>
-                    </div> */} 
+                    </div> 
                   </motion.div>
                 ))}
               </div>
