@@ -42,7 +42,8 @@ export default function DashboardPage() {
             console.error('Error fetching commission stats:', commissionError);
             // If commission stats fail, try to get commissions and calculate manually
             try {
-              const commissions = await commissionsAPI.getManagerCommissions(user.id);
+              const commissionsResponse = await commissionsAPI.getManagerCommissions(user.id);
+              const commissions = commissionsResponse.data; // Access the data property
               const paidCommissions = commissions.filter(commission => commission.status === 'PAID');
               totalPaidCommissions = paidCommissions.reduce((sum, commission) => sum + commission.commissionAmount, 0);
             } catch (fallbackError) {
