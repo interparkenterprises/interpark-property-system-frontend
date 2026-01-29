@@ -996,7 +996,7 @@ export const commissionsAPI = {
   downloadCommissionInvoice: async (commissionId: string): Promise<Blob> => {
     try {
       const response = await api.get(
-        `/commissions/${commissionId}/commission-invoice/download`,
+        `/commissions/${commissionId}/commission-invoice/download`, // Using commissionId
         {
           responseType: 'blob',
         }

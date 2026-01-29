@@ -24,6 +24,8 @@ interface InvoiceFormData {
   currency: string;
 }
 
+const INVOICE_FORM_STORAGE_KEY = 'invoiceFormData';
+
 export default function MyIncomePage() {
   const { user } = useAuth();
   const [incomeData, setIncomeData] = useState<IncomeData>({
@@ -49,6 +51,31 @@ export default function MyIncomePage() {
     swiftCode: '',
     currency: 'KES',
   });
+
+  // Load saved form data from localStorage on mount
+  useEffect(() => {
+    const savedFormData = localStorage.getItem(INVOICE_FORM_STORAGE_KEY);
+    if (savedFormData) {
+      try {
+        const parsedData = JSON.parse(savedFormData);
+        setInvoiceFormData(prev => ({
+          ...prev,
+          ...parsedData,
+          // Always keep description empty for new invoices
+          description: '',
+        }));
+      } catch (error) {
+        console.error('Error parsing saved form data:', error);
+      }
+    }
+  }, []);
+
+  // Save form data to localStorage whenever it changes
+  useEffect(() => {
+    if (showInvoiceModal) {
+      localStorage.setItem(INVOICE_FORM_STORAGE_KEY, JSON.stringify(invoiceFormData));
+    }
+  }, [invoiceFormData, showInvoiceModal]);
 
   useEffect(() => {
     if (user?.id) {
@@ -134,17 +161,23 @@ export default function MyIncomePage() {
   const openInvoiceModal = (commissionId: string, commission: ManagerCommission) => {
     setSelectedCommissionForInvoice(commissionId);
     
-    // Pre-fill form data with sensible defaults
+    // Load saved data from localStorage, but update description for this specific commission
+    const savedFormData = localStorage.getItem(INVOICE_FORM_STORAGE_KEY);
+    let baseData = invoiceFormData;
+    
+    if (savedFormData) {
+      try {
+        baseData = JSON.parse(savedFormData);
+      } catch (error) {
+        console.error('Error parsing saved form data:', error);
+      }
+    }
+    
+    // Pre-fill form data with saved data and new description
     setInvoiceFormData({
+      ...baseData,
       description: `Management commission for ${commission.property?.name || 'property'} (${formatDate(commission.periodStart)} - ${formatDate(commission.periodEnd)})`,
-      vatRate: 16,
-      bankName: '',
-      accountName: user?.name || '',
-      accountNumber: '',
-      branch: '',
-      bankCode: '',
-      swiftCode: '',
-      currency: 'KES',
+      accountName: baseData.accountName || user?.name || '',
     });
     
     setShowInvoiceModal(true);
@@ -152,18 +185,10 @@ export default function MyIncomePage() {
 
   const closeInvoiceModal = () => {
     setShowInvoiceModal(false);
-    setSelectedCommissionForInvoice(null);
-    setInvoiceFormData({
-      description: '',
-      vatRate: 16,
-      bankName: '',
-      accountName: '',
-      accountNumber: '',
-      branch: '',
-      bankCode: '',
-      swiftCode: '',
-      currency: 'KES',
-    });
+    // Delay clearing the selected commission to allow animation to complete
+    setTimeout(() => {
+      setSelectedCommissionForInvoice(null);
+    }, 300);
   };
 
   const handleGenerateInvoice = async () => {
@@ -594,166 +619,231 @@ export default function MyIncomePage() {
         )}
       </div>
 
-      {/* Invoice Generation Modal */}
+      {/* Invoice Generation Modal - ENHANCED VERSION with animations and blur */}
       {showInvoiceModal && (
-        <div className="fixed z-10 inset-0 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+        <div 
+          className={`fixed z-50 inset-0 overflow-y-auto transition-opacity duration-300 ${
+            showInvoiceModal ? 'opacity-100' : 'opacity-0'
+          }`}
+          aria-labelledby="modal-title" 
+          role="dialog" 
+          aria-modal="true"
+        >
           <div className="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-            <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" aria-hidden="true" onClick={closeInvoiceModal}></div>
+            {/* Background overlay with enhanced blur and reduced opacity */}
+            <div 
+              className="fixed inset-0 bg-gray-900 bg-opacity-40 backdrop-blur-lg transition-all duration-300" 
+              aria-hidden="true" 
+              onClick={closeInvoiceModal}
+            ></div>
             
+            {/* This element is to center the modal */}
             <span className="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
             
-            <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-2xl sm:w-full">
-              <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
-                <div className="sm:flex sm:items-start">
-                  <div className="mt-3 text-center sm:mt-0 sm:text-left w-full">
-                    <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4" id="modal-title">
-                      Generate Commission Invoice
-                    </h3>
-                    
-                    <div className="mt-4 space-y-4">
-                      <div>
-                        <label htmlFor="description" className="block text-sm font-medium text-gray-700">
-                          Description *
-                        </label>
-                        <textarea
-                          id="description"
-                          rows={3}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                          value={invoiceFormData.description}
-                          onChange={(e) => setInvoiceFormData({ ...invoiceFormData, description: e.target.value })}
-                          required
-                        />
-                      </div>
+            {/* Modal panel with smooth animation */}
+            <div 
+              className={`inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all duration-300 sm:my-8 sm:align-middle sm:max-w-2xl sm:w-full relative ${
+                showInvoiceModal ? 'translate-y-0 opacity-100 scale-100' : 'translate-y-4 opacity-0 scale-95'
+              }`}
+            >
+              {/* Modal Header - Fixed */}
+              <div className="bg-white px-4 pt-5 pb-4 sm:p-6 border-b border-gray-200">
+                <div className="flex items-start justify-between">
+                  <h3 className="text-lg leading-6 font-medium text-gray-900" id="modal-title">
+                    Generate Commission Invoice
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={closeInvoiceModal}
+                    className="bg-white rounded-md text-gray-400 hover:text-gray-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
+                  >
+                    <span className="sr-only">Close</span>
+                    <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
 
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label htmlFor="vatRate" className="block text-sm font-medium text-gray-700">
-                            VAT Rate (%)
-                          </label>
-                          <input
-                            type="number"
-                            id="vatRate"
-                            step="0.01"
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                            value={invoiceFormData.vatRate}
-                            onChange={(e) => setInvoiceFormData({ ...invoiceFormData, vatRate: parseFloat(e.target.value) })}
-                          />
-                        </div>
+              {/* Scrollable Form Content */}
+              <div className="px-4 pt-5 pb-4 sm:p-6 max-h-[60vh] overflow-y-auto">
+                <div className="space-y-4">
+                  {/* Description */}
+                  <div>
+                    <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1">
+                      Description <span className="text-red-500">*</span>
+                    </label>
+                    <textarea
+                      id="description"
+                      rows={3}
+                      className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition-colors text-gray-800"
+                      value={invoiceFormData.description}
+                      onChange={(e) => setInvoiceFormData({ ...invoiceFormData, description: e.target.value })}
+                      placeholder="Enter invoice description"
+                      required
+                    />
+                  </div>
 
-                        <div>
-                          <label htmlFor="currency" className="block text-sm font-medium text-gray-700">
-                            Currency
-                          </label>
-                          <input
-                            type="text"
-                            id="currency"
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                            value={invoiceFormData.currency}
-                            onChange={(e) => setInvoiceFormData({ ...invoiceFormData, currency: e.target.value })}
-                          />
-                        </div>
-                      </div>
-
-                      <div>
-                        <label htmlFor="bankName" className="block text-sm font-medium text-gray-700">
-                          Bank Name *
-                        </label>
-                        <input
-                          type="text"
-                          id="bankName"
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                          value={invoiceFormData.bankName}
-                          onChange={(e) => setInvoiceFormData({ ...invoiceFormData, bankName: e.target.value })}
-                          required
-                        />
-                      </div>
-
-                      <div>
-                        <label htmlFor="accountName" className="block text-sm font-medium text-gray-700">
-                          Account Name *
-                        </label>
-                        <input
-                          type="text"
-                          id="accountName"
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                          value={invoiceFormData.accountName}
-                          onChange={(e) => setInvoiceFormData({ ...invoiceFormData, accountName: e.target.value })}
-                          required
-                        />
-                      </div>
-
-                      <div>
-                        <label htmlFor="accountNumber" className="block text-sm font-medium text-gray-700">
-                          Account Number *
-                        </label>
-                        <input
-                          type="text"
-                          id="accountNumber"
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                          value={invoiceFormData.accountNumber}
-                          onChange={(e) => setInvoiceFormData({ ...invoiceFormData, accountNumber: e.target.value })}
-                          required
-                        />
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label htmlFor="branch" className="block text-sm font-medium text-gray-700">
-                            Branch
-                          </label>
-                          <input
-                            type="text"
-                            id="branch"
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                            value={invoiceFormData.branch}
-                            onChange={(e) => setInvoiceFormData({ ...invoiceFormData, branch: e.target.value })}
-                          />
-                        </div>
-
-                        <div>
-                          <label htmlFor="bankCode" className="block text-sm font-medium text-gray-700">
-                            Bank Code
-                          </label>
-                          <input
-                            type="text"
-                            id="bankCode"
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                            value={invoiceFormData.bankCode}
-                            onChange={(e) => setInvoiceFormData({ ...invoiceFormData, bankCode: e.target.value })}
-                          />
-                        </div>
-                      </div>
-
-                      <div>
-                        <label htmlFor="swiftCode" className="block text-sm font-medium text-gray-700">
-                          SWIFT Code
-                        </label>
-                        <input
-                          type="text"
-                          id="swiftCode"
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                          value={invoiceFormData.swiftCode}
-                          onChange={(e) => setInvoiceFormData({ ...invoiceFormData, swiftCode: e.target.value })}
-                        />
-                      </div>
+                  {/* VAT Rate and Currency */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label htmlFor="vatRate" className="block text-sm font-medium text-gray-700 mb-1">
+                        VAT Rate (%)
+                      </label>
+                      <input
+                        type="number"
+                        id="vatRate"
+                        step="0.01"
+                        min="0"
+                        max="100"
+                        className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition-colors text-gray-800"
+                        value={invoiceFormData.vatRate}
+                        onChange={(e) => setInvoiceFormData({ ...invoiceFormData, vatRate: parseFloat(e.target.value) || 0 })}
+                      />
                     </div>
+
+                    <div>
+                      <label htmlFor="currency" className="block text-sm font-medium text-gray-700 mb-1">
+                        Currency
+                      </label>
+                      <input
+                        type="text"
+                        id="currency"
+                        className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition-colors text-gray-800"
+                        value={invoiceFormData.currency}
+                        onChange={(e) => setInvoiceFormData({ ...invoiceFormData, currency: e.target.value })}
+                        placeholder="e.g., KES"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Bank Name */}
+                  <div>
+                    <label htmlFor="bankName" className="block text-sm font-medium text-gray-700 mb-1">
+                      Bank Name <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      id="bankName"
+                      className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition-colors text-gray-800"
+                      value={invoiceFormData.bankName}
+                      onChange={(e) => setInvoiceFormData({ ...invoiceFormData, bankName: e.target.value })}
+                      placeholder="Enter bank name"
+                      required
+                    />
+                  </div>
+
+                  {/* Account Name */}
+                  <div>
+                    <label htmlFor="accountName" className="block text-sm font-medium text-gray-700 mb-1">
+                      Account Name <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      id="accountName"
+                      className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition-colors text-gray-800"
+                      value={invoiceFormData.accountName}
+                      onChange={(e) => setInvoiceFormData({ ...invoiceFormData, accountName: e.target.value })}
+                      placeholder="Enter account holder name"
+                      required
+                    />
+                  </div>
+
+                  {/* Account Number */}
+                  <div>
+                    <label htmlFor="accountNumber" className="block text-sm font-medium text-gray-700 mb-1">
+                      Account Number <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      id="accountNumber"
+                      className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition-colors text-gray-800"
+                      value={invoiceFormData.accountNumber}
+                      onChange={(e) => setInvoiceFormData({ ...invoiceFormData, accountNumber: e.target.value })}
+                      placeholder="Enter account number"
+                      required
+                    />
+                  </div>
+
+                  {/* Branch and Bank Code */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label htmlFor="branch" className="block text-sm font-medium text-gray-700 mb-1">
+                        Branch
+                      </label>
+                      <input
+                        type="text"
+                        id="branch"
+                        className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition-colors text-gray-800"
+                        value={invoiceFormData.branch}
+                        onChange={(e) => setInvoiceFormData({ ...invoiceFormData, branch: e.target.value })}
+                        placeholder="Enter branch name"
+                      />
+                    </div>
+
+                    <div>
+                      <label htmlFor="bankCode" className="block text-sm font-medium text-gray-700 mb-1 ">
+                        Bank Code
+                      </label>
+                      <input
+                        type="text"
+                        id="bankCode"
+                        className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition-colors text-gray-800"
+                        value={invoiceFormData.bankCode}
+                        onChange={(e) => setInvoiceFormData({ ...invoiceFormData, bankCode: e.target.value })}
+                        placeholder="Enter bank code"
+                      />
+                    </div>
+                  </div>
+
+                  {/* SWIFT Code */}
+                  <div>
+                    <label htmlFor="swiftCode" className="block text-sm font-medium text-gray-700 mb-1">
+                      SWIFT Code
+                    </label>
+                    <input
+                      type="text"
+                      id="swiftCode"
+                      className="block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition-colors text-gray-800"
+                      value={invoiceFormData.swiftCode}
+                      onChange={(e) => setInvoiceFormData({ ...invoiceFormData, swiftCode: e.target.value })}
+                      placeholder="Enter SWIFT code"
+                    />
                   </div>
                 </div>
               </div>
-              <div className="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+
+              {/* Modal Footer - Fixed at bottom */}
+              <div className="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse border-t border-gray-200">
                 <button
                   type="button"
                   onClick={handleGenerateInvoice}
-                  disabled={!invoiceFormData.description || !invoiceFormData.bankName || !invoiceFormData.accountName || !invoiceFormData.accountNumber || generatingInvoice !== null}
-                  className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={
+                    !invoiceFormData.description || 
+                    !invoiceFormData.bankName || 
+                    !invoiceFormData.accountName || 
+                    !invoiceFormData.accountNumber || 
+                    generatingInvoice !== null
+                  }
+                  className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
                 >
-                  {generatingInvoice ? 'Generating...' : 'Generate Invoice'}
+                  {generatingInvoice ? (
+                    <>
+                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Generating...
+                    </>
+                  ) : (
+                    'Generate Invoice'
+                  )}
                 </button>
                 <button
                   type="button"
                   onClick={closeInvoiceModal}
                   disabled={generatingInvoice !== null}
-                  className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:w-auto sm:text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
                 >
                   Cancel
                 </button>
@@ -762,6 +852,7 @@ export default function MyIncomePage() {
           </div>
         </div>
       )}
+
     </div>
   );
 }
