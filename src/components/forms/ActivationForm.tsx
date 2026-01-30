@@ -72,6 +72,60 @@ export default function ActivationForm({
     managerDesignation: '',
   });
 
+  // VAT calculation state
+  const [vatDetails, setVatDetails] = useState({
+    baseAmount: 0,
+    vatAmount: 0,
+    totalAmount: 0
+  });
+
+  // Function to calculate VAT details based on backend logic
+  const calculateVATDetails = () => {
+    const baseAmount = parseFloat(formData.proposedBudget) || 
+                      parseFloat(formData.licenseFeePerDay) || 0;
+    const vatRate = parseFloat(formData.vat) || 0;
+    const vatType = formData.vatType;
+
+    if (!baseAmount || !vatRate || vatType === 'NOT_APPLICABLE') {
+      return {
+        baseAmount: baseAmount || 0,
+        vatAmount: 0,
+        totalAmount: baseAmount || 0
+      };
+    }
+
+    if (vatType === 'INCLUSIVE') {
+      // VAT is already included in the base amount
+      const vatAmount = (baseAmount * vatRate) / (100 + vatRate);
+      const netAmount = baseAmount - vatAmount;
+      return {
+        baseAmount: netAmount,
+        vatAmount,
+        totalAmount: baseAmount
+      };
+    } else if (vatType === 'EXCLUSIVE') {
+      // VAT is added to base amount
+      const vatAmount = (baseAmount * vatRate) / 100;
+      return {
+        baseAmount,
+        vatAmount,
+        totalAmount: baseAmount + vatAmount
+      };
+    }
+
+    return {
+      baseAmount: baseAmount || 0,
+      vatAmount: 0,
+      totalAmount: baseAmount || 0
+    };
+  };
+
+  // Update VAT calculations when relevant fields change
+  useEffect(() => {
+    const details = calculateVATDetails();
+    setVatDetails(details);
+  }, [formData.proposedBudget, formData.licenseFeePerDay, formData.vat, formData.vatType]);
+
   // Load activation data if editing
   useEffect(() => {
     if (activation) {
@@ -245,6 +299,11 @@ export default function ActivationForm({
     } finally {
       setLoading(false);
     }
+  };
+
+  const triggerVATCalculation = () => {
+    const details = calculateVATDetails();
+    setVatDetails(details);
   };
 
   return (
@@ -561,6 +620,7 @@ export default function ActivationForm({
               name="licenseFeePerDay"
               value={formData.licenseFeePerDay}
               onChange={handleChange}
+              onBlur={triggerVATCalculation}
               min="0"
               step="0.01"
               className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
@@ -592,6 +652,7 @@ export default function ActivationForm({
               name="proposedBudget"
               value={formData.proposedBudget}
               onChange={handleChange}
+              onBlur={triggerVATCalculation}
               min="0"
               step="0.01"
               className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
@@ -624,12 +685,14 @@ export default function ActivationForm({
             >
               <option value="INCLUSIVE">VAT Inclusive</option>
               <option value="EXCLUSIVE">VAT Exclusive</option>
-              <option value="NOTAPPLICABLE">VAT NOT APPLICABLE</option>
+              <option value="NOT_APPLICABLE">VAT NOT APPLICABLE</option>
             </select>
             <p className="text-sm text-gray-400 mt-1">
               {formData.vatType === 'INCLUSIVE' 
                 ? 'VAT is already included in the prices' 
-                : 'VAT will be added to the prices'}
+                : formData.vatType === 'EXCLUSIVE'
+                ? 'VAT will be added to the prices'
+                : 'No VAT will be applied'}
             </p>
           </div>
 
@@ -654,6 +717,55 @@ export default function ActivationForm({
             </p>
           </div>
         </div>
+
+        {/* VAT Calculation Display */}
+        {(formData.proposedBudget || formData.licenseFeePerDay) && (
+          <div className="mt-6 p-4 bg-gray-900/50 border border-gray-700 rounded-lg">
+            <h4 className="text-md font-semibold text-white mb-3">VAT Calculation</h4>
+            <div className="space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-gray-300">Base Amount:</span>
+                <span className="font-medium text-white">
+                  KES {vatDetails.baseAmount.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+              
+              <div className="flex justify-between items-center">
+                <span className="text-gray-300">
+                  VAT ({formData.vat}%) {formData.vatType === 'INCLUSIVE' ? '(Included)' : '(Exclusive)'}:
+                </span>
+                <span className="font-medium text-white">
+                  KES {vatDetails.vatAmount.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+              
+              <div className="pt-2 border-t border-gray-700">
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-300 font-semibold">Total Amount:</span>
+                  <span className="font-bold text-lg text-white">
+                    KES {vatDetails.totalAmount.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+              </div>
+            </div>
+            
+            {formData.vatType === 'INCLUSIVE' && vatDetails.vatAmount > 0 && (
+              <p className="text-sm text-gray-400 mt-2">
+                Note: KES {vatDetails.vatAmount.toFixed(2)} VAT is already included in the total amount
+              </p>
+            )}
+            {formData.vatType === 'EXCLUSIVE' && vatDetails.vatAmount > 0 && (
+              <p className="text-sm text-gray-400 mt-2">
+                Note: KES {vatDetails.vatAmount.toFixed(2)} VAT will be added to the base amount
+              </p>
+            )}
+            {formData.vatType === 'NOT_APPLICABLE' && (
+              <p className="text-sm text-gray-400 mt-2">
+                Note: No VAT will be applied to this activation
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Payment Details */}
