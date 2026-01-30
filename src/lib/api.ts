@@ -21,7 +21,10 @@ import {
   CreateActivationRequest,
   UpdateActivationRequest,
   ActivationsListResponse,
-  ActivationStatus,
+  ActivationQueryParams,
+  VATSummaryResponse,
+  ActivationStats,
+  //ActivationStatus,
   PaymentPolicy,
   DeleteInvoiceRequest,
   DeleteInvoiceResponse,
@@ -35,7 +38,8 @@ import {
   CreatePaymentReportResponse,
   CommissionStatus,
   GenerateCommissionInvoiceRequest,
-  CommissionInvoiceResponse
+  CommissionInvoiceResponse,
+  SubmitActivationRequest
 } from '@/types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.interparkpropertysystem.co.ke/api';
@@ -1875,14 +1879,7 @@ export const dailyReportsAPI = {
 // Activation Requests API
 export const activationsAPI = {
   // Get all activation requests with optional filters
-  getAll: async (params?: {
-    propertyId?: string;
-    status?: ActivationStatus;
-    startDate?: string;
-    endDate?: string;
-    page?: number;
-    limit?: number;
-  }): Promise<ActivationsListResponse> => {
+  getAll: async (params?: ActivationQueryParams): Promise<ActivationsListResponse> => {
     try {
       const response = await api.get('/activations', { params });
       
@@ -2017,13 +2014,16 @@ export const activationsAPI = {
   },
 
   // Generate PDF for activation request
-  generatePDF: async (id: string): Promise<{ 
+  generatePDF: async (id: string, download?: boolean): Promise<{ 
     message: string; 
     documentUrl: string; 
     activation: ActivationRequest;
+    pdfBuffer?: string;
   }> => {
     try {
-      const response = await api.post(`/activations/${id}/generate-pdf`);
+      const response = await api.post(`/activations/${id}/generate-pdf`, null, {
+        params: { download }
+      });
       
       if (!response.data || !response.data.success) {
         const errorMessage = response.data?.message || 'Invalid response from server';
@@ -2047,9 +2047,9 @@ export const activationsAPI = {
   },
 
   // Submit activation request for review
-  submit: async (id: string): Promise<ActivationRequest> => {
+  submit: async (id: string, data?: SubmitActivationRequest): Promise<ActivationRequest> => {
     try {
-      const response = await api.post(`/activations/${id}/submit`);
+      const response = await api.post(`/activations/${id}/submit`, data);
       
       if (!response.data || !response.data.success) {
         const errorMessage = response.data?.message || 'Invalid response from server';
@@ -2075,10 +2075,11 @@ export const activationsAPI = {
   },
 
   // Download activation PDF
-  downloadPDF: async (id: string): Promise<Blob> => {
+  downloadPDF: async (id: string, updateUrl?: boolean): Promise<Blob> => {
     try {
       const response = await api.get(`/activations/${id}/download`, {
         responseType: 'blob',
+        params: { updateUrl }
       });
       
       // Check content type
@@ -2111,6 +2112,62 @@ export const activationsAPI = {
       
       const errorData = error?.response?.data;
       const message = errorData?.message || error?.message || 'Failed to download activation PDF';
+      
+      const additionalData = {
+        statusCode: error?.response?.status,
+        ...errorData
+      };
+      
+      throw new ApiError(message, additionalData);
+    }
+  },
+
+  // Get activation statistics
+  getStats: async (): Promise<ActivationStats> => {
+    try {
+      const response = await api.get('/activations/stats');
+      
+      if (!response.data || !response.data.success) {
+        const errorMessage = response.data?.message || 'Invalid response from server';
+        throw new ApiError(errorMessage, response.data);
+      }
+
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to fetch activation stats:', error);
+      
+      const errorData = error?.response?.data;
+      const message = errorData?.message || error?.message || 'Failed to fetch activation statistics';
+      
+      const additionalData = {
+        statusCode: error?.response?.status,
+        ...errorData
+      };
+      
+      throw new ApiError(message, additionalData);
+    }
+  },
+
+  // Get VAT summary for activations
+  getVATSummary: async (params?: {
+    startDate?: string;
+    endDate?: string;
+    propertyId?: string;
+  }): Promise<VATSummaryResponse> => {
+    try {
+      const response = await api.get('/activations/vat-summary', { params });
+      
+      if (!response.data || !response.data.success) {
+        const errorMessage = response.data?.message || 'Invalid response from server';
+        throw new ApiError(errorMessage, response.data);
+      }
+
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to fetch VAT summary:', error);
+      
+      const errorData = error?.response?.data;
+      const message = errorData?.message || error?.message || 'Failed to fetch VAT summary';
       
       const additionalData = {
         statusCode: error?.response?.status,

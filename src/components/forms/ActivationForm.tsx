@@ -6,6 +6,7 @@ import {
   CreateActivationRequest,
   UpdateActivationRequest,
   ActivationType,
+  VATType,
 } from '@/types';
 import { activationsAPI } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -17,8 +18,6 @@ interface ActivationFormProps {
   onCancel: () => void;
 }
 
-
-
 export default function ActivationForm({
   propertyId,
   activation,
@@ -28,13 +27,14 @@ export default function ActivationForm({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Form state with only fields from backend model
+  // Form state with all fields from backend model
   const [formData, setFormData] = useState({
     // Part 1 - Client Information
     companyName: '',
     postalAddress: '',
     telephone: '',
     contactPerson: '',
+    alternativeContact: '',
     designation: '',
     email: '',
     mobileNo: '',
@@ -53,6 +53,10 @@ export default function ActivationForm({
     licenseFeePerDay: '',
     numberOfDays: '',
     proposedBudget: '',
+    
+    // VAT Information
+    vatType: 'INCLUSIVE' as VATType,
+    vat: '16',
     
     // Payment Details
     bankName: '',
@@ -77,6 +81,7 @@ export default function ActivationForm({
         postalAddress: activation.postalAddress || '',
         telephone: activation.telephone || '',
         contactPerson: activation.contactPerson || '',
+        alternativeContact: activation.alternativeContact || '',
         designation: activation.designation || '',
         email: activation.email || '',
         mobileNo: activation.mobileNo || '',
@@ -95,6 +100,10 @@ export default function ActivationForm({
         licenseFeePerDay: activation.licenseFeePerDay?.toString() || '',
         numberOfDays: activation.numberOfDays?.toString() || '',
         proposedBudget: activation.proposedBudget?.toString() || '',
+        
+        // VAT Information
+        vatType: activation.vatType || 'INCLUSIVE',
+        vat: activation.vat?.toString() || '16',
         
         // Payment Details
         bankName: activation.bankName || '',
@@ -165,6 +174,14 @@ export default function ActivationForm({
       return;
     }
 
+    // Validate VAT percentage
+    const vatValue = parseFloat(formData.vat);
+    if (isNaN(vatValue) || vatValue < 0 || vatValue > 100) {
+      setError('VAT percentage must be between 0 and 100');
+      setLoading(false);
+      return;
+    }
+
     try {
       const data: CreateActivationRequest | UpdateActivationRequest = {
         // Part 1 - Client Information
@@ -172,6 +189,7 @@ export default function ActivationForm({
         postalAddress: formData.postalAddress.trim(),
         telephone: formData.telephone.trim(),
         contactPerson: formData.contactPerson.trim(),
+        alternativeContact: formData.alternativeContact.trim() || undefined,
         designation: formData.designation.trim(),
         email: formData.email.trim(),
         mobileNo: formData.mobileNo.trim(),
@@ -190,6 +208,10 @@ export default function ActivationForm({
         licenseFeePerDay: formData.licenseFeePerDay ? parseFloat(formData.licenseFeePerDay) : undefined,
         numberOfDays: formData.numberOfDays ? parseInt(formData.numberOfDays) : undefined,
         proposedBudget: formData.proposedBudget ? parseFloat(formData.proposedBudget) : undefined,
+        
+        // VAT Information
+        vatType: formData.vatType,
+        vat: vatValue,
         
         // Payment Details
         bankName: formData.bankName.trim() || undefined,
@@ -294,6 +316,20 @@ export default function ActivationForm({
 
           <div>
             <label className="block text-sm font-semibold text-gray-300 mb-2">
+              Alternative Contact
+            </label>
+            <input
+              type="tel"
+              name="alternativeContact"
+              value={formData.alternativeContact}
+              onChange={handleChange}
+              className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
+              placeholder="Alternative contact number"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold text-gray-300 mb-2">
               Contact Person <span className="text-red-400">*</span>
             </label>
             <input
@@ -379,7 +415,6 @@ export default function ActivationForm({
                 list="activation-types-suggestions"
             />
             
-            {/* Optional datalist for autocomplete suggestions */}
             <datalist id="activation-types-suggestions">
                 <option value="OFFICE_SPACE">Office Space</option>
                 <option value="RETAIL_SPACE">Retail Space</option>
@@ -562,6 +597,61 @@ export default function ActivationForm({
               className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
               placeholder="0.00"
             />
+          </div>
+        </div>
+      </div>
+
+      {/* VAT Information Section */}
+      <div className="bg-gray-800 rounded-xl p-6 border border-gray-700 shadow-lg space-y-4">
+        <h3 className="text-lg font-bold text-white flex items-center gap-2">
+          <svg className="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+          </svg>
+          VAT Information
+        </h3>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-semibold text-gray-300 mb-2">
+              VAT Type <span className="text-red-400">*</span>
+            </label>
+            <select
+              name="vatType"
+              value={formData.vatType}
+              onChange={handleChange}
+              required
+              className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white"
+            >
+              <option value="INCLUSIVE">VAT Inclusive</option>
+              <option value="EXCLUSIVE">VAT Exclusive</option>
+              <option value="NOTAPPLICABLE">VAT NOT APPLICABLE</option>
+            </select>
+            <p className="text-sm text-gray-400 mt-1">
+              {formData.vatType === 'INCLUSIVE' 
+                ? 'VAT is already included in the prices' 
+                : 'VAT will be added to the prices'}
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold text-gray-300 mb-2">
+              VAT Percentage (%) <span className="text-red-400">*</span>
+            </label>
+            <input
+              type="number"
+              name="vat"
+              value={formData.vat}
+              onChange={handleChange}
+              required
+              min="0"
+              max="100"
+              step="0.1"
+              className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
+              placeholder="e.g., 16"
+            />
+            <p className="text-sm text-gray-400 mt-1">
+              Standard VAT rate in Kenya is 16%
+            </p>
           </div>
         </div>
       </div>

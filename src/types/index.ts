@@ -998,6 +998,12 @@ export type ActivationStatus =
 // Activation type can be any string, not just predefined values
 export type ActivationType = string;
 
+export interface VATDetails {
+  baseAmount: number;
+  vatAmount: number;
+  totalAmount: number;
+}
+
 export interface ActivationRequest {
   id: string;
   requestNumber: string;
@@ -1023,6 +1029,7 @@ export interface ActivationRequest {
   postalAddress: string;
   telephone: string;
   contactPerson: string;
+  alternativeContact?: string;
   designation: string;
   email: string;
   mobileNo: string;
@@ -1041,6 +1048,10 @@ export interface ActivationRequest {
   licenseFeePerDay?: number;
   numberOfDays?: number;
   proposedBudget?: number; // Fallback for licenseFeePerDay
+  
+  // VAT Information (NEW FIELDS)
+  vatType: VATType;
+  vat?: number; // VAT percentage (e.g., 16 for 16%)
   
   // Payment Details (Required for template)
   bankName?: string;
@@ -1067,6 +1078,9 @@ export interface ActivationRequest {
   
   // Signature Information
   signatureDate?: string;
+  
+  // Calculated VAT details (returned from backend)
+  vatDetails?: VATDetails;
 }
 
 export interface CreateActivationRequest {
@@ -1096,6 +1110,10 @@ export interface CreateActivationRequest {
   numberOfDays?: number;
   proposedBudget?: number;
   
+  // VAT Information (NEW FIELDS - optional on creation)
+  vatType?: VATType;
+  vat?: number; // Defaults to 16 if not provided
+  
   // Payment Details (Required for template)
   bankName?: string;
   bankBranch?: string;
@@ -1108,6 +1126,8 @@ export interface CreateActivationRequest {
   // Manager Information (Required for template) - Will be set on submission
   managerName?: string;
   managerDesignation?: string;
+  
+  alternativeContact?: string;
 }
 
 export interface UpdateActivationRequest {
@@ -1119,6 +1139,7 @@ export interface UpdateActivationRequest {
   designation?: string;
   email?: string;
   mobileNo?: string;
+  alternativeContact?: string;
   
   // Part 2 - Description of Activation/Exhibition
   startDate?: string;
@@ -1134,6 +1155,10 @@ export interface UpdateActivationRequest {
   licenseFeePerDay?: number;
   numberOfDays?: number;
   proposedBudget?: number;
+  
+  // VAT Information (NEW FIELDS)
+  vatType?: VATType;
+  vat?: number;
   
   // Payment Details
   bankName?: string;
@@ -1184,7 +1209,45 @@ export interface ActivationStats {
   data: {
     total: number;
     byStatus: Record<ActivationStatus, number>;
+    byVATType: Record<VATType, number>;
     upcoming: number;
+  };
+}
+
+export interface VATSummaryResponse {
+  success: boolean;
+  data: {
+    summary: {
+      totalActivations: number;
+      totalBaseAmount: number;
+      totalVATAmount: number;
+      totalWithVAT: number;
+    };
+    breakdownByVATType: {
+      INCLUSIVE: {
+        count: number;
+        base: number;
+        vat: number;
+        total: number;
+      };
+      EXCLUSIVE: {
+        count: number;
+        base: number;
+        vat: number;
+        total: number;
+      };
+    };
+    activations: Array<{
+      id: string;
+      requestNumber: string;
+      companyName: string;
+      propertyName: string;
+      baseAmount: number;
+      vatRate: number;
+      vatAmount: number;
+      totalAmount: number;
+      vatType: VATType;
+    }>;
   };
 }
 
@@ -1196,6 +1259,7 @@ export interface ActivationQueryParams {
   endDate?: string;
   activationType?: string;
   companyName?: string;
+  vatType?: VATType; // Added VAT type filter
   page?: number;
   limit?: number;
 }
@@ -1210,6 +1274,7 @@ export interface ActivationFormData {
   designation: string;
   email: string;
   mobileNo: string;
+  alternativeContact?: string;
   
   // Part 2 - Description of Activation/Exhibition
   startDate: string;
@@ -1225,6 +1290,10 @@ export interface ActivationFormData {
   licenseFeePerDay?: number;
   numberOfDays?: number;
   proposedBudget?: number;
+  
+  // VAT Information
+  vatType: VATType;
+  vat?: number;
   
   // Payment Details
   bankName?: string;
