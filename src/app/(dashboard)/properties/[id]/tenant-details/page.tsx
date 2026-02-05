@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { motion, Variants } from 'framer-motion';
-import { Tenant, Invoice, InvoiceStatus, PaymentReport, PaymentStatus, BillInvoice, PaymentPolicy, DemandLetter, DemandLetterStatus, CreatePaymentReportRequest } from '@/types';
+import { Tenant, Invoice, InvoiceStatus, PaymentReport, PaymentPreview, CreatePaymentReportResponse, PaymentStatus, BillInvoice, PaymentPolicy, DemandLetter, DemandLetterStatus, CreatePaymentReportRequest } from '@/types';
 import { tenantsAPI, invoicesAPI, paymentsAPI, billInvoicesAPI, demandLettersAPI } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import {
@@ -62,6 +62,12 @@ export default function TenantDetailPage() {
   const [showOverdueInvoicesDialog, setShowOverdueInvoicesDialog] = useState(false);
   const [deletingInvoiceId, setDeletingInvoiceId] = useState<string | null>(null); // Add state for tracking deletion
   const [deletingBillInvoiceId, setDeletingBillInvoiceId] = useState<string | null>(null);
+  const [paymentPreview, setPaymentPreview] = useState<PaymentPreview | null>(null);
+  const [allocatedInvoices, setAllocatedInvoices] = useState<CreatePaymentReportResponse['invoices']>([]);
+  const [overpaymentDetails, setOverpaymentDetails] = useState<CreatePaymentReportResponse['overpayment'] | null>(null);
+  const [showPaymentAllocation, setShowPaymentAllocation] = useState(false);
+  const [calculatingPreview, setCalculatingPreview] = useState(false);
+
   
   const [invoiceForm, setInvoiceForm] = useState({
     dueDate: '',
@@ -95,6 +101,29 @@ export default function TenantDetailPage() {
     fetchDemandLetters();
     fetchOutstandingInvoices(); 
   }, [tenantId]);
+
+  // Fetch payment preview when amount changes
+  useEffect(() => {
+    const fetchPreview = async () => {
+      if (!tenantId || !paymentForm.amountPaid || parseFloat(paymentForm.amountPaid) <= 0) {
+        setPaymentPreview(null);
+        return;
+      }
+
+      try {
+        setCalculatingPreview(true);
+        const preview = await paymentsAPI.previewPayment(tenantId);
+        setPaymentPreview(preview);
+      } catch (error) {
+        console.error('Error fetching payment preview:', error);
+      } finally {
+        setCalculatingPreview(false);
+      }
+    };
+
+    const timeoutId = setTimeout(fetchPreview, 500); // Debounce
+    return () => clearTimeout(timeoutId);
+  }, [paymentForm.amountPaid, tenantId]);
 
   const fetchTenant = async () => {
     try {
@@ -213,7 +242,7 @@ export default function TenantDetailPage() {
       setLoadingOutstanding(true);
       const data = await paymentsAPI.getOutstandingInvoices(tenantId, true);
       setOutstandingInvoices(data.rentInvoices || []);
-      setOutstandingBillInvoices(data.billInvoices || []);
+      //setOutstandingBillInvoices(data.billInvoices || []);
     } catch (error) {
       console.error('Error fetching outstanding invoices:', error);
       toast.error('Failed to load outstanding invoices');
@@ -255,6 +284,59 @@ export default function TenantDetailPage() {
     return { rent, serviceCharge, vat, totalDue };
   };
 
+  // Calculate total selected balance
+const calculateSelectedBalance = () => {
+  const rentBalance = outstandingInvoices
+    .filter(inv => selectedInvoiceIds.includes(inv.id))
+    .reduce((sum, inv) => sum + inv.balance, 0);
+  
+  const billBalance = outstandingBillInvoices
+    .filter(bi => selectedBillInvoiceIds.includes(bi.id))
+    .reduce((sum, bi) => sum + bi.balance, 0);
+  
+  return { rentBalance, billBalance, total: rentBalance + billBalance };
+};
+
+  // Enhanced payment status calculation
+  const calculatePaymentStatus = (): { status: PaymentStatus; details: string } => {
+    const amountPaid = parseFloat(paymentForm.amountPaid) || 0;
+    const selectedBalance = calculateSelectedBalance().total;
+    const monthlyTotal = totalDue;
+    
+    if (amountPaid === 0) {
+      return { status: 'UNPAID', details: 'No payment amount entered' };
+    }
+    
+    // Check if this is an overpayment scenario
+    if (amountPaid > selectedBalance && selectedBalance > 0) {
+      const excess = amountPaid - selectedBalance;
+      return { 
+        status: 'PAID', 
+        details: `Full payment + Ksh ${excess.toLocaleString()} overpayment/excess` 
+      };
+    }
+    
+    if (amountPaid >= monthlyTotal) {
+      return { 
+        status: 'PAID', 
+        details: amountPaid > monthlyTotal 
+          ? `Full payment with Ksh ${(amountPaid - monthlyTotal).toLocaleString()} excess` 
+          : 'Full payment' 
+      };
+    }
+    
+    if (amountPaid > 0 && amountPaid < monthlyTotal) {
+      const percentage = ((amountPaid / monthlyTotal) * 100).toFixed(1);
+      return { 
+        status: 'PARTIAL', 
+        details: `Partial payment (${percentage}% of monthly due)` 
+      };
+    }
+    
+    return { status: 'UNPAID', details: 'Payment amount insufficient' };
+  };
+
+  // Modified handleCreatePayment to handle new response structure
   const handleCreatePayment = async () => {
     if (!paymentForm.paymentPeriod || !paymentForm.amountPaid) {
       toast.error('Please fill in the payment period and amount');
@@ -270,27 +352,40 @@ export default function TenantDetailPage() {
     try {
       setCreatingPayment(true);
       
-      // Create the request object with selected invoices
       const paymentData: CreatePaymentReportRequest = {
         tenantId: tenantId!,
         amountPaid,
         notes: paymentForm.notes || undefined,
         paymentPeriod: paymentForm.paymentPeriod,
-        // Use selected invoice IDs (empty array if none selected)
         invoiceIds: selectedInvoiceIds,
-        billInvoiceIds: selectedBillInvoiceIds,
+       // billInvoiceIds: selectedBillInvoiceIds,
         autoGenerateBalanceInvoice,
         createMissingInvoices,
-        updateExistingInvoices
+        updateExistingInvoices,
+        handleOverpayment: true // Enable overpayment handling
       };
 
       const response = await paymentsAPI.createPaymentReport(paymentData);
       
-      toast.success('Payment report created successfully!');
+      // Store allocation details for display
+      setAllocatedInvoices(response.invoices);
+      setOverpaymentDetails(response.overpayment || null);
+      setShowPaymentAllocation(true);
       
-      setShowCreatePaymentDialog(false);
+      // Show detailed success message
+      let successMessage = `Payment of Ksh ${amountPaid.toLocaleString()} recorded successfully!`;
       
-      // Reset form and selections
+      if (response.overpayment?.totalOverpayment) {
+        successMessage += ` (Overpayment: Ksh ${response.overpayment.totalOverpayment.toLocaleString()})`;
+      }
+      
+      if (response.commission) {
+        successMessage += ` Commission: Ksh ${response.commission.commissionAmount.toLocaleString()}`;
+      }
+      
+      toast.success(successMessage);
+      
+      // Reset form
       setPaymentForm({
         paymentPeriod: '',
         datePaid: new Date().toISOString().split('T')[0],
@@ -298,24 +393,22 @@ export default function TenantDetailPage() {
         notes: '',
         status: 'PAID',
       });
-      
-      // Reset invoice selections
       setSelectedInvoiceIds([]);
       setSelectedBillInvoiceIds([]);
       setShowInvoiceSelection(true);
-      
-      // Reset switches to default
       setCreateMissingInvoices(true);
       setAutoGenerateBalanceInvoice(true);
       setUpdateExistingInvoices(true);
+      setPaymentPreview(null);
       
       // Refresh data
       fetchPaymentReports();
       fetchInvoices();
+      fetchOutstandingInvoices();
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error creating payment report:', error);
-      toast.error('Failed to create payment report');
+      toast.error(error.message || 'Failed to create payment report');
     } finally {
       setCreatingPayment(false);
     }
@@ -1353,12 +1446,17 @@ export default function TenantDetailPage() {
 
       {/* Create Payment Dialog */}
       <Dialog open={showCreatePaymentDialog} onOpenChange={setShowCreatePaymentDialog}>
-        <DialogContent className="sm:max-w-[800px] max-h-[90vh] flex flex-col p-0">
+        <DialogContent className="sm:max-w-[900px] max-h-[90vh] flex flex-col p-0">
           <div className="px-6 pt-6 pb-0">
             <DialogHeader>
               <DialogTitle className="text-2xl font-bold text-heading-color">Record Payment</DialogTitle>
               <DialogDescription className="text-gray-700">
                 Record a new payment for {tenant.fullName}
+                {paymentPreview?.existingCredit ? (
+                  <span className="ml-2 px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full font-semibold">
+                    Credit Available: Ksh {paymentPreview.existingCredit.toLocaleString()}
+                  </span>
+                ) : null}
               </DialogDescription>
             </DialogHeader>
           </div>
@@ -1366,29 +1464,78 @@ export default function TenantDetailPage() {
           {/* Scrollable content area */}
           <div className="flex-1 overflow-y-auto px-6 py-4">
             <div className="space-y-6">
-              {/* Payment Information Card */}
-              <div className="p-4 bg-linear-to-r from-green-50 to-green-100 rounded-xl border border-green-200">
+              {/* Payment Preview Card - Shows real-time calculation */}
+              {paymentPreview && (
+                <motion.div 
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="p-4 bg-linear-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-200"
+                >
+                  <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                    <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                    </svg>
+                    Payment Preview
+                  </h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                    <div className="p-3 bg-white rounded-lg shadow-sm">
+                      <p className="text-gray-600 font-medium">Monthly Rent</p>
+                      <p className="text-gray-900 font-bold text-lg">Ksh {paymentPreview.rent.toLocaleString()}</p>
+                    </div>
+                    {(paymentPreview.serviceCharge ?? 0) > 0 && (
+                      <div className="p-3 bg-white rounded-lg shadow-sm">
+                        <p className="text-gray-600 font-medium">Service Charge</p>
+                        <p className="text-gray-900 font-bold">Ksh {(paymentPreview.serviceCharge ?? 0).toLocaleString()}</p>
+                      </div>
+                    )}
+                    {(paymentPreview.vat ?? 0) > 0 && (
+                      <div className="p-3 bg-white rounded-lg shadow-sm">
+                        <p className="text-gray-600 font-medium">VAT</p>
+                        <p className="text-gray-900 font-bold">Ksh {(paymentPreview.vat ?? 0).toLocaleString()}</p>
+                      </div>
+                    )}
+                    <div className="p-3 bg-indigo-100 rounded-lg shadow-sm border-2 border-indigo-300">
+                      <p className="text-indigo-800 font-medium">Total Due</p>
+                      <p className="text-indigo-900 font-bold text-lg">Ksh {paymentPreview.totalDue.toLocaleString()}</p>
+                    </div>
+                    {paymentPreview.existingCredit ? (
+                      <div className="p-3 bg-green-100 rounded-lg shadow-sm border border-green-300">
+                        <p className="text-green-800 font-medium">Credit Available</p>
+                        <p className="text-green-900 font-bold">Ksh {paymentPreview.existingCredit.toLocaleString()}</p>
+                      </div>
+                    ) : null}
+                  </div>
+                  {paymentPreview.totalAvailable && (
+                    <div className="mt-3 p-2 bg-green-50 rounded text-sm text-green-800">
+                      <span className="font-semibold">Total Available for Payment:</span> Ksh {paymentPreview.totalAvailable.toLocaleString()}
+                    </div>
+                  )}
+                </motion.div>
+              )}
+
+              {/* Payment Summary Card */}
+              <div className="p-4 bg-linear-to-r from-green-50 to-emerald-50 rounded-xl border border-green-200">
                 <h3 className="text-lg font-semibold text-gray-800 mb-4">Payment Summary</h3>
                 <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <p className="text-gray-800 font-medium">Rent</p>
-                    <p className="text-gray-900 font-bold">Ksh {rent.toLocaleString()}</p>
+                  <div className="p-3 bg-white rounded-lg">
+                    <p className="text-gray-600 font-medium">Monthly Rent</p>
+                    <p className="text-gray-900 font-bold text-lg">Ksh {rent.toLocaleString()}</p>
                   </div>
                   {serviceCharge > 0 && (
-                    <div>
-                      <p className="text-gray-800 font-medium">Service Charge</p>
+                    <div className="p-3 bg-white rounded-lg">
+                      <p className="text-gray-600 font-medium">Service Charge</p>
                       <p className="text-gray-900 font-bold">Ksh {serviceCharge.toLocaleString()}</p>
                     </div>
                   )}
                   {vat > 0 && (
-                    <div>
-                      <p className="text-gray-800 font-medium">VAT</p>
+                    <div className="p-3 bg-white rounded-lg">
+                      <p className="text-gray-600 font-medium">VAT</p>
                       <p className="text-gray-900 font-bold">Ksh {vat.toLocaleString()}</p>
                     </div>
                   )}
-                  <div className="col-span-2 border-t pt-2">
-                    <p className="text-gray-800 font-medium">Total Due (Monthly)</p>
-                    <p className="text-gray-900 font-bold text-lg">Ksh {totalDue.toLocaleString()}</p>
+                  <div className="p-3 bg-emerald-100 rounded-lg border-2 border-emerald-300">
+                    <p className="text-emerald-800 font-medium">Total Due (Monthly)</p>
+                    <p className="text-emerald-900 font-bold text-xl">Ksh {totalDue.toLocaleString()}</p>
                   </div>
                 </div>
               </div>
@@ -1415,18 +1562,62 @@ export default function TenantDetailPage() {
                       </div>
                     ) : (
                       <>
+                        {/* Selected Balance Summary */}
+                        {(selectedInvoiceIds.length > 0 || selectedBillInvoiceIds.length > 0) && (
+                          <div className="mb-4 p-3 bg-white rounded-lg border-2 border-orange-300 shadow-sm">
+                            <div className="flex items-center justify-between text-sm mb-2">
+                              <span className="font-semibold text-gray-700">
+                                Selected: {selectedInvoiceIds.length + selectedBillInvoiceIds.length} invoice(s)
+                              </span>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedInvoiceIds([]);
+                                  setSelectedBillInvoiceIds([]);
+                                }}
+                                className="text-xs text-orange-600 hover:text-orange-700 hover:bg-orange-50"
+                              >
+                                Clear All
+                              </Button>
+                            </div>
+                            <div className="space-y-1 text-xs">
+                              {calculateSelectedBalance().rentBalance > 0 && (
+                                <div className="flex justify-between text-gray-600">
+                                  <span>Rent Balance:</span>
+                                  <span className="font-semibold text-red-600">Ksh {calculateSelectedBalance().rentBalance.toLocaleString()}</span>
+                                </div>
+                              )}
+                              {calculateSelectedBalance().billBalance > 0 && (
+                                <div className="flex justify-between text-gray-600">
+                                  <span>Bill Balance:</span>
+                                  <span className="font-semibold text-red-600">Ksh {calculateSelectedBalance().billBalance.toLocaleString()}</span>
+                                </div>
+                              )}
+                              <div className="flex justify-between text-sm font-bold border-t pt-1 mt-1">
+                                <span className="text-gray-800">Total Selected Balance:</span>
+                                <span className="text-red-700">Ksh {calculateSelectedBalance().total.toLocaleString()}</span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
                         {/* Rent Invoices */}
                         {outstandingInvoices.length > 0 && (
                           <div className="mb-4">
-                            <h4 className="text-sm font-semibold text-gray-700 mb-3">Rent Invoices</h4>
-                            <div className="space-y-2 max-h-60 overflow-y-auto">
+                            <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                              <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
+                              Rent Invoices ({outstandingInvoices.length})
+                            </h4>
+                            <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
                               {outstandingInvoices.map((invoice) => (
-                                <label
+                                <motion.label
                                   key={invoice.id}
+                                  whileHover={{ scale: 1.01 }}
                                   className={`flex items-start gap-3 p-3 rounded-lg border-2 transition-all cursor-pointer ${
                                     selectedInvoiceIds.includes(invoice.id)
-                                      ? 'border-orange-500 bg-orange-100'
-                                      : 'border-gray-200 hover:border-orange-300 bg-white'
+                                      ? 'border-orange-500 bg-orange-100 shadow-md'
+                                      : 'border-gray-200 hover:border-orange-300 bg-white hover:shadow-sm'
                                   }`}
                                 >
                                   <input
@@ -1441,9 +1632,9 @@ export default function TenantDetailPage() {
                                     }}
                                     className="mt-1 h-4 w-4 text-orange-600 focus:ring-orange-500 border-gray-300 rounded"
                                   />
-                                  <div className="flex-1">
+                                  <div className="flex-1 min-w-0">
                                     <div className="flex items-center justify-between mb-1">
-                                      <span className="font-semibold text-sm text-gray-900">
+                                      <span className="font-semibold text-sm text-gray-900 truncate">
                                         {invoice.invoiceNumber}
                                       </span>
                                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(invoice.status)}`}>
@@ -1468,7 +1659,7 @@ export default function TenantDetailPage() {
                                       </div>
                                     </div>
                                   </div>
-                                </label>
+                                </motion.label>
                               ))}
                             </div>
                           </div>
@@ -1477,15 +1668,19 @@ export default function TenantDetailPage() {
                         {/* Bill Invoices */}
                         {outstandingBillInvoices.length > 0 && (
                           <div>
-                            <h4 className="text-sm font-semibold text-gray-700 mb-3">Bill Invoices</h4>
-                            <div className="space-y-2 max-h-60 overflow-y-auto">
+                            <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                              <span className="w-2 h-2 bg-purple-500 rounded-full"></span>
+                              Bill Invoices ({outstandingBillInvoices.length})
+                            </h4>
+                            <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
                               {outstandingBillInvoices.map((billInvoice) => (
-                                <label
+                                <motion.label
                                   key={billInvoice.id}
+                                  whileHover={{ scale: 1.01 }}
                                   className={`flex items-start gap-3 p-3 rounded-lg border-2 transition-all cursor-pointer ${
                                     selectedBillInvoiceIds.includes(billInvoice.id)
-                                      ? 'border-orange-500 bg-orange-100'
-                                      : 'border-gray-200 hover:border-orange-300 bg-white'
+                                      ? 'border-orange-500 bg-orange-100 shadow-md'
+                                      : 'border-gray-200 hover:border-orange-300 bg-white hover:shadow-sm'
                                   }`}
                                 >
                                   <input
@@ -1500,9 +1695,9 @@ export default function TenantDetailPage() {
                                     }}
                                     className="mt-1 h-4 w-4 text-orange-600 focus:ring-orange-500 border-gray-300 rounded"
                                   />
-                                  <div className="flex-1">
+                                  <div className="flex-1 min-w-0">
                                     <div className="flex items-center justify-between mb-1">
-                                      <span className="font-semibold text-sm text-gray-900">
+                                      <span className="font-semibold text-sm text-gray-900 truncate">
                                         {billInvoice.invoiceNumber}
                                       </span>
                                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(billInvoice.status)}`}>
@@ -1527,7 +1722,7 @@ export default function TenantDetailPage() {
                                       </div>
                                     </div>
                                   </div>
-                                </label>
+                                </motion.label>
                               ))}
                             </div>
                           </div>
@@ -1535,42 +1730,12 @@ export default function TenantDetailPage() {
 
                         {/* No Outstanding Invoices Message */}
                         {outstandingInvoices.length === 0 && outstandingBillInvoices.length === 0 && (
-                          <div className="text-center py-8 text-gray-500">
-                            <p className="text-sm">No outstanding invoices found</p>
+                          <div className="text-center py-8 text-gray-500 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+                            <svg className="w-12 h-12 mx-auto mb-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            <p className="text-sm font-medium">No outstanding invoices found</p>
                             <p className="text-xs mt-1">Payment will be recorded without specific invoice selection</p>
-                          </div>
-                        )}
-
-                        {/* Selection Summary */}
-                        {(selectedInvoiceIds.length > 0 || selectedBillInvoiceIds.length > 0) && (
-                          <div className="mt-4 p-3 bg-white rounded-lg border border-orange-300">
-                            <div className="flex items-center justify-between text-sm">
-                              <span className="font-semibold text-gray-700">
-                                Selected: {selectedInvoiceIds.length + selectedBillInvoiceIds.length} invoice(s)
-                              </span>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => {
-                                  setSelectedInvoiceIds([]);
-                                  setSelectedBillInvoiceIds([]);
-                                }}
-                                className="text-xs text-orange-600 hover:text-orange-700"
-                              >
-                                Clear All
-                              </Button>
-                            </div>
-                            <p className="text-xs text-gray-600 mt-1">
-                              Total Balance: Ksh{' '}
-                              {(
-                                outstandingInvoices
-                                  .filter(inv => selectedInvoiceIds.includes(inv.id))
-                                  .reduce((sum, inv) => sum + inv.balance, 0) +
-                                outstandingBillInvoices
-                                  .filter(bi => selectedBillInvoiceIds.includes(bi.id))
-                                  .reduce((sum, bi) => sum + bi.balance, 0)
-                              ).toLocaleString()}
-                            </p>
                           </div>
                         )}
 
@@ -1583,7 +1748,7 @@ export default function TenantDetailPage() {
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                               </svg>
                               <p className="text-xs text-blue-800">
-                                <strong>No invoices selected.</strong> Payment will be automatically applied to the oldest outstanding invoices first.
+                                <strong>Auto-Allocation Mode:</strong> Payment will be automatically applied to the oldest outstanding invoices first (FIFO).
                               </p>
                             </div>
                           </div>
@@ -1596,9 +1761,15 @@ export default function TenantDetailPage() {
 
               {/* Invoice Options Section */}
               <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
-                <h3 className="text-lg font-semibold text-gray-800 mb-4">Invoice Options</h3>
+                <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                  <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  Payment Options
+                </h3>
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between p-3 bg-white rounded-lg shadow-sm">
                     <div>
                       <Label htmlFor="createMissingInvoices" className="text-sm font-semibold text-gray-800">
                         Create Missing Invoice
@@ -1614,7 +1785,7 @@ export default function TenantDetailPage() {
                     />
                   </div>
                   
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between p-3 bg-white rounded-lg shadow-sm">
                     <div>
                       <Label htmlFor="autoGenerateBalanceInvoice" className="text-sm font-semibold text-gray-800">
                         Generate Balance Invoice
@@ -1630,13 +1801,13 @@ export default function TenantDetailPage() {
                     />
                   </div>
                   
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between p-3 bg-white rounded-lg shadow-sm">
                     <div>
                       <Label htmlFor="updateExistingInvoices" className="text-sm font-semibold text-gray-800">
                         Update Existing Invoices
                       </Label>
                       <p className="text-xs text-gray-600 mt-1">
-                        Apply payment to existing unpaid invoices
+                        Apply payment to existing unpaid invoices for the same period
                       </p>
                     </div>
                     <Switch
@@ -1669,57 +1840,47 @@ export default function TenantDetailPage() {
                     Amount Paid <span className="text-red-500">*</span>
                   </Label>
                   <div className="relative">
-                    <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">Ksh</span>
+                    <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 font-semibold">Ksh</span>
                     <Input
                       id="amountPaid"
                       type="number"
                       placeholder="Enter amount"
                       value={paymentForm.amountPaid}
                       onChange={(e) => setPaymentForm({ ...paymentForm, amountPaid: e.target.value })}
-                      className="w-full text-gray-900 pl-12"
+                      className="w-full text-gray-900 pl-12 text-lg font-semibold"
                       required
                     />
                   </div>
-                  <div className="text-xs text-gray-600 mt-1">
-                    {paymentForm.amountPaid && parseFloat(paymentForm.amountPaid) < totalDue && (
-                      <span className="text-orange-600 font-medium">
-                        Partial payment - {((parseFloat(paymentForm.amountPaid) / totalDue) * 100).toFixed(1)}% of total due
-                      </span>
-                    )}
-                    {paymentForm.amountPaid && parseFloat(paymentForm.amountPaid) > totalDue && (
-                      <span className="text-green-600 font-medium">
-                        Amount exceeds monthly total - excess will be applied to outstanding balances
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Status Preview */}
-                <div className="p-3 bg-gray-50 rounded-lg border">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-semibold text-gray-800">Expected Status:</span>
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                      !paymentForm.amountPaid || parseFloat(paymentForm.amountPaid) === 0 
-                        ? 'bg-gray-100 text-gray-800 border border-gray-300'
-                        : parseFloat(paymentForm.amountPaid) >= totalDue 
-                          ? 'bg-green-100 text-green-800 border border-green-300'
-                          : parseFloat(paymentForm.amountPaid) > 0
-                            ? 'bg-orange-100 text-orange-800 border border-orange-300'
+                  
+                  {/* Dynamic Payment Analysis */}
+                  {paymentForm.amountPaid && (
+                    <motion.div 
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      className="mt-3 p-3 bg-gray-50 rounded-lg border space-y-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-gray-600">Payment Status:</span>
+                        <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                          calculatePaymentStatus().status === 'PAID' 
+                            ? 'bg-green-100 text-green-800 border border-green-300'
+                            : calculatePaymentStatus().status === 'PARTIAL'
+                            ? 'bg-yellow-100 text-yellow-800 border border-yellow-300'
                             : 'bg-red-100 text-red-800 border border-red-300'
-                    }`}>
-                      {!paymentForm.amountPaid || parseFloat(paymentForm.amountPaid) === 0 
-                        ? 'UNPAID'
-                        : parseFloat(paymentForm.amountPaid) >= totalDue 
-                          ? 'PAID'
-                          : parseFloat(paymentForm.amountPaid) > 0
-                            ? 'PARTIAL'
-                            : 'UNPAID'
-                      }
-                    </span>
-                  </div>
-                  <p className="text-xs text-gray-600 mt-2">
-                    Status is automatically calculated based on the payment amount
-                  </p>
+                        }`}>
+                          {calculatePaymentStatus().status}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-600">{calculatePaymentStatus().details}</p>
+                      
+                      {/* Overpayment Warning */}
+                      {parseFloat(paymentForm.amountPaid) > totalDue && (
+                        <div className="p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
+                          <span className="font-semibold">⚠️ Overpayment:</span> Excess of Ksh {(parseFloat(paymentForm.amountPaid) - totalDue).toLocaleString()} will be handled according to your overpayment settings.
+                        </div>
+                      )}
+                    </motion.div>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -1746,6 +1907,7 @@ export default function TenantDetailPage() {
                 setShowCreatePaymentDialog(false);
                 setSelectedInvoiceIds([]);
                 setSelectedBillInvoiceIds([]);
+                setPaymentPreview(null);
               }}
               disabled={creatingPayment}
               className="min-w-24"
@@ -1763,11 +1925,108 @@ export default function TenantDetailPage() {
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                   </svg>
-                  Creating...
+                  Processing...
                 </>
               ) : (
                 'Record Payment'
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Payment Allocation Result Dialog - Shows after payment creation */}
+      <Dialog open={showPaymentAllocation} onOpenChange={setShowPaymentAllocation}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-bold text-heading-color">Payment Allocation Details</DialogTitle>
+            <DialogDescription>
+              Detailed breakdown of how your payment was allocated
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-6 py-4">
+            {/* Invoices Paid */}
+            {allocatedInvoices.length > 0 && (
+              <div className="space-y-3">
+                <h3 className="text-lg font-semibold text-gray-800">Invoices Paid/Updated</h3>
+                <div className="space-y-2">
+                  {allocatedInvoices.map((inv) => (
+                    <div key={inv.id} className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-bold text-gray-900">{inv.invoiceNumber}</span>
+                        <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                          inv.newStatus === 'PAID' ? 'bg-green-100 text-green-800' :
+                          inv.newStatus === 'PARTIAL' ? 'bg-yellow-100 text-yellow-800' :
+                          'bg-gray-100 text-gray-800'
+                        }`}>
+                          {inv.newStatus}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-4 text-sm">
+                        <div>
+                          <p className="text-gray-600">Previous Balance</p>
+                          <p className="font-semibold">Ksh {(inv.previousBalance ?? 0).toLocaleString()}</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-600">Payment Applied</p>
+                          <p className="font-semibold text-green-600">Ksh {(inv.paymentApplied ?? 0).toLocaleString()}</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-600">New Balance</p>
+                          <p className="font-semibold text-red-600">Ksh {inv.newBalance.toLocaleString()}</p>
+                        </div>
+                      </div>
+                      {inv.selectionType && (
+                        <div className="mt-2 text-xs text-gray-500">
+                          Allocation Method: {inv.selectionType.replace(/_/g, ' ')}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Overpayment Details */}
+            {overpaymentDetails && overpaymentDetails.totalOverpayment > 0 && (
+              <div className="p-4 bg-amber-50 rounded-xl border-2 border-amber-200">
+                <h3 className="text-lg font-semibold text-amber-900 mb-3">Overpayment Handling</h3>
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-amber-800">Total Overpayment:</span>
+                    <span className="font-bold text-amber-900">Ksh {overpaymentDetails.totalOverpayment.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-amber-800">Applied to Current Period:</span>
+                    <span className="font-semibold text-amber-900">Ksh {overpaymentDetails.currentPeriodPayment.toLocaleString()}</span>
+                  </div>
+                  
+                  {overpaymentDetails.allocations.length > 0 && (
+                    <div className="mt-3">
+                      <p className="text-sm font-semibold text-amber-800 mb-2">Allocations:</p>
+                      <div className="space-y-2">
+                        {overpaymentDetails.allocations.map((alloc, idx) => (
+                          <div key={idx} className="p-2 bg-white rounded border border-amber-200 text-sm">
+                            <div className="flex justify-between">
+                              <span className="text-gray-700">{alloc.type.replace(/_/g, ' ')}</span>
+                              <span className="font-semibold">Ksh {(alloc.amountCovered ?? alloc.amount ?? 0).toLocaleString()}</span>
+                            </div>
+                            {alloc.period && <div className="text-xs text-gray-500">Period: {alloc.period}</div>}
+                            {alloc.invoiceNumber && <div className="text-xs text-gray-500">Invoice: {alloc.invoiceNumber}</div>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+          
+          <DialogFooter>
+            <Button onClick={() => setShowPaymentAllocation(false)} className="bg-blue-600 hover:bg-blue-700">
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -196,7 +196,7 @@ export interface Tenant {
   updatedAt: string;
 }
 
-export type PaymentStatus = 'PAID' | 'PARTIAL' | 'UNPAID';
+export type PaymentStatus = 'PAID' | 'PARTIAL' | 'UNPAID'| 'CREDIT' | 'PREPAID';
 
 export interface PaymentReport {
   id: string;
@@ -213,7 +213,7 @@ export interface PaymentReport {
   datePaid: string;
   notes?: string;
   invoices?: Invoice[];
-  billInvoices?: BillInvoice[];
+  //billInvoices?: BillInvoice[];
   createdAt: string;
   updatedAt: string;
 }
@@ -223,18 +223,21 @@ export interface PaymentPreview {
   serviceCharge?: number;
   vat?: number;
   totalDue: number;
+  existingCredit?: number; // NEW
+  totalAvailable?: number; // NEW
 }
 
 export interface CreatePaymentReportRequest {
   tenantId: string;
   amountPaid: number;
-  invoiceIds?: string[]; // Array of invoice IDs being paid
-  billInvoiceIds?: string[]; // Array of bill invoice IDs being paid
+  invoiceIds?: string[]; // NEW: Array of specific invoice IDs to pay
+  //billInvoiceIds?: string[]; // NEW: Array of bill invoice IDs to pay
   notes?: string;
-  paymentPeriod?: string; // Date string for the payment period
+  paymentPeriod?: string;
   autoGenerateBalanceInvoice?: boolean;
-  createMissingInvoices?: boolean;
-  updateExistingInvoices?: boolean; // Flag to update existing invoices
+  createMissingInvoices?: boolean; // NEW: Create invoice if none exist
+  updateExistingInvoices?: boolean; // NEW: Update existing invoices for same period
+  handleOverpayment?: boolean; // NEW: Enable overpayment handling (default true)
 }
 
 // Add this interface for the response (optional, for better type safety)
@@ -266,14 +269,9 @@ export interface CreatePaymentReportResponse {
     previousStatus?: InvoiceStatus;
     wasAutoPaid?: boolean;
     paymentPolicy: PaymentPolicy;
+    selectionType?: 'USER_SELECTED' | 'FIFO_ALLOCATION' | 'AUTO_PERIOD_MATCH' | 'AUTO_FIFO_OVERPAYMENT'; // NEW
   }>;
-  billInvoices: Array<{
-    id: string;
-    invoiceNumber: string;
-    amountPaid: number;
-    balance: number;
-    status: InvoiceStatus;
-  }>;
+
   balanceInvoice: {
     id: string;
     invoiceNumber: string;
@@ -284,11 +282,31 @@ export interface CreatePaymentReportResponse {
     count: number;
     totalApplied: number;
     remainingPayment: number;
+    period: string;
+  };
+  overpayment?: { // NEW
+    totalOverpayment: number;
+    currentPeriodPayment: number;
+    invoiceBalanceCleared: number;
+    allocations: Array<{
+      type: 'FUTURE_INVOICE' | 'PREPAID_PERIOD' | 'CREDIT_BALANCE';
+      invoiceId?: string;
+      invoiceNumber?: string;
+      period?: string;
+      reportId?: string;
+      amountCovered?: number;
+      amount?: number;
+      commissionApplicable: boolean;
+    }>;
+    creditUsed: number;
   };
   commission?: {
     id: string;
     commissionAmount: number;
+    commissionBase: number; // NEW
+    originalAmount: number; // NEW
     status: CommissionStatus;
+    note: string;
   };
 }
 
@@ -674,7 +692,7 @@ export interface CreateBillRequest {
   tenantId: string;
   type: BillType;
   description?: string;
-  previousReading: number;
+  previousReading?: number; // Made optional since it can be auto-filled
   currentReading: number;
   chargePerUnit: number;
   vatRate?: number;
@@ -706,6 +724,33 @@ export interface BillResponse {
     total: number;
     totalPages: number;
   };
+}
+export interface BillPaymentResponse {
+  success: boolean;
+  data: {
+    bill: Bill;
+    invoice: BillInvoice | null;
+  };
+  message: string;
+}
+
+// Last Bill Info Response
+export interface LastBillInfoResponse {
+  success: boolean;
+  data: {
+    lastBill: {
+      id: string;
+      currentReading: number;
+      issuedAt: string;
+      units: number;
+      totalAmount: number;
+      dueDate: string;
+      status: BillStatus;
+    };
+    suggestedPreviousReading: number;
+    daysSinceLastBill: number;
+  };
+  message: string;
 }
 
 // Bill Invoice Types

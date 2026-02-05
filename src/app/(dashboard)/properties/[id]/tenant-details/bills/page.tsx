@@ -61,6 +61,8 @@ export default function TenantBillsPage() {
   const [showBillInvoicesDialog, setShowBillInvoicesDialog] = useState(false);
   const [selectedBill, setSelectedBill] = useState<Bill | null>(null);
   const [selectedBillInvoice, setSelectedBillInvoice] = useState<BillInvoice | null>(null);
+  const [loadingLastBill, setLoadingLastBill] = useState(false);
+  const [previousReadingAutoFilled, setPreviousReadingAutoFilled] = useState(false);
 
   // Form states
   const [creating, setCreating] = useState(false);
@@ -85,6 +87,21 @@ export default function TenantBillsPage() {
     dueDate: '',
     notes: '',
   });
+  // Add these with your other state declarations around line 65
+  const [lastBillInfo, setLastBillInfo] = useState<{
+    lastBill: {
+      id: string;
+      currentReading: number;
+      issuedAt: string;
+      units: number;
+      totalAmount: number;
+      dueDate: string;
+      status: BillStatus;
+    };
+    suggestedPreviousReading: number;
+    daysSinceLastBill: number;
+  } | null>(null);
+
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -300,6 +317,46 @@ export default function TenantBillsPage() {
       }
     } finally {
       setPaying(false);
+    }
+  };
+  const fetchLastBillInfo = async (type: BillType) => {
+    if (!tenantId) return;
+    
+    setLoadingLastBill(true);
+    setPreviousReadingAutoFilled(false);
+    
+    try {
+      const response = await billsAPI.getLastBillInfo(tenantId, type);
+      
+      if (response.success && response.data) {
+        setLastBillInfo(response.data);
+        
+        // Auto-fill the previous reading
+        setBillForm(prev => ({
+          ...prev,
+          previousReading: response.data.suggestedPreviousReading.toString()
+        }));
+        setPreviousReadingAutoFilled(true);
+        
+        toast.success(`Previous reading auto-filled from last ${type} bill`);
+      }
+    } catch (error: any) {
+      console.log('No previous bill found:', error);
+      setLastBillInfo(null);
+      setPreviousReadingAutoFilled(false);
+      
+      // Clear previous reading if no last bill found
+      setBillForm(prev => ({
+        ...prev,
+        previousReading: ''
+      }));
+      
+      // Only show toast if it's not a 404 (no previous bill is expected for first bill)
+      if (error?.response?.status !== 404) {
+        toast.error('Failed to fetch previous bill info');
+      }
+    } finally {
+      setLoadingLastBill(false);
     }
   };
 
@@ -664,6 +721,7 @@ export default function TenantBillsPage() {
             onClick={() => {
               resetBillForm();
               setShowCreateDialog(true);
+              setTimeout(() => fetchLastBillInfo('WATER'), 0);
             }}
             className="px-6 py-3 bg-primary text-white hover:bg-primary/90"
           >
@@ -940,7 +998,11 @@ export default function TenantBillsPage() {
                 <Label htmlFor="type" className="text-gray-900">Bill Type *</Label>
                 <Select
                   value={billForm.type}
-                  onValueChange={(value: BillType) => setBillForm({ ...billForm, type: value })}
+                  onValueChange={(value: BillType) => {
+                    setBillForm({ ...billForm, type: value });
+                    // Fetch last bill info when type changes
+                    fetchLastBillInfo(value);
+                  }}
                 >
                   <SelectTrigger className="text-gray-900">
                     <SelectValue />
@@ -975,17 +1037,74 @@ export default function TenantBillsPage() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="previousReading" className="text-gray-900">Previous Reading *</Label>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="previousReading" className="text-gray-900">
+                    Previous Reading *
+                  </Label>
+                  {previousReadingAutoFilled && (
+                    <span className="text-xs text-green-600 font-medium flex items-center">
+                      <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      Auto-filled
+                    </span>
+                  )}
+                  {loadingLastBill && (
+                    <span className="text-xs text-blue-600 flex items-center">
+                      <motion.div
+                        className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full mr-1"
+                        animate={{ rotate: 360 }}
+                        transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                      />
+                      Fetching...
+                    </span>
+                  )}
+                </div>
                 <Input
                   id="previousReading"
                   type="number"
                   step="0.01"
                   placeholder="0.00"
                   value={billForm.previousReading}
-                  onChange={(e) => setBillForm({ ...billForm, previousReading: e.target.value })}
+                  onChange={(e) => {
+                    setBillForm({ ...billForm, previousReading: e.target.value });
+                    setPreviousReadingAutoFilled(false); // User manually editing
+                  }}
                   required
                   className="text-gray-900 placeholder:text-gray-500"
                 />
+                
+                {/* Display last bill info if available */}
+                {lastBillInfo && (
+                  <div className="mt-2 p-3 bg-blue-50 rounded-lg border border-blue-100">
+                    <p className="text-xs text-blue-800 font-medium mb-1">Last {billForm.type} Bill Information</p>
+                    <div className="grid grid-cols-2 gap-2 text-xs text-blue-700">
+                      <div>
+                        <span className="text-blue-500">Last Reading:</span>{' '}
+                        <span className="font-semibold">{lastBillInfo.lastBill.currentReading}</span>
+                      </div>
+                      <div>
+                        <span className="text-blue-500">Date:</span>{' '}
+                        <span>{new Date(lastBillInfo.lastBill.issuedAt).toLocaleDateString()}</span>
+                      </div>
+                      <div>
+                        <span className="text-blue-500">Units Used:</span>{' '}
+                        <span className="font-semibold">{lastBillInfo.lastBill.units}</span>
+                      </div>
+                      <div>
+                        <span className="text-blue-500">Days Ago:</span>{' '}
+                        <span>{lastBillInfo.daysSinceLastBill}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Show message if no previous bill found */}
+                {!lastBillInfo && !loadingLastBill && billForm.previousReading === '' && (
+                  <p className="mt-2 text-xs text-amber-600 bg-amber-50 p-2 rounded border border-amber-100">
+                    <span className="font-medium">No previous {billForm.type} bill found.</span> Please enter the previous reading manually.
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="currentReading" className="text-gray-900">Current Reading *</Label>
@@ -1085,6 +1204,8 @@ export default function TenantBillsPage() {
               onClick={() => {
                 setShowCreateDialog(false);
                 resetBillForm();
+                setLastBillInfo(null);
+                setPreviousReadingAutoFilled(false);
               }}
               disabled={creating}
             >

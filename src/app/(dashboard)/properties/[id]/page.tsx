@@ -48,6 +48,7 @@ export default function PropertyDetailPage() {
   const [activationRequests, setActivationRequests] = useState<ActivationRequest[]>([]);
   const [activationsLoading, setActivationsLoading] = useState(false);
   const [deletingActivationId, setDeletingActivationId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
   const propertyId = params.id as string;
 
@@ -372,7 +373,12 @@ export default function PropertyDetailPage() {
   };
 
   const handleViewMoreDetails = () => {
-    router.push(`/properties/${propertyId}/details`);
+    if (isLoading) return;
+    setIsLoading(true);
+    setTimeout(() => {
+      router.push(`/properties/${propertyId}/details`);
+
+    }, 150);
   };
 
   // Cleanup blob URL on unmount
@@ -1240,18 +1246,52 @@ export default function PropertyDetailPage() {
               <div className="mt-6 pt-6 border-t-2 border-gray-100">
                 <Button
                   onClick={handleViewMoreDetails}
-                  className="w-full group px-6 py-3 bg-linear-to-r from-primary to-primary/80 text-white hover:from-primary/90 hover:to-primary/70 transition-all duration-300 shadow-md hover:shadow-lg rounded-lg"
+                  disabled={isLoading} // Disable button when loading
+                  className={`w-full group px-6 py-3 bg-linear-to-r from-primary to-primary/80 text-white hover:from-primary/90 hover:to-primary/70 transition-all duration-300 shadow-md hover:shadow-lg rounded-lg ${isLoading ? 'opacity-75 cursor-not-allowed' : ''}`}
                 >
-                  <motion.span className="flex items-center justify-center gap-2" whileHover={{ x: 5 }}>
-                    View Financial Details
-                    <svg
-                      className="w-5 h-5 transition-transform duration-300 group-hover:translate-x-1"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                    </svg>
+                  <motion.span 
+                    className="flex items-center justify-center gap-2" 
+                    whileHover={isLoading ? {} : { x: 5 }} // Disable hover animation when loading
+                  >
+                    {isLoading ? (
+                      // Loading spinner
+                      <span className="flex items-center justify-center gap-2">
+                        <svg
+                          className="animate-spin h-5 w-5 text-white"
+                          xmlns="http://www.w3.org/2000/svg"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                        >
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                          />
+                          <path
+                            className="opacity-75"
+                            fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                          />
+                        </svg>
+                        Loading...
+                      </span>
+                    ) : (
+                      // Normal button content
+                      <>
+                        View Financial Details
+                        <svg
+                          className="w-5 h-5 transition-transform duration-300 group-hover:translate-x-1"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                        </svg>
+                      </>
+                    )}
                   </motion.span>
                 </Button>
               </div>

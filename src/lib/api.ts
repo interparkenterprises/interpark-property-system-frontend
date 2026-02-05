@@ -501,13 +501,13 @@ export const paymentsAPI = {
 
   getOutstandingInvoices: async (tenantId: string, includeBills: boolean = true): Promise<{
     rentInvoices: Invoice[];
-    billInvoices: BillInvoice[];
+    //billInvoices: BillInvoice[];
     totals: {
       totalRentBalance: number;
-      totalBillBalance: number;
+      //totalBillBalance: number;
       totalOutstanding: number;
       invoiceCount: number;
-      billInvoiceCount: number;
+      //billInvoiceCount: number;
     };
   }> => {
     try {
@@ -532,10 +532,17 @@ export const paymentsAPI = {
 
   createPaymentReport: async (data: CreatePaymentReportRequest): Promise<CreatePaymentReportResponse> => {
     try {
-      const response = await api.post('/payments', data);
+      const response = await api.post('/payments', {
+        ...data,
+        // Set defaults to match backend behavior
+        handleOverpayment: data.handleOverpayment ?? true,
+        updateExistingInvoices: data.updateExistingInvoices ?? true,
+        createMissingInvoices: data.createMissingInvoices ?? false,
+        autoGenerateBalanceInvoice: data.autoGenerateBalanceInvoice ?? false,
+      });
       
       if (!response.data || !response.data.success) {
-        throw new Error('Invalid response from server');
+        throw new Error(response.data?.message || 'Invalid response from server');
       }
 
       return response.data.data;
@@ -599,6 +606,30 @@ export const paymentsAPI = {
     } catch (error) {
       // Let the axios interceptor handle the error
       throw error;
+    }
+  },
+    // NEW: Update payment report (PUT endpoint exists in routes but not in API)
+  updatePaymentReport: async (id: string, data: {
+    amountPaid?: number;
+    paymentPeriod?: string;
+    notes?: string;
+    //billIds?: string[];
+  }): Promise<any> => {
+    try {
+      const response = await api.put(`/payments/${id}`, data);
+      
+      if (!response.data || !response.data.success) {
+        throw new Error('Invalid response from server');
+      }
+
+      return response.data.data;
+    } catch (error: any) {
+      console.error('Failed to update payment report:', error);
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to update payment report';
+      throw new Error(message);
     }
   },
 };
@@ -1230,6 +1261,34 @@ export const billsAPI = {
       return handleApiError(error);
     }
   },
+    // NEW: Get last bill info for previous readings
+  getLastBillInfo: async (tenantId: string, type: BillType): Promise<{
+    success: boolean;
+    data: {
+      lastBill: {
+        id: string;
+        currentReading: number;
+        issuedAt: string;
+        units: number;
+        totalAmount: number;
+        dueDate: string;
+        status: BillStatus;
+      };
+      suggestedPreviousReading: number;
+      daysSinceLastBill: number;
+    };
+    message: string;
+  }> => {
+    try {
+      const response = await api.get('/bills/last-info', { 
+        params: { tenantId, type } 
+      });
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
 
   getById: async (id: string): Promise<Bill> => {
     try {
