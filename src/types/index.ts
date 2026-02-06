@@ -216,6 +216,9 @@ export interface PaymentReport {
   //billInvoices?: BillInvoice[];
   createdAt: string;
   updatedAt: string;
+    // NEW: Receipt fields
+  receiptUrl?: string | null;
+  receiptNumber?: string | null;
 }
 
 export interface PaymentPreview {
@@ -251,6 +254,8 @@ export interface CreatePaymentReportResponse {
     paymentPeriod: string;
     datePaid: string;
     notes: string | null;
+    receiptUrl?: string | null;        // NEW
+    receiptNumber?: string | null;     // NEW
   };
   income: {
     id: string;
@@ -308,6 +313,22 @@ export interface CreatePaymentReportResponse {
     status: CommissionStatus;
     note: string;
   };
+    // NEW: Receipt information
+  receipt?: {
+    receiptNumber: string;
+    receiptUrl: string;
+    generatedAt: string;
+  } | null;
+}
+
+// NEW: Interface for receipt download response
+export interface ReceiptDownloadResponse {
+  success: boolean;
+  data?: {
+    receiptUrl: string;
+    generatedAt?: string;
+  };
+  message?: string;
 }
 
 // Invoice Interface

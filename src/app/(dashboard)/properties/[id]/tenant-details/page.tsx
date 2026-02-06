@@ -67,6 +67,9 @@ export default function TenantDetailPage() {
   const [overpaymentDetails, setOverpaymentDetails] = useState<CreatePaymentReportResponse['overpayment'] | null>(null);
   const [showPaymentAllocation, setShowPaymentAllocation] = useState(false);
   const [calculatingPreview, setCalculatingPreview] = useState(false);
+  const [receiptsMap, setReceiptsMap] = useState<Map<string, PaymentReport>>(new Map());
+  const [downloadingReceiptId, setDownloadingReceiptId] = useState<string | null>(null);
+
 
   
   const [invoiceForm, setInvoiceForm] = useState({
@@ -100,6 +103,7 @@ export default function TenantDetailPage() {
     fetchBillInvoices();
     fetchDemandLetters();
     fetchOutstandingInvoices(); 
+    fetchPaymentReportsWithReceipts();
   }, [tenantId]);
 
   // Fetch payment preview when amount changes
@@ -405,6 +409,7 @@ const calculateSelectedBalance = () => {
       fetchPaymentReports();
       fetchInvoices();
       fetchOutstandingInvoices();
+      fetchPaymentReportsWithReceipts(); 
       
     } catch (error: any) {
       console.error('Error creating payment report:', error);
@@ -692,6 +697,27 @@ const calculateSelectedBalance = () => {
     }
   };
 
+  const fetchPaymentReportsWithReceipts = async () => {
+    try {
+      const reports = await paymentsAPI.getPaymentsByTenant(tenantId);
+      if (Array.isArray(reports)) {
+        const newReceiptsMap = new Map<string, PaymentReport>();
+        
+        reports.forEach(report => {
+          if (report.receiptUrl || report.receiptNumber) {
+            report.invoices?.forEach(invoice => {
+              newReceiptsMap.set(invoice.id, report);
+            });
+          }
+        });
+        
+        setReceiptsMap(newReceiptsMap);
+      }
+    } catch (error) {
+      console.error('Error fetching payment reports with receipts:', error);
+    }
+  };
+
   // delete function for invoices
     const handleDeleteInvoice = async (invoiceId: string, invoiceNumber: string) => {
     if (!confirm(`Are you sure you want to delete invoice ${invoiceNumber}? This action cannot be undone.`)) {
@@ -731,6 +757,29 @@ const calculateSelectedBalance = () => {
       toast.error('Failed to delete bill invoice');
     } finally {
       setDeletingBillInvoiceId(null);
+    }
+  };
+  // enhanced receipt download function that checks for receipt URL or number and provides better feedback
+  const handleDownloadReceipt = async (paymentReportId: string, receiptNumber?: string) => {
+    try {
+      setDownloadingReceiptId(paymentReportId);
+      const blob = await paymentsAPI.downloadReceipt(paymentReportId);
+      
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${receiptNumber || 'receipt'}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      
+      toast.success('Receipt downloaded successfully');
+    } catch (error) {
+      console.error('Error downloading receipt:', error);
+      toast.error('Failed to download receipt');
+    } finally {
+      setDownloadingReceiptId(null);
     }
   };
 
@@ -1347,7 +1396,7 @@ const calculateSelectedBalance = () => {
                     animate={{ opacity: 1, y: 0 }}
                     className="p-6 border border-gray-200 rounded-xl hover:shadow-lg transition-shadow bg-white"
                   >
-                    <div className="flex items-start justify-between">
+                    <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
                       <div className="space-y-3 flex-1">
                         <div className="flex items-center gap-3">
                           <h3 className="text-lg font-bold text-gray-900">{invoice.invoiceNumber}</h3>
@@ -1399,27 +1448,31 @@ const calculateSelectedBalance = () => {
                           </div>
                         )}
                       </div>
-                      <Button
-                        onClick={() => handleDownloadInvoice(invoice.id, invoice.invoiceNumber)}
-                        variant="outline"
-                        size="sm"
-                        className="ml-4 shrink-0"
-                      >
-                        <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                        </svg>
-                        Download
-                      </Button>
-                      { <Button
+                      
+                      {/* Button Group - Now visible on all screen sizes */}
+                      <div className="flex flex-col sm:flex-row lg:flex-col gap-2 shrink-0 w-full sm:w-auto">
+                        <Button
+                          onClick={() => handleDownloadInvoice(invoice.id, invoice.invoiceNumber)}
+                          variant="outline"
+                          size="sm"
+                          className="flex-1 justify-center"
+                        >
+                          <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                          </svg>
+                          Download
+                        </Button>
+                        
+                        <Button
                           onClick={() => handleDeleteInvoice(invoice.id, invoice.invoiceNumber)}
                           variant="outline"
                           size="sm"
                           disabled={deletingInvoiceId === invoice.id}
-                          className="w-full border-2 border-red-500 text-red-600 hover:bg-red-50 hover:text-red-700 hover:border-red-600 font-medium transition-all duration-200"
+                          className="flex-1 justify-center border-2 border-red-500 text-red-600 hover:bg-red-50 hover:text-red-700 hover:border-red-600 font-medium transition-all duration-200"
                         >
                           {deletingInvoiceId === invoice.id ? (
                             <>
-                              <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-red-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                               </svg>
@@ -1433,8 +1486,41 @@ const calculateSelectedBalance = () => {
                               Delete
                             </>
                           )}
-                        </Button> 
-                      }
+                        </Button>
+                        
+                        {/* Download Receipt Button - Now always visible when applicable */}
+                        {receiptsMap.has(invoice.id) && (
+                          <Button
+                            onClick={() => {
+                              const paymentReport = receiptsMap.get(invoice.id);
+                              if (paymentReport) {
+                                handleDownloadReceipt(paymentReport.id, paymentReport.receiptNumber || undefined);
+                              }
+                            }}
+                            variant="outline"
+                            size="sm"
+                            disabled={downloadingReceiptId === receiptsMap.get(invoice.id)?.id}
+                            className="flex-1 justify-center bg-green-50 border-green-300 text-green-700 hover:bg-green-100 hover:text-green-800 hover:border-green-400"
+                          >
+                            {downloadingReceiptId === receiptsMap.get(invoice.id)?.id ? (
+                              <>
+                                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-green-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                Loading...
+                              </>
+                            ) : (
+                              <>
+                                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                Receipt
+                              </>
+                            )}
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   </motion.div>
                 ))}

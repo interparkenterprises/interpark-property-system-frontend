@@ -632,6 +632,59 @@ export const paymentsAPI = {
       throw new Error(message);
     }
   },
+    // NEW: Download receipt for a payment
+  downloadReceipt: async (paymentReportId: string): Promise<Blob> => {
+    try {
+      const response = await api.get(`/payments/${paymentReportId}/receipt`, {
+        responseType: 'blob', // Important: receive as binary data
+      });
+      
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to download receipt:', error);
+      
+      // Handle blob error responses (convert blob to JSON to read error message)
+      if (error?.response?.data instanceof Blob) {
+        const text = await error.response.data.text();
+        try {
+          const json = JSON.parse(text);
+          throw new Error(json.message || 'Failed to download receipt');
+        } catch {
+          throw new Error('Failed to download receipt');
+        }
+      }
+
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to download receipt';
+      throw new Error(message);
+    }
+  },
+
+  // Alternative: Get receipt info (URL) without downloading
+  getReceiptInfo: async (paymentReportId: string): Promise<{
+    receiptUrl: string;
+    generatedAt?: string;
+  }> => {
+    try {
+      const response = await api.get(`/payments/${paymentReportId}/receipt/info`);
+      
+      if (!response.data || !response.data.success) {
+        throw new Error(response.data?.message || 'Receipt not found');
+      }
+
+      return response.data.data;
+    } catch (error: any) {
+      console.error('Failed to get receipt info:', error);
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to get receipt information';
+      throw new Error(message);
+    }
+  },
+
 };
 
 // Invoice API functions

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Property, ArrearsResponse } from '@/types';
+import { Property, ArrearsResponse, ArrearsItem, Income } from '@/types';
 import { propertiesAPI, paymentsAPI } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { exportArrearsToPDF } from '@/lib/arrearsPdfGenerator';
@@ -70,6 +70,26 @@ const modalVariants = {
   },
 };
 
+// Types for grouped data
+type GroupedIncome = {
+  tenantId: string;
+  tenantName: string;
+  tenantContact: string;
+  unitName: string;
+  totalAmount: number;
+  incomes: Income[];
+};
+
+type GroupedArrears = {
+  tenantId: string;
+  tenantName: string;
+  tenantContact: string;
+  unitName: string;
+  totalArrears: number;
+  totalPaid: number;
+  items: ArrearsItem[];
+};
+
 export default function PropertyDetailInfoPage() {
   const params = useParams();
   const router = useRouter();
@@ -81,6 +101,11 @@ export default function PropertyDetailInfoPage() {
   const [exporting, setExporting] = useState(false);
   const [exportingArrearsPdf, setExportingArrearsPdf] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
+  
+  // State for expanded tenant tabs
+  const [expandedIncomeTenant, setExpandedIncomeTenant] = useState<string | null>(null);
+  const [expandedArrearsTenant, setExpandedArrearsTenant] = useState<string | null>(null);
+
   const [exportSections, setExportSections] = useState<ExportSection[]>([
     { id: 'propertyInfo', label: 'Property Information', selected: true },
     { id: 'financialSummary', label: 'Financial Summary', selected: true },
@@ -150,6 +175,69 @@ export default function PropertyDetailInfoPage() {
   };
 
   const totals = calculateTotals();
+
+  // Group income data by tenant
+  const groupIncomeByTenant = (): GroupedIncome[] => {
+    if (!property?.incomes) return [];
+
+    const grouped = property.incomes.reduce((acc, income) => {
+      if (!income.tenantId) return acc;
+      
+      const unit = property.units?.find((u) => u.tenant?.id === income.tenantId);
+      const tenant = unit?.tenant;
+      
+      if (!tenant) return acc;
+
+      const existing = acc.find((item) => item.tenantId === income.tenantId);
+      
+      if (existing) {
+        existing.incomes.push(income);
+        existing.totalAmount += income.amount;
+      } else {
+        acc.push({
+          tenantId: income.tenantId,
+          tenantName: tenant.fullName,
+          tenantContact: tenant.contact || '',
+          unitName: unit.type || 'Unit',
+          totalAmount: income.amount,
+          incomes: [income],
+        });
+      }
+      
+      return acc;
+    }, [] as GroupedIncome[]);
+
+    return grouped.sort((a, b) => b.totalAmount - a.totalAmount);
+  };
+
+  // Group arrears data by tenant
+  const groupArrearsByTenant = (): GroupedArrears[] => {
+    if (!arrearsData?.arrears) return [];
+
+    const grouped = arrearsData.arrears.reduce((acc, item) => {
+      const existing = acc.find((group) => group.tenantId === item.tenantId);
+      
+      if (existing) {
+        existing.items.push(item);
+        existing.totalArrears += item.balance;
+        existing.totalPaid += item.paidAmount;
+      } else {
+        acc.push({
+          tenantId: item.tenantId,
+          tenantName: item.tenantName,
+          tenantContact: item.tenantContact,
+          unitName: `${item.unitType} ${item.unitNo}`,
+          totalArrears: item.balance,
+          totalPaid: item.paidAmount,
+          items: [item],
+        });
+      }
+      
+      return acc;
+    }, [] as GroupedArrears[]);
+
+    return grouped.sort((a, b) => b.totalArrears - a.totalArrears);
+  };
 
   // Toggle individual section
   const toggleSection = (sectionId: string) => {
@@ -292,6 +380,9 @@ export default function PropertyDetailInfoPage() {
       </motion.div>
     );
   }
+
+  const groupedIncome = groupIncomeByTenant();
+  const groupedArrears = groupArrearsByTenant();
 
   return (
     <motion.div
@@ -735,6 +826,7 @@ export default function PropertyDetailInfoPage() {
 
       {/* Tab Content */}
       <motion.div key={activeTab} variants={tabVariants} initial="hidden" animate="visible" exit="exit">
+        {/* INCOME TAB - Grouped by Tenant */}
         {activeTab === 'income' && (
           <div className="space-y-6">
             <motion.div
@@ -757,63 +849,144 @@ export default function PropertyDetailInfoPage() {
                     />
                   </svg>
                 </div>
-                <h2 className="text-2xl font-bold text-heading-color">Income Records</h2>
+                <div>
+                  <h2 className="text-2xl font-bold text-heading-color">Income by Tenant</h2>
+                  <p className="text-sm text-gray-600 mt-1">
+                    {groupedIncome.length} tenant{groupedIncome.length !== 1 ? 's' : ''} with income records
+                  </p>
+                </div>
               </div>
 
-              {property.incomes && property.incomes.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b-2 border-gray-200">
-                        <th className="text-left py-4 px-4 font-semibold text-gray-900">Date</th>
-                        <th className="text-left py-4 px-4 font-semibold text-gray-900">Tenant</th>
-                        <th className="text-left py-4 px-4 font-semibold text-gray-900">Amount</th>
-                        <th className="text-left py-4 px-4 font-semibold text-gray-900">
-                          Frequency
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {property.incomes.map((income, index) => {
-                        const tenant = property.units?.find(
-                          (u) => u.tenant?.id === income.tenantId
-                        )?.tenant;
-                        return (
-                          <motion.tr
-                            key={income.id}
-                            initial={{ opacity: 0, x: -20 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            transition={{ delay: index * 0.05 }}
-                            className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
+              {groupedIncome.length > 0 ? (
+                <div className="space-y-4">
+                  {groupedIncome.map((group, index) => (
+                    <motion.div
+                      key={group.tenantId}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.05 }}
+                      className="border-2 border-gray-200 rounded-xl overflow-hidden hover:border-primary/30 transition-colors"
+                    >
+                      {/* Tenant Header - Clickable */}
+                      <button
+                        onClick={() => setExpandedIncomeTenant(
+                          expandedIncomeTenant === group.tenantId ? null : group.tenantId
+                        )}
+                        className="w-full flex items-center justify-between p-5 bg-gray-50/50 hover:bg-gray-100/50 transition-colors text-left"
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+                            <span className="text-lg font-bold text-green-700">
+                              {group.tenantName.charAt(0).toUpperCase()}
+                            </span>
+                          </div>
+                          <div>
+                            <h3 className="text-lg font-bold text-gray-900">{group.tenantName}</h3>
+                            <div className="flex items-center gap-3 text-sm text-gray-600 mt-1">
+                              <span className="flex items-center gap-1">
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                                </svg>
+                                {group.unitName}
+                              </span>
+                              <span>•</span>
+                              <span>{group.incomes.length} payment{group.incomes.length !== 1 ? 's' : ''}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <div className="text-right">
+                            <p className="text-sm text-gray-600">Total Paid</p>
+                            <p className="text-xl font-bold text-green-600">
+                              Ksh {group.totalAmount.toLocaleString()}
+                            </p>
+                          </div>
+                          <motion.div
+                            animate={{ rotate: expandedIncomeTenant === group.tenantId ? 180 : 0 }}
+                            transition={{ duration: 0.2 }}
+                            className="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-sm"
                           >
-                            <td className="py-4 px-4 text-gray-900">
-                              {new Date(income.createdAt).toLocaleDateString('en-US', {
-                                year: 'numeric',
-                                month: 'short',
-                                day: 'numeric',
-                              })}
-                            </td>
-                            <td className="py-4 px-4">
-                              <div className="font-medium text-gray-900">
-                                {tenant?.fullName || 'N/A'}
+                            <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
+                          </motion.div>
+                        </div>
+                      </button>
+
+                      {/* Expandable Income Details */}
+                      <AnimatePresence>
+                        {expandedIncomeTenant === group.tenantId && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.3 }}
+                            className="overflow-hidden"
+                          >
+                            <div className="p-5 bg-white border-t border-gray-200">
+                              <h4 className="text-sm font-semibold text-gray-700 mb-4 uppercase tracking-wide">
+                                Payment History
+                              </h4>
+                              <div className="overflow-x-auto">
+                                <table className="w-full">
+                                  <thead>
+                                    <tr className="border-b border-gray-200">
+                                      <th className="text-left py-3 px-4 font-semibold text-gray-700 text-sm">Date</th>
+                                      <th className="text-left py-3 px-4 font-semibold text-gray-700 text-sm">Amount</th>
+                                      <th className="text-left py-3 px-4 font-semibold text-gray-700 text-sm">Frequency</th>
+                                      <th className="text-left py-3 px-4 font-semibold text-gray-700 text-sm">Invoice #</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {group.incomes.map((income, idx) => (
+                                      <motion.tr
+                                        key={income.id}
+                                        initial={{ opacity: 0, x: -10 }}
+                                        animate={{ opacity: 1, x: 0 }}
+                                        transition={{ delay: idx * 0.03 }}
+                                        className="border-b border-gray-100 last:border-0 hover:bg-gray-50"
+                                      >
+                                        <td className="py-3 px-4 text-gray-900">
+                                          {new Date(income.createdAt).toLocaleDateString('en-US', {
+                                            year: 'numeric',
+                                            month: 'short',
+                                            day: 'numeric',
+                                          })}
+                                        </td>
+                                        <td className="py-3 px-4">
+                                          <span className="font-semibold text-green-600">
+                                            Ksh {income.amount.toLocaleString()}
+                                          </span>
+                                        </td>
+                                        <td className="py-3 px-4">
+                                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
+                                            {income.frequency}
+                                          </span>
+                                        </td>
+                                        <td className="py-3 px-4 text-sm text-gray-600">
+                                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">
+                                            Recorded
+                                          </span>
+                                        </td>
+                                      </motion.tr>
+                                    ))}
+                                  </tbody>
+                                  <tfoot>
+                                    <tr className="bg-green-50/50 font-semibold">
+                                      <td className="py-3 px-4 text-gray-900">Total</td>
+                                      <td className="py-3 px-4 text-green-700" colSpan={3}>
+                                        Ksh {group.totalAmount.toLocaleString()}
+                                      </td>
+                                    </tr>
+                                  </tfoot>
+                                </table>
                               </div>
-                              <div className="text-sm text-gray-600">{tenant?.contact || ''}</div>
-                            </td>
-                            <td className="py-4 px-4">
-                              <span className="font-bold text-green-600">
-                                Ksh {income.amount.toLocaleString()}
-                              </span>
-                            </td>
-                            <td className="py-4 px-4">
-                              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">
-                                {income.frequency}
-                              </span>
-                            </td>
-                          </motion.tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </motion.div>
+                  ))}
                 </div>
               ) : (
                 <div className="text-center py-12">
@@ -972,7 +1145,7 @@ export default function PropertyDetailInfoPage() {
           </div>
         )}
 
-        {/* Arrears Tab */}
+        {/* ARREARS TAB - Grouped by Tenant */}
         {activeTab === 'arrears' && (
           <div className="space-y-6">
             <motion.div
@@ -996,7 +1169,12 @@ export default function PropertyDetailInfoPage() {
                       />
                     </svg>
                   </div>
-                  <h2 className="text-2xl font-bold text-heading-color">Arrears Report</h2>
+                  <div>
+                    <h2 className="text-2xl font-bold text-heading-color">Arrears by Tenant</h2>
+                    <p className="text-sm text-gray-600 mt-1">
+                      {groupedArrears.length} tenant{groupedArrears.length !== 1 ? 's' : ''} with outstanding balances
+                    </p>
+                  </div>
                 </div>
                 {arrearsData && arrearsData.arrears.length > 0 && (
                   <Button
@@ -1095,96 +1273,167 @@ export default function PropertyDetailInfoPage() {
                     </div>
                   </div>
 
-                  {/* Arrears Table */}
-                  {arrearsData.arrears.length > 0 ? (
-                    <div className="overflow-x-auto">
-                      <table className="w-full">
-                        <thead>
-                          <tr className="border-b-2 border-gray-200">
-                            <th className="text-left py-4 px-4 font-semibold text-gray-900">
-                              Tenant Name
-                            </th>
-                            <th className="text-left py-4 px-4 font-semibold text-gray-900">
-                              Unit Type
-                            </th>
-                            <th className="text-left py-4 px-4 font-semibold text-gray-900">
-                              Unit No
-                            </th>
-                            <th className="text-left py-4 px-4 font-semibold text-gray-900">
-                              Floor
-                            </th>
-                            <th className="text-left py-4 px-4 font-semibold text-gray-900">
-                              Invoice Number
-                            </th>
-                            <th className="text-left py-4 px-4 font-semibold text-gray-900">Type</th>
-                            <th className="text-left py-4 px-4 font-semibold text-gray-900">Paid</th>
-                            <th className="text-left py-4 px-4 font-semibold text-gray-900">
-                              Balance
-                            </th>
-                            <th className="text-left py-4 px-4 font-semibold text-gray-900">
-                              Status
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {arrearsData.arrears.map((item, index) => (
-                            <motion.tr
-                              key={item.id}
-                              initial={{ opacity: 0, x: -20 }}
-                              animate={{ opacity: 1, x: 0 }}
-                              transition={{ delay: index * 0.05 }}
-                              className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
-                            >
-                              <td className="py-4 px-4">
-                                <div className="font-medium text-gray-900">{item.tenantName}</div>
-                                <div className="text-sm text-gray-600">{item.tenantContact}</div>
-                              </td>
-                              <td className="py-4 px-4 text-gray-900">{item.unitType}</td>
-                              <td className="py-4 px-4 text-gray-900">{item.unitNo}</td>
-                              <td className="py-4 px-4 text-gray-900">{item.floor}</td>
-                              <td className="py-4 px-4">
-                                <span className="font-mono text-sm text-gray-900">
-                                  {item.invoiceNumber}
+                  {/* Grouped Arrears by Tenant */}
+                  {groupedArrears.length > 0 ? (
+                    <div className="space-y-4">
+                      {groupedArrears.map((group, index) => (
+                        <motion.div
+                          key={group.tenantId}
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: index * 0.05 }}
+                          className="border-2 border-gray-200 rounded-xl overflow-hidden hover:border-red/30 transition-colors"
+                        >
+                          {/* Tenant Header - Clickable */}
+                          <button
+                            onClick={() => setExpandedArrearsTenant(
+                              expandedArrearsTenant === group.tenantId ? null : group.tenantId
+                            )}
+                            className="w-full flex items-center justify-between p-5 bg-red-50/30 hover:bg-red-50/50 transition-colors text-left"
+                          >
+                            <div className="flex items-center gap-4">
+                              <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+                                <span className="text-lg font-bold text-red-700">
+                                  {group.tenantName.charAt(0).toUpperCase()}
                                 </span>
-                              </td>
-                              <td className="py-4 px-4">
-                                <span
-                                  className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${
-                                    item.invoiceType === 'RENT'
-                                      ? 'bg-blue-100 text-blue-700'
-                                      : 'bg-purple-100 text-purple-700'
-                                  }`}
-                                >
-                                  {item.invoiceType === 'RENT'
-                                    ? 'Rent'
-                                    : `Bill (${item.billType})`}
-                                </span>
-                              </td>
-                              <td className="py-4 px-4">
-                                <span className="font-medium text-green-600">
-                                  Ksh {item.paidAmount.toLocaleString()}
-                                </span>
-                              </td>
-                              <td className="py-4 px-4">
-                                <span className="font-bold text-red-600">
-                                  Ksh {item.balance.toLocaleString()}
-                                </span>
-                              </td>
-                              <td className="py-4 px-4">
-                                <span
-                                  className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${
-                                    item.status === 'UNPAID'
-                                      ? 'bg-red-100 text-red-700'
-                                      : 'bg-yellow-100 text-yellow-700'
-                                  }`}
-                                >
-                                  {item.status === 'UNPAID' ? 'Unpaid' : 'Partial'}
-                                </span>
-                              </td>
-                            </motion.tr>
-                          ))}
-                        </tbody>
-                      </table>
+                              </div>
+                              <div>
+                                <h3 className="text-lg font-bold text-gray-900">{group.tenantName}</h3>
+                                <div className="flex items-center gap-3 text-sm text-gray-600 mt-1">
+                                  <span className="flex items-center gap-1">
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                                    </svg>
+                                    {group.unitName}
+                                  </span>
+                                  <span>•</span>
+                                  <span>{group.items.length} outstanding {group.items.length !== 1 ? 'invoices' : 'invoice'}</span>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-6">
+                              <div className="text-right">
+                                <p className="text-xs text-gray-600 mb-1">Paid: 
+                                  <span className="text-green-600 font-medium ml-1">
+                                    Ksh {group.totalPaid.toLocaleString()}
+                                  </span>
+                                </p>
+                                <p className="text-sm text-gray-600">Balance: 
+                                  <span className="text-red-600 font-bold text-lg ml-1">
+                                    Ksh {group.totalArrears.toLocaleString()}
+                                  </span>
+                                </p>
+                              </div>
+                              <motion.div
+                                animate={{ rotate: expandedArrearsTenant === group.tenantId ? 180 : 0 }}
+                                transition={{ duration: 0.2 }}
+                                className="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-sm"
+                              >
+                                <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                </svg>
+                              </motion.div>
+                            </div>
+                          </button>
+
+                          {/* Expandable Arrears Details */}
+                          <AnimatePresence>
+                            {expandedArrearsTenant === group.tenantId && (
+                              <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: 'auto', opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                transition={{ duration: 0.3 }}
+                                className="overflow-hidden"
+                              >
+                                <div className="p-5 bg-white border-t border-gray-200">
+                                  <h4 className="text-sm font-semibold text-gray-700 mb-4 uppercase tracking-wide">
+                                    Outstanding Invoices
+                                  </h4>
+                                  <div className="overflow-x-auto">
+                                    <table className="w-full">
+                                      <thead>
+                                        <tr className="border-b border-gray-200">
+                                          <th className="text-left py-3 px-4 font-semibold text-gray-700 text-sm">Invoice #</th>
+                                          <th className="text-left py-3 px-4 font-semibold text-gray-700 text-sm">Type</th>
+                                          <th className="text-left py-3 px-4 font-semibold text-gray-700 text-sm">Expected</th>
+                                          <th className="text-left py-3 px-4 font-semibold text-gray-700 text-sm">Paid</th>
+                                          <th className="text-left py-3 px-4 font-semibold text-gray-700 text-sm">Balance</th>
+                                          <th className="text-left py-3 px-4 font-semibold text-gray-700 text-sm">Status</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {group.items.map((item, idx) => (
+                                          <motion.tr
+                                            key={item.id}
+                                            initial={{ opacity: 0, x: -10 }}
+                                            animate={{ opacity: 1, x: 0 }}
+                                            transition={{ delay: idx * 0.03 }}
+                                            className="border-b border-gray-100 last:border-0 hover:bg-gray-50"
+                                          >
+                                            <td className="py-3 px-4 font-mono text-sm text-gray-900">
+                                              {item.invoiceNumber}
+                                            </td>
+                                            <td className="py-3 px-4">
+                                              <span
+                                                className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
+                                                  item.invoiceType === 'RENT'
+                                                    ? 'bg-blue-100 text-blue-700'
+                                                    : 'bg-purple-100 text-purple-700'
+                                                }`}
+                                              >
+                                                {item.invoiceType === 'RENT' ? 'Rent' : item.billType}
+                                              </span>
+                                            </td>
+                                            <td className="py-3 px-4 text-gray-900">
+                                              Ksh {item.expectedAmount?.toLocaleString() || '-'}
+                                            </td>
+                                            <td className="py-3 px-4">
+                                              <span className="text-green-600 font-medium">
+                                                Ksh {item.paidAmount.toLocaleString()}
+                                              </span>
+                                            </td>
+                                            <td className="py-3 px-4">
+                                              <span className="font-bold text-red-600">
+                                                Ksh {item.balance.toLocaleString()}
+                                              </span>
+                                            </td>
+                                            <td className="py-3 px-4">
+                                              <span
+                                                className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${
+                                                  item.status === 'UNPAID'
+                                                    ? 'bg-red-100 text-red-700'
+                                                    : 'bg-yellow-100 text-yellow-700'
+                                                }`}
+                                              >
+                                                {item.status === 'UNPAID' ? 'Unpaid' : 'Partial'}
+                                              </span>
+                                            </td>
+                                          </motion.tr>
+                                        ))}
+                                      </tbody>
+                                      <tfoot>
+                                        <tr className="bg-red-50/50 font-semibold">
+                                          <td className="py-3 px-4 text-gray-900" colSpan={2}>Total Balance</td>
+                                          <td className="py-3 px-4 text-gray-700">
+                                            Ksh {group.items.reduce((sum, item) => sum + (item.expectedAmount || 0), 0).toLocaleString()}
+                                          </td>
+                                          <td className="py-3 px-4 text-green-700">
+                                            Ksh {group.totalPaid.toLocaleString()}
+                                          </td>
+                                          <td className="py-3 px-4 text-red-700" colSpan={2}>
+                                            Ksh {group.totalArrears.toLocaleString()}
+                                          </td>
+                                        </tr>
+                                      </tfoot>
+                                    </table>
+                                  </div>
+                                </div>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </motion.div>
+                      ))}
                     </div>
                   ) : (
                     <div className="text-center py-12">
