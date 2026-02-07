@@ -787,11 +787,24 @@ export const invoicesAPI = {
     }
   },
 
-    // Enhanced delete invoice function
+    // Enhanced delete invoice function with options for cascading deletes and related data cleanup
   deleteInvoice: async (id: string, data?: DeleteInvoiceRequest): Promise<DeleteInvoiceResponse> => {
     try {
+      // Set default values to match backend defaults for complete cleanup
+      const defaultData: DeleteInvoiceRequest = {
+        deletePaymentReport: true,
+        deleteRelatedInvoices: true,
+        deleteBillInvoices: true,
+        deleteIncome: true,
+        deleteCommissions: true,
+        cascadeDelete: true,
+        force: false
+      };
+
+      const requestData = { ...defaultData, ...data };
+
       const response = await api.delete(`/invoices/${id}`, {
-        data: data || {} // Pass the delete options in request body
+        data: requestData
       });
       return response.data;
     } catch (error) {

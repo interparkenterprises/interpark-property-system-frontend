@@ -364,40 +364,72 @@ export interface GenerateInvoiceRequest {
   dueDate: string;
   notes?: string;
 }
-// Invoice Delete Request Interface
+// Invoice Delete Request Interface - Updated to match backend
 export interface DeleteInvoiceRequest {
   deletePaymentReport?: boolean;
-  deleteLinkedInvoices?: boolean;
+  deleteRelatedInvoices?: boolean;  // Changed from deleteLinkedInvoices
+  deleteBillInvoices?: boolean;     // New field
+  deleteIncome?: boolean;           // New field
+  deleteCommissions?: boolean;      // New field
+  cascadeDelete?: boolean;          // New field
   force?: boolean;
 }
 
-// Invoice Delete Response Interface
+// Invoice Delete Response Interface - Updated to match backend
 export interface DeleteInvoiceResponse {
   success: boolean;
   data: {
-    invoiceDeleted: boolean;
-    paymentReportDeleted: boolean;
-    linkedInvoicesDeleted: number;
-    totalPdfsDeleted: number;
-    invoiceInfo: {
+    deletedInvoice: {
       id: string;
       invoiceNumber: string;
-      tenantName: string;
-      propertyName: string;
-      createdAt: string;
+      totalDue: number;
+      amountPaid: number;
+      status: string;
     };
-    paymentReportInfo?: {
+    deletedRelatedInvoices: Array<{
       id: string;
-      status: PaymentStatus;
-      totalLinkedInvoices: number;
-      linkedInvoices?: Array<{
-        id: string;
-        invoiceNumber: string;
-        tenantName: string;
-        createdAt: string;
-      }>;
-    };
-    paymentReportRemains?: boolean;
+      invoiceNumber: string;
+      amount: number;
+      status: string;
+    }>;
+    deletedBillInvoices: Array<{
+      id: string;
+      invoiceNumber: string;
+      billType: string;
+      amount: number;
+      status: string;
+    }>;
+    deletedPaymentReport: {
+      id: string;
+      amountPaid: number;
+      totalDue: number;
+      status: string;
+      paymentPeriod: string;
+    } | null;
+    deletedIncome: {
+      id: string;
+      amount: number;
+      createdAt: string;
+    } | null;
+    deletedCommissions: Array<{
+      id: string;
+      commissionAmount: number;
+      periodStart: string;
+      notes: string;
+    }>;
+    adjustedCreditBalance: {
+      previous: number;
+      restored: number;
+      newBalance: number;
+    } | false;
+    adjustedOverpayment: {
+      deletedPrepaidReports: number;
+      totalAmount: number;
+    } | false;
+    deletedPdfs: number;
+    cascadedDeletions: number;
+    receiptDeleted: boolean;
+    unlinkedRecords: number;
   };
   message: string;
 }
