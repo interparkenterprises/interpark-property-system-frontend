@@ -172,7 +172,7 @@ export default function TenantDetailPage() {
         setPaymentReports([]);
       }
     } catch (error) {
-      console.error('Error fetching payment reports:', error);
+      console.error('Error fetching payment reports:', error);~
       toast.error('Failed to load payment reports');
       setPaymentReports([]);
     } finally {
@@ -363,7 +363,7 @@ const calculateSelectedBalance = () => {
         paymentPeriod: paymentForm.paymentPeriod,
         invoiceIds: selectedInvoiceIds,
        // billInvoiceIds: selectedBillInvoiceIds,
-        autoGenerateBalanceInvoice,
+       // autoGenerateBalanceInvoice,
         createMissingInvoices,
         updateExistingInvoices,
         handleOverpayment: true // Enable overpayment handling

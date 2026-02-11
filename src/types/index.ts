@@ -237,7 +237,7 @@ export interface CreatePaymentReportRequest {
   //billInvoiceIds?: string[]; // NEW: Array of bill invoice IDs to pay
   notes?: string;
   paymentPeriod?: string;
-  autoGenerateBalanceInvoice?: boolean;
+ // autoGenerateBalanceInvoice?: boolean;
   createMissingInvoices?: boolean; // NEW: Create invoice if none exist
   updateExistingInvoices?: boolean; // NEW: Update existing invoices for same period
   handleOverpayment?: boolean; // NEW: Enable overpayment handling (default true)

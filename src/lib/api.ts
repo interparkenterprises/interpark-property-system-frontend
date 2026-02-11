@@ -538,7 +538,7 @@ export const paymentsAPI = {
         handleOverpayment: data.handleOverpayment ?? true,
         updateExistingInvoices: data.updateExistingInvoices ?? true,
         createMissingInvoices: data.createMissingInvoices ?? false,
-        autoGenerateBalanceInvoice: data.autoGenerateBalanceInvoice ?? false,
+       // autoGenerateBalanceInvoice: data.autoGenerateBalanceInvoice ?? false,
       });
       
       if (!response.data || !response.data.success) {
