@@ -39,7 +39,9 @@ import {
   CommissionStatus,
   GenerateCommissionInvoiceRequest,
   CommissionInvoiceResponse,
-  SubmitActivationRequest
+  SubmitActivationRequest,
+  PaymentStatus,
+  IncomeFrequency,
 } from '@/types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.interparkpropertysystem.co.ke/api';
@@ -681,6 +683,56 @@ export const paymentsAPI = {
         error?.response?.data?.message ||
         error?.message ||
         'Failed to get receipt information';
+      throw new Error(message);
+    }
+  },
+    deletePaymentReport: async (
+    id: string, 
+    options?: {
+      deleteLinkedInvoices?: boolean;
+      deleteBillInvoices?: boolean;
+      deleteIncome?: boolean;
+      force?: boolean;
+    }
+  ): Promise<{
+    success: boolean;
+    data: {
+      deletedPaymentReport: {
+        id: string;
+        amountPaid: number;
+        status: PaymentStatus;
+        paymentPeriod: string;
+      };
+      deletedReceipt: boolean;
+      deletedInvoices: Array<{ id: string; invoiceNumber: string; totalDue: number }>;
+      deletedBillInvoices: Array<{ id: string; invoiceNumber: string; totalAmount: number }>;
+      deletedIncome: { id: string; amount: number; frequency: IncomeFrequency } | null;
+      unlinkCount: number;
+    };
+    message: string;
+  }> => {
+    try {
+      const response = await api.delete(`/payments/${id}`, {
+        data: options || {} // DELETE requests can have a body with axios
+      });
+      
+      if (!response.data || !response.data.success) {
+        throw new Error(response.data?.message || 'Invalid response from server');
+      }
+
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to delete payment report:', error);
+      
+      // Handle the 90-day protection error specifically
+      if (error?.response?.status === 400 && error?.response?.data?.ageInDays) {
+        throw new Error(error.response.data.message);
+      }
+      
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to delete payment report';
       throw new Error(message);
     }
   },

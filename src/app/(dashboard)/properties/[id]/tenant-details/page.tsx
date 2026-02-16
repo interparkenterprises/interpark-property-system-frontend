@@ -69,6 +69,7 @@ export default function TenantDetailPage() {
   const [calculatingPreview, setCalculatingPreview] = useState(false);
   const [receiptsMap, setReceiptsMap] = useState<Map<string, PaymentReport>>(new Map());
   const [downloadingReceiptId, setDownloadingReceiptId] = useState<string | null>(null);
+  const [deletingPaymentReportId, setDeletingPaymentReportId] = useState<string | null>(null);
 
 
   
@@ -289,17 +290,17 @@ export default function TenantDetailPage() {
   };
 
   // Calculate total selected balance
-const calculateSelectedBalance = () => {
-  const rentBalance = outstandingInvoices
-    .filter(inv => selectedInvoiceIds.includes(inv.id))
-    .reduce((sum, inv) => sum + inv.balance, 0);
-  
-  const billBalance = outstandingBillInvoices
-    .filter(bi => selectedBillInvoiceIds.includes(bi.id))
-    .reduce((sum, bi) => sum + bi.balance, 0);
-  
-  return { rentBalance, billBalance, total: rentBalance + billBalance };
-};
+  const calculateSelectedBalance = () => {
+    const rentBalance = outstandingInvoices
+      .filter(inv => selectedInvoiceIds.includes(inv.id))
+      .reduce((sum, inv) => sum + inv.balance, 0);
+    
+    const billBalance = outstandingBillInvoices
+      .filter(bi => selectedBillInvoiceIds.includes(bi.id))
+      .reduce((sum, bi) => sum + bi.balance, 0);
+    
+    return { rentBalance, billBalance, total: rentBalance + billBalance };
+  };
 
   // Enhanced payment status calculation
   const calculatePaymentStatus = (): { status: PaymentStatus; details: string } => {
@@ -499,6 +500,56 @@ const calculateSelectedBalance = () => {
       toast.error(error.message || 'Failed to generate balance invoice');
     } finally {
       setGeneratingPartialInvoice(false);
+    }
+  };
+
+  //Delete payment report ID function
+  const handleDeletePaymentReport = async (paymentReportId: string, paymentPeriod: string) => {
+    if (!confirm(`Are you sure you want to delete payment report for ${paymentPeriod}?\n\nThis will:\n• Delete the payment record\n• Delete associated receipt\n• Unlink or delete related invoices\n• Delete associated income record\n\nThis action cannot be undone!`)) {
+      return;
+    }
+
+    try {
+      setDeletingPaymentReportId(paymentReportId);
+      
+      const result = await paymentsAPI.deletePaymentReport(paymentReportId, {
+        deleteLinkedInvoices: true,    // Delete linked rent invoices
+        deleteBillInvoices: false,     // Keep bill invoices (set to true if needed)
+        deleteIncome: true,            // Delete associated income record
+        force: false                   // Respect 90-day protection
+      });
+      
+      toast.success(`Payment report for ${paymentPeriod} deleted successfully!`);
+      
+      // Show detailed success message
+      let details = [];
+      if (result.data.deletedReceipt) details.push('receipt deleted');
+      if (result.data.deletedInvoices.length > 0) details.push(`${result.data.deletedInvoices.length} invoice(s) deleted`);
+      if (result.data.deletedIncome) details.push('income record deleted');
+      if (result.data.unlinkCount > 0) details.push(`${result.data.unlinkCount} records unlinked`);
+      
+      if (details.length > 0) {
+        toast.info(`Cleanup: ${details.join(', ')}`);
+      }
+      
+      // Refresh data
+      fetchPaymentReports();
+      fetchInvoices();
+      fetchOutstandingInvoices();
+      
+    } catch (error: any) {
+      console.error('Error deleting payment report:', error);
+      
+      // Handle specific error cases
+      if (error.message?.includes('90 days')) {
+        toast.error(error.message);
+      } else if (error.message?.includes('foreign key')) {
+        toast.error('Cannot delete: Related records exist. Try unlinking first.');
+      } else {
+        toast.error(error.message || 'Failed to delete payment report');
+      }
+    } finally {
+      setDeletingPaymentReportId(null);
     }
   };
   const handleGenerateDemandLetter = async () => {
@@ -2125,13 +2176,13 @@ const calculateSelectedBalance = () => {
           <DialogHeader>
             <DialogTitle className="text-2xl font-bold text-heading-color">Payment Reports</DialogTitle>
             <DialogDescription className="text-gray-700">
-              <div className="flex items-center justify-between">
-                <span>All payment reports for {tenant.fullName}</span>
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <span className="text-sm sm:text-base">All payment reports for {tenant.fullName}</span>
                 <Button
                   onClick={handleDownloadPaymentReport}
                   disabled={generatingPDF || paymentReports.length === 0}
                   size="sm"
-                  className="ml-4"
+                  className="w-full sm:w-auto whitespace-nowrap"
                 >
                   {generatingPDF ? (
                     <>
@@ -2173,57 +2224,92 @@ const calculateSelectedBalance = () => {
                     key={report.id}
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="p-6 border border-gray-200 rounded-xl hover:shadow-lg transition-shadow bg-white"
+                    className="p-4 sm:p-6 border border-gray-200 rounded-xl hover:shadow-lg transition-shadow bg-white"
                   >
-                    <div className="flex items-start justify-between">
-                      <div className="space-y-3 flex-1">
-                        <div className="flex items-center gap-3">
-                          <h3 className="text-lg font-bold text-gray-900">{report.paymentPeriod}</h3>
-                          <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getPaymentStatusColor(report.status)}`}>
+                    <div className="flex flex-col lg:flex-row lg:items-start gap-4">
+                      {/* Main Content - Always takes available space */}
+                      <div className="space-y-3 flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                          <h3 className="text-base sm:text-lg font-bold text-gray-900">{report.paymentPeriod}</h3>
+                          <span className={`px-2 sm:px-3 py-1 rounded-full text-xs font-semibold border ${getPaymentStatusColor(report.status)}`}>
                             {report.status}
                           </span>
                         </div>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 text-sm">
                           <div>
-                            <p className="text-gray-500 font-medium">Total Due</p>
-                            <p className="text-gray-900 font-bold">Ksh {report.totalDue.toLocaleString()}</p>
+                            <p className="text-gray-500 font-medium text-xs sm:text-sm">Total Due</p>
+                            <p className="text-gray-900 font-bold text-sm sm:text-base">Ksh {report.totalDue.toLocaleString()}</p>
                           </div>
                           <div>
-                            <p className="text-gray-500 font-medium">Amount Paid</p>
-                            <p className="text-green-700 font-bold">Ksh {report.amountPaid.toLocaleString()}</p>
+                            <p className="text-gray-500 font-medium text-xs sm:text-sm">Amount Paid</p>
+                            <p className="text-green-700 font-bold text-sm sm:text-base">Ksh {report.amountPaid.toLocaleString()}</p>
                           </div>
                           {report.arrears > 0 && (
                             <div>
-                              <p className="text-gray-500 font-medium">Arrears</p>
-                              <p className="text-red-700 font-bold">Ksh {report.arrears.toLocaleString()}</p>
+                              <p className="text-gray-500 font-medium text-xs sm:text-sm">Arrears</p>
+                              <p className="text-red-700 font-bold text-sm sm:text-base">Ksh {report.arrears.toLocaleString()}</p>
                             </div>
                           )}
                           <div>
-                            <p className="text-gray-500 font-medium">Date Paid</p>
-                            <p className="text-gray-900 font-semibold">
+                            <p className="text-gray-500 font-medium text-xs sm:text-sm">Date Paid</p>
+                            <p className="text-gray-900 font-semibold text-xs sm:text-sm">
                               {new Date(report.datePaid).toLocaleDateString()}
                             </p>
                           </div>
                         </div>
                         {report.notes && (
                           <div className="text-sm">
-                            <p className="text-gray-500 font-medium">Notes</p>
-                            <p className="text-gray-700">{report.notes}</p>
+                            <p className="text-gray-500 font-medium text-xs sm:text-sm">Notes</p>
+                            <p className="text-gray-700 text-xs sm:text-sm wrap-break-words">{report.notes}</p>
                           </div>
                         )}
                       </div>
-                      {report.status === 'PARTIAL' && report.arrears > 0 && (
+
+                      {/* Action Buttons - Responsive layout */}
+                      <div className="flex flex-row lg:flex-col gap-2 shrink-0 w-full lg:w-auto mt-2 lg:mt-0 pt-3 lg:pt-0 border-t lg:border-t-0 border-gray-100">
+                        {/* Generate Balance Invoice Button - Only for partial payments */}
+                        {report.status === 'PARTIAL' && report.arrears > 0 && (
+                          <Button
+                            onClick={() => openPartialPaymentInvoiceDialog(report)}
+                            size="sm"
+                            className="flex-1 lg:flex-none bg-yellow-600 hover:bg-yellow-700 text-xs sm:text-sm whitespace-nowrap"
+                          >
+                            <svg className="w-3 h-3 sm:w-4 sm:h-4 mr-1 sm:mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                            </svg>
+                            <span className="hidden sm:inline">Generate Balance Invoice</span>
+                            <span className="sm:hidden">Balance Invoice</span>
+                          </Button>
+                        )}
+
+                        {/* DELETE BUTTON */}
                         <Button
-                          onClick={() => openPartialPaymentInvoiceDialog(report)}
+                          onClick={() => handleDeletePaymentReport(report.id, report.paymentPeriod)}
+                          variant="outline"
                           size="sm"
-                          className="ml-4 shrink-0 bg-yellow-600 hover:bg-yellow-700"
+                          disabled={deletingPaymentReportId === report.id}
+                          className="flex-1 lg:flex-none border-2 border-red-500 text-red-600 hover:bg-red-50 hover:text-red-700 font-medium transition-all duration-200 text-xs sm:text-sm whitespace-nowrap"
                         >
-                          <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                          </svg>
-                          Generate Balance Invoice
+                          {deletingPaymentReportId === report.id ? (
+                            <>
+                              <svg className="animate-spin -ml-1 mr-2 h-3 w-3 sm:h-4 sm:w-4 text-red-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                              </svg>
+                              <span className="hidden sm:inline">Deleting...</span>
+                              <span className="sm:hidden">...</span>
+                            </>
+                          ) : (
+                            <>
+                              <svg className="w-3 h-3 sm:w-4 sm:h-4 mr-1 sm:mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                              <span className="hidden sm:inline">Delete</span>
+                              <span className="sm:hidden">Del</span>
+                            </>
+                          )}
                         </Button>
-                      )}
+                      </div>
                     </div>
                   </motion.div>
                 ))}
