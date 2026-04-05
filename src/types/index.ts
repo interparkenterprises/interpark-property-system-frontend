@@ -476,6 +476,7 @@ export interface Lead {
   propertyId?: string;
   property?: Property;
   offerLetters?: OfferLetter[];
+  createdById?: string; 
   createdAt: string;
   updatedAt: string;
 }

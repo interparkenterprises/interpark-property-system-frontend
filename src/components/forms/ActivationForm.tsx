@@ -637,10 +637,13 @@ export default function ActivationForm({
               name="numberOfDays"
               value={formData.numberOfDays}
               onChange={handleChange}
-              min="1"
+              min="0"
               className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
-              placeholder="1"
+              placeholder="0"
             />
+            <p className="text-sm text-gray-400 mt-1">
+              Enter 0 for single-day activations (e.g., January 1st only)
+            </p>
           </div>
 
           <div>
