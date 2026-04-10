@@ -221,9 +221,13 @@ export default function ActivationForm({
     // Validate dates
     const startDate = new Date(formData.startDate);
     const endDate = new Date(formData.endDate);
-    
-    if (startDate >= endDate) {
-      setError('End date must be after start date');
+
+    // Reset time components for pure date comparison
+    const startDateOnly = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+    const endDateOnly = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+
+    if (startDateOnly > endDateOnly) {
+      setError('End date must be on or after start date');
       setLoading(false);
       return;
     }

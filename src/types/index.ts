@@ -194,6 +194,27 @@ export interface Tenant {
   billInvoices?: BillInvoice[];
   createdAt: string;
   updatedAt: string;
+  // Add these new properties from API response
+  rentInfo?: RentInfo;
+  rentSchedule?: RentScheduleItem[];
+}
+
+// Add these new interfaces
+export interface RentInfo {
+  currentRent: number;
+  nextEscalationDate: string | null;
+  escalationsApplied: number;
+  monthlyRent: number;
+  paymentAmount: number;
+  paymentPolicy: PaymentPolicy;
+}
+
+export interface RentScheduleItem {
+  period: number;
+  date: string;
+  monthlyRent: number;
+  paymentAmount: number;
+  paymentPolicy: PaymentPolicy;
 }
 
 export type PaymentStatus = 'PAID' | 'PARTIAL' | 'UNPAID'| 'CREDIT' | 'PREPAID';

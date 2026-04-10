@@ -259,34 +259,68 @@ export default function TenantDetailPage() {
 
 
   const calculatePaymentAmounts = () => {
-    if (!tenant) return { rent: 0, serviceCharge: 0, vat: 0, totalDue: 0 };
+    if (!tenant) return { rent: 0, serviceCharge: 0, vat: 0, totalDue: 0, monthlyEquivalent: 0 };
 
-    const rent = tenant.rent;
-    let serviceCharge = 0;
+    // Calculate monthly base amounts first
+    const monthlyRent = tenant.rent;
+    let monthlyServiceCharge = 0;
+    
     if (tenant.serviceCharge) {
       switch (tenant.serviceCharge.type) {
         case 'FIXED':
-          serviceCharge = tenant.serviceCharge.fixedAmount || 0;
+          monthlyServiceCharge = tenant.serviceCharge.fixedAmount || 0;
           break;
         case 'PERCENTAGE':
-          serviceCharge = (rent * (tenant.serviceCharge.percentage || 0)) / 100;
+          monthlyServiceCharge = (monthlyRent * (tenant.serviceCharge.percentage || 0)) / 100;
           break;
         case 'PER_SQ_FT':
-          serviceCharge = (tenant.unit?.sizeSqFt || 0) * (tenant.serviceCharge.perSqFtRate || 0);
+          monthlyServiceCharge = (tenant.unit?.sizeSqFt || 0) * (tenant.serviceCharge.perSqFtRate || 0);
           break;
       }
     }
 
-    const subtotal = rent + serviceCharge;
-    let vat = 0;
+    const monthlySubtotal = monthlyRent + monthlyServiceCharge;
+    let monthlyVat = 0;
+    
     if (tenant.vatType === 'INCLUSIVE' && tenant.vatRate) {
-      vat = subtotal - (subtotal / (1 + tenant.vatRate / 100));
+      monthlyVat = monthlySubtotal - (monthlySubtotal / (1 + tenant.vatRate / 100));
     } else if (tenant.vatType === 'EXCLUSIVE' && tenant.vatRate) {
-      vat = (subtotal * tenant.vatRate) / 100;
+      monthlyVat = (monthlySubtotal * tenant.vatRate) / 100;
     }
 
-    const totalDue = tenant.vatType === 'INCLUSIVE' ? subtotal : subtotal + vat;
-    return { rent, serviceCharge, vat, totalDue };
+    const monthlyTotalDue = tenant.vatType === 'INCLUSIVE' ? monthlySubtotal : monthlySubtotal + monthlyVat;
+
+    // Calculate period amounts based on payment policy
+    let multiplier = 1;
+    let periodLabel = 'Monthly';
+    
+    switch (tenant.paymentPolicy) {
+      case 'MONTHLY':
+        multiplier = 1;
+        periodLabel = 'Monthly';
+        break;
+      case 'QUARTERLY':
+        multiplier = 3;
+        periodLabel = 'Quarterly';
+        break;
+      case 'ANNUAL':
+        multiplier = 12;
+        periodLabel = 'Annual';
+        break;
+    }
+
+    const periodRent = monthlyRent * multiplier;
+    const periodServiceCharge = monthlyServiceCharge * multiplier;
+    const periodVat = monthlyVat * multiplier;
+    const periodTotalDue = monthlyTotalDue * multiplier;
+
+    return { 
+      rent: periodRent,
+      serviceCharge: periodServiceCharge, 
+      vat: periodVat, 
+      totalDue: periodTotalDue,
+      monthlyEquivalent: monthlyTotalDue // Store monthly amount for reference
+    };
   };
 
   // Calculate total selected balance
@@ -450,6 +484,7 @@ export default function TenantDetailPage() {
       setShowInvoiceDialog(false);
       setInvoiceForm({ dueDate: '', notes: '' });
       fetchInvoices();
+      fetchOutstandingInvoices(); // <-- ADD THIS LINE
     } catch (error) {
       console.error('Error generating invoice:', error);
       toast.dismiss();
@@ -494,6 +529,7 @@ export default function TenantDetailPage() {
       setSelectedPartialPayment(null);
       fetchInvoices();
       fetchPaymentReports();
+      fetchOutstandingInvoices(); // <-- ADD THIS LINE
     } catch (error: any) {
       console.error('Error generating partial payment invoice:', error);
       toast.dismiss();
@@ -903,7 +939,7 @@ export default function TenantDetailPage() {
     );
   }
 
-  const { rent, serviceCharge, vat, totalDue } = calculatePaymentAmounts();
+  const { rent, serviceCharge, vat, totalDue, monthlyEquivalent } = calculatePaymentAmounts();
   const partialPaymentsCount = paymentReports.filter(p => p.status === 'PARTIAL' && p.arrears > 0).length;
 
   return (
@@ -1231,7 +1267,7 @@ export default function TenantDetailPage() {
                 {tenant.paymentPolicy === 'QUARTERLY' && 'Quarterly Rent'}
                 {tenant.paymentPolicy === 'ANNUAL' && 'Annual Rent'}
               </p>
-              <p className="text-4xl font-bold text-gray-900">Ksh {tenant.rent.toLocaleString()}</p>
+              <p className="text-4xl font-bold text-gray-900"> Ksh {tenant.rentInfo?.paymentAmount?.toLocaleString() || tenant.rent?.toLocaleString()}</p>
               <p className="text-sm text-gray-700 mt-2">
                 {/* Dynamic description based on payment policy */}
                 {tenant.paymentPolicy === 'MONTHLY' && 'Per month'}
@@ -1601,7 +1637,29 @@ export default function TenantDetailPage() {
           {/* Scrollable content area */}
           <div className="flex-1 overflow-y-auto px-6 py-4">
             <div className="space-y-6">
-              {/* Payment Preview Card - Shows real-time calculation */}
+              {/* Payment Policy Banner */}
+              <div className="p-4 bg-linear-to-r from-purple-50 to-indigo-50 rounded-xl border border-purple-200">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-semibold text-purple-800 mb-1">Payment Policy</h3>
+                    <p className="text-2xl font-bold text-purple-900">
+                      {tenant.paymentPolicy === 'MONTHLY' && 'Monthly Payment'}
+                      {tenant.paymentPolicy === 'QUARTERLY' && 'Quarterly Payment'}
+                      {tenant.paymentPolicy === 'ANNUAL' && 'Annual Payment'}
+                    </p>
+                  </div>
+                  <div className={`px-4 py-2 rounded-full text-sm font-bold border ${getPaymentPolicyColor(tenant.paymentPolicy)}`}>
+                    {tenant.paymentPolicy}
+                  </div>
+                </div>
+                <p className="text-xs text-purple-700 mt-2">
+                  {tenant.paymentPolicy === 'MONTHLY' && 'Payment due every month'}
+                  {tenant.paymentPolicy === 'QUARTERLY' && 'Payment due every 3 months'}
+                  {tenant.paymentPolicy === 'ANNUAL' && 'Payment due once per year'}
+                </p>
+              </div>
+
+              {/* Payment Preview Card - Shows real-time calculation based on payment policy */}
               {paymentPreview && (
                 <motion.div 
                   initial={{ opacity: 0, y: -10 }}
@@ -1612,27 +1670,48 @@ export default function TenantDetailPage() {
                     <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                     </svg>
-                    Payment Preview
+                    Payment Preview ({tenant.paymentPolicy})
                   </h3>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
                     <div className="p-3 bg-white rounded-lg shadow-sm">
-                      <p className="text-gray-600 font-medium">Monthly Rent</p>
+                      <p className="text-gray-600 font-medium">
+                        {tenant.paymentPolicy === 'MONTHLY' && 'Monthly Rent'}
+                        {tenant.paymentPolicy === 'QUARTERLY' && 'Quarterly Rent'}
+                        {tenant.paymentPolicy === 'ANNUAL' && 'Annual Rent'}
+                      </p>
                       <p className="text-gray-900 font-bold text-lg">Ksh {paymentPreview.rent.toLocaleString()}</p>
+                      {tenant.paymentPolicy !== 'MONTHLY' && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          (Based on Ksh {tenant.rent?.toLocaleString()}/month)
+                        </p>
+                      )}
                     </div>
                     {(paymentPreview.serviceCharge ?? 0) > 0 && (
                       <div className="p-3 bg-white rounded-lg shadow-sm">
                         <p className="text-gray-600 font-medium">Service Charge</p>
                         <p className="text-gray-900 font-bold">Ksh {(paymentPreview.serviceCharge ?? 0).toLocaleString()}</p>
+                        {tenant.serviceCharge && (
+                          <p className="text-xs text-gray-500 mt-1">
+                            {tenant.serviceCharge.type === 'FIXED' && 'Fixed amount'}
+                            {tenant.serviceCharge.type === 'PERCENTAGE' && `${tenant.serviceCharge.percentage}% of rent`}
+                            {tenant.serviceCharge.type === 'PER_SQ_FT' && `Per sq ft (${tenant.unit?.sizeSqFt} sq ft)`}
+                          </p>
+                        )}
                       </div>
                     )}
                     {(paymentPreview.vat ?? 0) > 0 && (
                       <div className="p-3 bg-white rounded-lg shadow-sm">
-                        <p className="text-gray-600 font-medium">VAT</p>
+                        <p className="text-gray-600 font-medium">VAT ({tenant.vatRate}%)</p>
                         <p className="text-gray-900 font-bold">Ksh {(paymentPreview.vat ?? 0).toLocaleString()}</p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          {tenant.vatType === 'INCLUSIVE' ? 'Inclusive of rent' : 'Exclusive of rent'}
+                        </p>
                       </div>
                     )}
                     <div className="p-3 bg-indigo-100 rounded-lg shadow-sm border-2 border-indigo-300">
-                      <p className="text-indigo-800 font-medium">Total Due</p>
+                      <p className="text-indigo-800 font-medium">
+                        Total {tenant.paymentPolicy === 'MONTHLY' ? 'Monthly' : tenant.paymentPolicy === 'QUARTERLY' ? 'Quarterly' : 'Annual'} Due
+                      </p>
                       <p className="text-indigo-900 font-bold text-lg">Ksh {paymentPreview.totalDue.toLocaleString()}</p>
                     </div>
                     {paymentPreview.existingCredit ? (
@@ -1650,29 +1729,66 @@ export default function TenantDetailPage() {
                 </motion.div>
               )}
 
-              {/* Payment Summary Card */}
+              {/* Payment Summary Card - Shows calculation breakdown */}
               <div className="p-4 bg-linear-to-r from-green-50 to-emerald-50 rounded-xl border border-green-200">
-                <h3 className="text-lg font-semibold text-gray-800 mb-4">Payment Summary</h3>
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div className="p-3 bg-white rounded-lg">
-                    <p className="text-gray-600 font-medium">Monthly Rent</p>
-                    <p className="text-gray-900 font-bold text-lg">Ksh {rent.toLocaleString()}</p>
+                <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                  <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Payment Breakdown ({tenant.paymentPolicy})
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-3">
+                    <div className="p-3 bg-white rounded-lg">
+                      <p className="text-gray-600 font-medium">
+                        {tenant.paymentPolicy === 'MONTHLY' && 'Monthly Rent'}
+                        {tenant.paymentPolicy === 'QUARTERLY' && 'Quarterly Rent (3 months)'}
+                        {tenant.paymentPolicy === 'ANNUAL' && 'Annual Rent (12 months)'}
+                      </p>
+                      <p className="text-gray-900 font-bold text-lg">Ksh {(tenant.rentInfo?.paymentAmount || rent || 0).toLocaleString()}</p>
+                      {tenant.paymentPolicy !== 'MONTHLY' && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          Base monthly rent: Ksh {tenant.rent?.toLocaleString()}
+                        </p>
+                      )}
+                    </div>
+                    {serviceCharge > 0 && (
+                      <div className="p-3 bg-white rounded-lg">
+                        <p className="text-gray-600 font-medium">Service Charge</p>
+                        <p className="text-gray-900 font-bold">Ksh {serviceCharge.toLocaleString()}</p>
+                        {tenant.paymentPolicy !== 'MONTHLY' && (
+                          <p className="text-xs text-gray-500 mt-1">
+                            {tenant.serviceCharge?.type === 'PERCENTAGE' 
+                              ? `${tenant.serviceCharge.percentage}% of rent × ${tenant.paymentPolicy === 'QUARTERLY' ? 3 : 12} months`
+                              : `${tenant.paymentPolicy === 'QUARTERLY' ? '× 3 months' : '× 12 months'}`
+                            }
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
-                  {serviceCharge > 0 && (
-                    <div className="p-3 bg-white rounded-lg">
-                      <p className="text-gray-600 font-medium">Service Charge</p>
-                      <p className="text-gray-900 font-bold">Ksh {serviceCharge.toLocaleString()}</p>
+                  <div className="space-y-3">
+                    {vat > 0 && (
+                      <div className="p-3 bg-white rounded-lg">
+                        <p className="text-gray-600 font-medium">VAT ({tenant.vatRate}%)</p>
+                        <p className="text-gray-900 font-bold">Ksh {vat.toLocaleString()}</p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          {tenant.vatType === 'INCLUSIVE' ? 'Included in rent' : 'Added to subtotal'}
+                          {tenant.paymentPolicy !== 'MONTHLY' && ` × ${tenant.paymentPolicy === 'QUARTERLY' ? 3 : 12} months`}
+                        </p>
+                      </div>
+                    )}
+                    <div className="p-3 bg-emerald-100 rounded-lg border-2 border-emerald-300">
+                      <p className="text-emerald-800 font-medium">
+                        Total {tenant.paymentPolicy === 'MONTHLY' ? 'Monthly' : tenant.paymentPolicy === 'QUARTERLY' ? 'Quarterly' : 'Annual'} Due
+                      </p>
+                      <p className="text-emerald-900 font-bold text-xl">Ksh {totalDue.toLocaleString()}</p>
+                      {tenant.paymentPolicy !== 'MONTHLY' && (
+                        <p className="text-xs text-emerald-700 mt-1">
+                          Equivalent to Ksh {monthlyEquivalent.toLocaleString()}/month
+                        </p>
+                      )}
                     </div>
-                  )}
-                  {vat > 0 && (
-                    <div className="p-3 bg-white rounded-lg">
-                      <p className="text-gray-600 font-medium">VAT</p>
-                      <p className="text-gray-900 font-bold">Ksh {vat.toLocaleString()}</p>
-                    </div>
-                  )}
-                  <div className="p-3 bg-emerald-100 rounded-lg border-2 border-emerald-300">
-                    <p className="text-emerald-800 font-medium">Total Due (Monthly)</p>
-                    <p className="text-emerald-900 font-bold text-xl">Ksh {totalDue.toLocaleString()}</p>
                   </div>
                 </div>
               </div>
@@ -1774,9 +1890,14 @@ export default function TenantDetailPage() {
                                       <span className="font-semibold text-sm text-gray-900 truncate">
                                         {invoice.invoiceNumber}
                                       </span>
-                                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(invoice.status)}`}>
-                                        {invoice.status}
-                                      </span>
+                                      <div className="flex items-center gap-2">
+                                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getPaymentPolicyColor(invoice.paymentPolicy)}`}>
+                                          {invoice.paymentPolicy}
+                                        </span>
+                                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(invoice.status)}`}>
+                                          {invoice.status}
+                                        </span>
+                                      </div>
                                     </div>
                                     <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
                                       <div>
@@ -1970,6 +2091,9 @@ export default function TenantDetailPage() {
                     className="w-full text-gray-900"
                     required
                   />
+                  <p className="text-xs text-gray-500">
+                    Select the {tenant.paymentPolicy === 'MONTHLY' ? 'month' : tenant.paymentPolicy === 'QUARTERLY' ? 'quarter start month' : 'year'} for this payment
+                  </p>
                 </div>
 
                 <div className="space-y-2">
@@ -1981,7 +2105,7 @@ export default function TenantDetailPage() {
                     <Input
                       id="amountPaid"
                       type="number"
-                      placeholder="Enter amount"
+                      placeholder={`Enter amount (${tenant.paymentPolicy === 'MONTHLY' ? 'monthly' : tenant.paymentPolicy === 'QUARTERLY' ? 'quarterly' : 'annual'} payment)`}
                       value={paymentForm.amountPaid}
                       onChange={(e) => setPaymentForm({ ...paymentForm, amountPaid: e.target.value })}
                       className="w-full text-gray-900 pl-12 text-lg font-semibold"
@@ -2010,6 +2134,22 @@ export default function TenantDetailPage() {
                       </div>
                       <p className="text-xs text-gray-600">{calculatePaymentStatus().details}</p>
                       
+                      {/* Payment Percentage Indicator */}
+                      {parseFloat(paymentForm.amountPaid) > 0 && parseFloat(paymentForm.amountPaid) < totalDue && (
+                        <div className="mt-2">
+                          <div className="flex justify-between text-xs text-gray-600 mb-1">
+                            <span>Payment Progress</span>
+                            <span>{((parseFloat(paymentForm.amountPaid) / totalDue) * 100).toFixed(1)}%</span>
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-2">
+                            <div 
+                              className="bg-yellow-500 h-2 rounded-full transition-all duration-300"
+                              style={{ width: `${Math.min((parseFloat(paymentForm.amountPaid) / totalDue) * 100, 100)}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                      
                       {/* Overpayment Warning */}
                       {parseFloat(paymentForm.amountPaid) > totalDue && (
                         <div className="p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
@@ -2026,7 +2166,7 @@ export default function TenantDetailPage() {
                   </Label>
                   <Textarea
                     id="paymentNotes"
-                    placeholder="Add any additional notes about this payment..."
+                    placeholder={`Add any additional notes about this ${tenant.paymentPolicy === 'MONTHLY' ? 'monthly' : tenant.paymentPolicy === 'QUARTERLY' ? 'quarterly' : 'annual'} payment...`}
                     value={paymentForm.notes}
                     onChange={(e) => setPaymentForm({ ...paymentForm, notes: e.target.value })}
                     className="min-h-20 text-gray-900"
@@ -2065,7 +2205,7 @@ export default function TenantDetailPage() {
                   Processing...
                 </>
               ) : (
-                'Record Payment'
+                `Record ${tenant.paymentPolicy === 'MONTHLY' ? 'Monthly' : tenant.paymentPolicy === 'QUARTERLY' ? 'Quarterly' : 'Annual'} Payment`
               )}
             </Button>
           </DialogFooter>
