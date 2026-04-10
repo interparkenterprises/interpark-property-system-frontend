@@ -806,7 +806,7 @@ export default function TenantDetailPage() {
   };
 
   // delete function for invoices
-    const handleDeleteInvoice = async (invoiceId: string, invoiceNumber: string) => {
+  const handleDeleteInvoice = async (invoiceId: string, invoiceNumber: string) => {
     if (!confirm(`Are you sure you want to delete invoice ${invoiceNumber}? This action cannot be undone.`)) {
       return;
     }
@@ -818,6 +818,8 @@ export default function TenantDetailPage() {
       
       // Update the invoices list by removing the deleted invoice
       setInvoices(prevInvoices => prevInvoices.filter(invoice => invoice.id !== invoiceId));
+      // Refresh outstanding invoices to remove the deleted invoice from that list too
+      fetchOutstandingInvoices();
     } catch (error) {
       console.error('Error deleting invoice:', error);
       toast.error('Failed to delete invoice');
