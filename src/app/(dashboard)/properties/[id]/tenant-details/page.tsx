@@ -19,33 +19,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/Switch';
 import { toast } from 'sonner';
 import { generatePaymentReportPDF, generateBillInvoiceReportPDF, generateComprehensiveReportPDF } from '@/lib/pdfGenerator';
+import { formatDateToOrdinal, getDaysRemaining } from '@/lib/dateUtils';
 
-// Helper function to format date with ordinal (e.g., "7th July 2026")
-const formatDateToOrdinal = (dateString: string | Date | null | undefined): string => {
-  if (!dateString) return 'N/A';
-  
-  const date = new Date(dateString);
-  if (isNaN(date.getTime())) return 'Invalid Date';
-  
-  const day = date.getDate();
-  const month = date.toLocaleString('default', { month: 'long' });
-  const year = date.getFullYear();
-  
-  // Get ordinal suffix for the day
-  const getOrdinalSuffix = (day: number): string => {
-    if (day > 3 && day < 21) return 'th'; // Catch 11th, 12th, 13th
-    switch (day % 10) {
-      case 1: return 'st';
-      case 2: return 'nd';
-      case 3: return 'rd';
-      default: return 'th';
-    }
-  };
-  
-  const ordinalSuffix = getOrdinalSuffix(day);
-  
-  return `${day}${ordinalSuffix} ${month} ${year}`;
-};
 
 export default function TenantDetailPage() {
   const params = useParams();
@@ -1324,7 +1299,7 @@ export default function TenantDetailPage() {
                   </span>
                 </div>
                 
-                {/* Due Date */}
+                {/* Due Date - Use formatDateToOrdinal */}
                 <div className="mb-3">
                   <p className="text-2xl font-bold text-gray-900">
                     {formatDateToOrdinal(tenant.paymentSummary.nextPayment.dueDate)}
@@ -1342,7 +1317,7 @@ export default function TenantDetailPage() {
                   </span>
                 </div>
                 
-                {/* Time Remaining */}
+                {/* Time Remaining - Use getDaysRemaining for consistent calculation */}
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium text-gray-700">Time Remaining:</span>
                   <span className={`text-sm font-semibold ${
@@ -1350,11 +1325,18 @@ export default function TenantDetailPage() {
                       ? 'text-red-600' 
                       : 'text-green-600'
                   }`}>
-                    {tenant.paymentSummary.nextPayment.timeRemaining?.formatted || 'Due today'}
+                    {tenant.paymentSummary.nextPayment.timeRemaining?.formatted || 
+                    (() => {
+                      const days = getDaysRemaining(tenant.paymentSummary.nextPayment.dueDate);
+                      if (days === 0) return 'Due today';
+                      if (days === 1) return '1 day remaining';
+                      if (days < 0) return `Overdue by ${Math.abs(days)} days`;
+                      return `${days} days remaining`;
+                    })()}
                   </span>
                 </div>
                 
-                {/* Grace Period Info (if applicable) */}
+                {/* Grace Period Info */}
                 {tenant.paymentSummary.nextPayment.gracePeriodEnd && (
                   <div className="mt-3 pt-2 text-xs text-gray-500 border-t border-amber-100">
                     <span className="font-medium">Grace Period:</span> Until {formatDateToOrdinal(tenant.paymentSummary.nextPayment.gracePeriodEnd)}
@@ -1389,7 +1371,7 @@ export default function TenantDetailPage() {
               </div>
             )}
 
-            {/* Pending Billing Period (for NOT_STARTED status) */}
+            {/* Pending Billing Period */}
             {tenant.paymentSummary?.currentPeriod?.isPending && (
               <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
                 <div className="flex items-center justify-between mb-2">
