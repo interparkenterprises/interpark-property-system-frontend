@@ -132,6 +132,17 @@ export default function TenantDetailPage() {
     return () => clearTimeout(timeoutId);
   }, [paymentForm.amountPaid, tenantId]);
 
+  useEffect(() => {
+    if (showInvoiceDialog && tenant?.paymentSummary?.nextPayment?.dueDate) {
+      const dueDate = new Date(tenant.paymentSummary.nextPayment.dueDate);
+      const formattedDueDate = dueDate.toISOString().split('T')[0];
+      setInvoiceForm(prev => ({
+        ...prev,
+        dueDate: formattedDueDate
+      }));
+    }
+  }, [showInvoiceDialog, tenant?.paymentSummary?.nextPayment?.dueDate]);
+
   const fetchTenant = async () => {
     try {
       const data = await tenantsAPI.getById(tenantId);
@@ -1595,6 +1606,27 @@ export default function TenantDetailPage() {
               Generate a new invoice for {tenant.fullName}
             </DialogDescription>
           </DialogHeader>
+          
+          {/* Show next payment due date info */}
+          {tenant.paymentSummary?.nextPayment && (
+            <div className="mt-2 p-3 bg-amber-50 rounded-lg border border-amber-200">
+              <div className="flex items-start gap-2">
+                <svg className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div className="flex-1">
+                  <p className="text-xs font-semibold text-amber-800">Next Payment Due Date</p>
+                  <p className="text-sm font-bold text-amber-900">
+                    {formatDateToOrdinal(tenant.paymentSummary.nextPayment.dueDate)}
+                  </p>
+                  <p className="text-xs text-amber-700 mt-1">
+                    {tenant.paymentSummary.nextPayment.timeRemaining?.formatted || 'Due soon'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+          
           <div className="mt-2 p-3 bg-blue-50 rounded-lg border border-blue-200">
             <div className="text-sm text-blue-900 font-medium">
               Payment Policy: <span className="font-bold">{tenant.paymentPolicy}</span>
@@ -1603,6 +1635,7 @@ export default function TenantDetailPage() {
               The invoice will be generated according to this policy
             </div>
           </div>
+          
           <div className="space-y-6 py-4">
             <div className="space-y-2">
               <Label htmlFor="dueDate" className="text-sm font-semibold text-gray-800">
@@ -1615,6 +1648,9 @@ export default function TenantDetailPage() {
                 onChange={(e) => setInvoiceForm({ ...invoiceForm, dueDate: e.target.value })}
                 className="w-full text-gray-800"
               />
+              <p className="text-xs text-gray-500">
+                Recommended: Use the next payment due date shown above
+              </p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="notes" className="text-sm font-semibold text-gray-800">
@@ -1622,7 +1658,7 @@ export default function TenantDetailPage() {
               </Label>
               <Textarea
                 id="notes"
-                placeholder={`Add any additional notes (e.g., ${tenant.paymentPolicy} rent for December 2025)`}
+                placeholder={`Add any additional notes (e.g., ${tenant.paymentPolicy} rent for ${new Date(tenant.paymentSummary?.nextPayment?.dueDate || new Date()).toLocaleDateString('default', { month: 'long', year: 'numeric' })})`}
                 value={invoiceForm.notes}
                 onChange={(e) => setInvoiceForm({ ...invoiceForm, notes: e.target.value })}
                 className="min-h-[100px] text-gray-800"
