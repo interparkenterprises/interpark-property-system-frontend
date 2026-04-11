@@ -197,6 +197,7 @@ export interface Tenant {
   // Add these new properties from API response
   rentInfo?: RentInfo;
   rentSchedule?: RentScheduleItem[];
+  paymentSummary?: PaymentSummary;
 }
 
 // Add these new interfaces
@@ -215,6 +216,53 @@ export interface RentScheduleItem {
   monthlyRent: number;
   paymentAmount: number;
   paymentPolicy: PaymentPolicy;
+}
+export interface PaymentSummary {
+  paymentPolicy: PaymentPolicy;
+  policyMonths: number;
+  monthlyRent: number;
+  paymentAmountPerPeriod: number;
+  nextPayment: {
+    dueDate: string;
+    dueDateFormatted: string | null;
+    dueDateTime: string | null;
+    amount: number;
+    isOverdue: boolean;
+    timeRemaining: {
+      isOverdue: boolean;
+      days: number;
+      hours: number;
+      minutes: number;
+      formatted: string;
+    };
+    paymentsBehind: number;
+    gracePeriodEnd: string | null;
+    gracePeriodEndFormatted: string | null;
+  };
+  currentPeriod: {
+    periodNumber: number;
+    periodStart: string;
+    periodEnd: string;
+    daysRemainingInPeriod: number;
+    isInCurrentPeriod: boolean;
+    progressPercentage: number;
+    periodStartFormatted: string;
+    periodEndFormatted: string;
+    isPending?: boolean; // Add this optional property
+  };
+  paymentHistory: {
+    totalPaid: number;
+    expectedTotal: number;
+    outstandingBalance: number;
+    paymentsMade: number;
+    expectedPaymentsCount: number;
+    lastPaymentDate: string | null;
+    lastPaymentDateFormatted: string | null;
+    lastPaymentDateTime: string | null;
+  };
+  status: 'UP_TO_DATE' | 'OVERDUE' | 'PARTIALLY_PAID' | 'OVERPAID' | 'NOT_STARTED' | 'UNPAID' | 'NO_PAYMENTS_DUE'; // Add new statuses
+  isRentStarted?: boolean; 
+  rentStartDate?: string; 
 }
 
 export type PaymentStatus = 'PAID' | 'PARTIAL' | 'UNPAID'| 'CREDIT' | 'PREPAID';

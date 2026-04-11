@@ -20,6 +20,33 @@ import { Switch } from '@/components/ui/Switch';
 import { toast } from 'sonner';
 import { generatePaymentReportPDF, generateBillInvoiceReportPDF, generateComprehensiveReportPDF } from '@/lib/pdfGenerator';
 
+// Helper function to format date with ordinal (e.g., "7th July 2026")
+const formatDateToOrdinal = (dateString: string | Date | null | undefined): string => {
+  if (!dateString) return 'N/A';
+  
+  const date = new Date(dateString);
+  if (isNaN(date.getTime())) return 'Invalid Date';
+  
+  const day = date.getDate();
+  const month = date.toLocaleString('default', { month: 'long' });
+  const year = date.getFullYear();
+  
+  // Get ordinal suffix for the day
+  const getOrdinalSuffix = (day: number): string => {
+    if (day > 3 && day < 21) return 'th'; // Catch 11th, 12th, 13th
+    switch (day % 10) {
+      case 1: return 'st';
+      case 2: return 'nd';
+      case 3: return 'rd';
+      default: return 'th';
+    }
+  };
+  
+  const ordinalSuffix = getOrdinalSuffix(day);
+  
+  return `${day}${ordinalSuffix} ${month} ${year}`;
+};
+
 export default function TenantDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -1262,6 +1289,7 @@ export default function TenantDetailPage() {
             <h2 className="text-xl font-bold text-heading-color">Rent Information</h2>
           </div>
           <div className="space-y-6">
+            {/* Payment Amount Section */}
             <div className="p-6 bg-linear-to-r from-green-50 to-green-100 rounded-xl border border-green-200">
               <p className="text-sm font-semibold text-gray-800 mb-2">
                 {/* Dynamic heading based on payment policy */}
@@ -1269,7 +1297,9 @@ export default function TenantDetailPage() {
                 {tenant.paymentPolicy === 'QUARTERLY' && 'Quarterly Rent'}
                 {tenant.paymentPolicy === 'ANNUAL' && 'Annual Rent'}
               </p>
-              <p className="text-4xl font-bold text-gray-900"> Ksh {tenant.rentInfo?.paymentAmount?.toLocaleString() || tenant.rent?.toLocaleString()}</p>
+              <p className="text-4xl font-bold text-gray-900">
+                Ksh {tenant.rentInfo?.paymentAmount?.toLocaleString() || tenant.rent?.toLocaleString()}
+              </p>
               <p className="text-sm text-gray-700 mt-2">
                 {/* Dynamic description based on payment policy */}
                 {tenant.paymentPolicy === 'MONTHLY' && 'Per month'}
@@ -1277,6 +1307,197 @@ export default function TenantDetailPage() {
                 {tenant.paymentPolicy === 'ANNUAL' && 'Per year'}
               </p>
             </div>
+
+            {/* Next Payment Due Section */}
+            {tenant.paymentSummary?.nextPayment && (
+              <div className="p-4 bg-amber-50 rounded-xl border border-amber-200">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-sm font-semibold text-amber-800">Next Payment Due</span>
+                  <span className={`text-xs font-bold px-2 py-1 rounded-full ${
+                    tenant.paymentSummary.status === 'NOT_STARTED' ? 'bg-blue-100 text-blue-700' :
+                    tenant.paymentSummary.nextPayment.isOverdue 
+                      ? 'bg-red-100 text-red-700' 
+                      : 'bg-green-100 text-green-700'
+                  }`}>
+                    {tenant.paymentSummary.status === 'NOT_STARTED' ? 'NOT STARTED' :
+                    tenant.paymentSummary.nextPayment.isOverdue ? 'OVERDUE' : 'UPCOMING'}
+                  </span>
+                </div>
+                
+                {/* Due Date */}
+                <div className="mb-3">
+                  <p className="text-2xl font-bold text-gray-900">
+                    {formatDateToOrdinal(tenant.paymentSummary.nextPayment.dueDate)}
+                  </p>
+                  <p className="text-xs text-gray-600 mt-1">
+                    Payment due by end of day
+                  </p>
+                </div>
+                
+                {/* Amount Due */}
+                <div className="flex items-center justify-between mb-3 pb-3 border-b border-amber-200">
+                  <span className="text-sm font-medium text-gray-700">Amount Due:</span>
+                  <span className="text-lg font-bold text-amber-700">
+                    Ksh {tenant.paymentSummary.nextPayment.amount?.toLocaleString()}
+                  </span>
+                </div>
+                
+                {/* Time Remaining */}
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-gray-700">Time Remaining:</span>
+                  <span className={`text-sm font-semibold ${
+                    tenant.paymentSummary.nextPayment.timeRemaining?.isOverdue 
+                      ? 'text-red-600' 
+                      : 'text-green-600'
+                  }`}>
+                    {tenant.paymentSummary.nextPayment.timeRemaining?.formatted || 'Due today'}
+                  </span>
+                </div>
+                
+                {/* Grace Period Info (if applicable) */}
+                {tenant.paymentSummary.nextPayment.gracePeriodEnd && (
+                  <div className="mt-3 pt-2 text-xs text-gray-500 border-t border-amber-100">
+                    <span className="font-medium">Grace Period:</span> Until {formatDateToOrdinal(tenant.paymentSummary.nextPayment.gracePeriodEnd)}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Current Billing Period */}
+            {tenant.paymentSummary?.currentPeriod && !tenant.paymentSummary.currentPeriod.isPending && (
+              <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-semibold text-blue-800">Current Billing Period</span>
+                  <span className="text-xs font-medium text-blue-700">
+                    {Math.round(tenant.paymentSummary.currentPeriod.progressPercentage || 0)}% Complete
+                  </span>
+                </div>
+                <div className="mb-2">
+                  <p className="text-sm text-gray-700">
+                    {formatDateToOrdinal(tenant.paymentSummary.currentPeriod.periodStart)} - {formatDateToOrdinal(tenant.paymentSummary.currentPeriod.periodEnd)}
+                  </p>
+                </div>
+                <div className="w-full bg-blue-200 rounded-full h-2 mb-2">
+                  <div 
+                    className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                    style={{ width: `${Math.min(tenant.paymentSummary.currentPeriod.progressPercentage || 0, 100)}%` }}
+                  />
+                </div>
+                <p className="text-xs text-blue-700">
+                  {tenant.paymentSummary.currentPeriod.daysRemainingInPeriod} days remaining in this period
+                </p>
+              </div>
+            )}
+
+            {/* Pending Billing Period (for NOT_STARTED status) */}
+            {tenant.paymentSummary?.currentPeriod?.isPending && (
+              <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-semibold text-blue-800">First Billing Period</span>
+                  <span className="text-xs font-medium text-blue-700">Pending</span>
+                </div>
+                <div className="mb-2">
+                  <p className="text-sm text-gray-700">
+                    {formatDateToOrdinal(tenant.paymentSummary.currentPeriod.periodStart)} - {formatDateToOrdinal(tenant.paymentSummary.currentPeriod.periodEnd)}
+                  </p>
+                </div>
+                <p className="text-xs text-blue-700">
+                  Billing period will begin on {formatDateToOrdinal(tenant.paymentSummary.currentPeriod.periodStart)}
+                </p>
+              </div>
+            )}
+
+            {/* Payment Status Badge - UPDATED with all statuses */}
+            {tenant.paymentSummary?.status && (
+              <div className={`p-3 rounded-lg ${
+                tenant.paymentSummary.status === 'UP_TO_DATE' ? 'bg-green-50 border border-green-200' :
+                tenant.paymentSummary.status === 'OVERDUE' ? 'bg-red-50 border border-red-200' :
+                tenant.paymentSummary.status === 'PARTIALLY_PAID' ? 'bg-yellow-50 border border-yellow-200' :
+                tenant.paymentSummary.status === 'NOT_STARTED' ? 'bg-blue-50 border border-blue-200' :
+                tenant.paymentSummary.status === 'UNPAID' ? 'bg-red-50 border border-red-200' :
+                tenant.paymentSummary.status === 'OVERPAID' ? 'bg-orange-50 border border-orange-200' :
+                'bg-gray-50 border border-gray-200'
+              }`}>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-gray-700">Payment Status:</span>
+                  <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                    tenant.paymentSummary.status === 'UP_TO_DATE' ? 'bg-green-100 text-green-700' :
+                    tenant.paymentSummary.status === 'OVERDUE' ? 'bg-red-100 text-red-700' :
+                    tenant.paymentSummary.status === 'PARTIALLY_PAID' ? 'bg-yellow-100 text-yellow-700' :
+                    tenant.paymentSummary.status === 'NOT_STARTED' ? 'bg-blue-100 text-blue-700' :
+                    tenant.paymentSummary.status === 'UNPAID' ? 'bg-red-100 text-red-700' :
+                    tenant.paymentSummary.status === 'OVERPAID' ? 'bg-orange-100 text-orange-700' :
+                    'bg-gray-100 text-gray-700'
+                  }`}>
+                    {tenant.paymentSummary.status === 'NOT_STARTED' ? 'NOT STARTED' : 
+                    tenant.paymentSummary.status === 'UNPAID' ? 'UNPAID' :
+                    tenant.paymentSummary.status === 'OVERPAID' ? 'OVERPAID' :
+                    tenant.paymentSummary.status.replace(/_/g, ' ')}
+                  </span>
+                </div>
+                {/* Helpful messages based on status */}
+                {tenant.paymentSummary.status === 'NOT_STARTED' && tenant.paymentSummary.rentStartDate && (
+                  <p className="text-xs text-blue-700 mt-2">
+                    Rent payments will begin on {formatDateToOrdinal(tenant.paymentSummary.rentStartDate)}
+                  </p>
+                )}
+                {tenant.paymentSummary.status === 'UNPAID' && (
+                  <p className="text-xs text-red-700 mt-2">
+                    No payments have been recorded. Please make your first payment.
+                  </p>
+                )}
+                {tenant.paymentSummary.status === 'OVERPAID' && (
+                  <p className="text-xs text-orange-700 mt-2">
+                    You have a credit balance. Future payments will be adjusted automatically.
+                  </p>
+                )}
+                {tenant.paymentSummary.status === 'PARTIALLY_PAID' && (
+                  <p className="text-xs text-yellow-700 mt-2">
+                    Partial payment received. Outstanding balance: Ksh {tenant.paymentSummary.paymentHistory?.outstandingBalance?.toLocaleString()}
+                  </p>
+                )}
+                {tenant.paymentSummary.status === 'OVERDUE' && (
+                  <p className="text-xs text-red-700 mt-2">
+                    Payment is overdue. Please make payment immediately to avoid penalties.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Rent Escalation Notice - For tenants with escalation */}
+            {tenant.escalationRate && tenant.escalationRate > 0 && tenant.rentSchedule && tenant.rentSchedule.length > 1 && (
+              <div className="p-3 bg-purple-50 rounded-lg border border-purple-200">
+                <div className="flex items-start gap-2">
+                  <svg className="w-4 h-4 text-purple-600 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                  </svg>
+                  <div className="flex-1">
+                    <p className="text-xs font-semibold text-purple-800">Rent Escalation Notice</p>
+                    <p className="text-xs text-purple-700 mt-1">
+                      Rent will increase by {tenant.escalationRate}% every {tenant.escalationFrequency === 'BI_ANNUALLY' ? '6 months' : 'year'}.
+                      Next increase: {formatDateToOrdinal(tenant.rentSchedule[1]?.date)} to Ksh {tenant.rentSchedule[1]?.monthlyRent?.toLocaleString()}
+                    </p>
+                    {/* Optional: Show full escalation schedule in a collapsible section */}
+                    {tenant.rentSchedule.length > 2 && (
+                      <details className="mt-2">
+                        <summary className="text-xs text-purple-600 cursor-pointer hover:text-purple-800">
+                          View full escalation schedule
+                        </summary>
+                        <div className="mt-2 space-y-1 pl-2 border-l-2 border-purple-200">
+                          {tenant.rentSchedule.slice(1).map((schedule, idx) => (
+                            <div key={idx} className="text-xs text-purple-700 flex justify-between">
+                              <span>Effective {formatDateToOrdinal(schedule.date)}:</span>
+                              <span className="font-semibold">Ksh {schedule.monthlyRent.toLocaleString()}/month</span>
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {tenant.deposit && (
               <div className="p-4 bg-gray-50 rounded-xl">
                 <div className="flex items-center justify-between">
@@ -1285,6 +1506,7 @@ export default function TenantDetailPage() {
                 </div>
               </div>
             )}
+            
             <div className="p-4 bg-linear-to-r from-blue-50 to-purple-50 rounded-xl border border-blue-200">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-semibold text-gray-800">Payment Policy</span>
