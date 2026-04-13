@@ -42,6 +42,7 @@ import {
   SubmitActivationRequest,
   PaymentStatus,
   IncomeFrequency,
+  OverdueTenantsResponse
 } from '@/types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.interparkpropertysystem.co.ke/api';
@@ -391,6 +392,16 @@ export const tenantsAPI = {
   getById: async (id: string): Promise<Tenant> => {
     try {
       const response = await api.get(`/tenants/${id}`);
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+  // NEW: Get overdue tenants (optionally filtered by property)
+  getOverdue: async (propertyId?: string): Promise<OverdueTenantsResponse> => {
+    try {
+      const params = propertyId ? { params: { propertyId } } : {};
+      const response = await api.get('/tenants/overdue', params);
       return response.data;
     } catch (error) {
       return handleApiError(error);

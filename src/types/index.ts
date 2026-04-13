@@ -264,6 +264,21 @@ export interface PaymentSummary {
   isRentStarted?: boolean; 
   rentStartDate?: string; 
 }
+export interface OverdueTenantsResponse {
+  success: boolean;
+  count: number;
+  totalOverdueAmount: number;
+  tenants: Tenant[];
+  summary: {
+    totalOverdueTenants: number;
+    totalOverdueAmount: number;
+    averageOverdueAmount: number;
+  };
+  filter: {
+    propertyId: string | null;
+    scope: 'specific_property' | 'managed_properties' | 'all_properties';
+  };
+}
 
 export type PaymentStatus = 'PAID' | 'PARTIAL' | 'UNPAID'| 'CREDIT' | 'PREPAID';
 

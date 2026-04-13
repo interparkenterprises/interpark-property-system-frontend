@@ -3,13 +3,20 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Property, ArrearsResponse, ArrearsItem, Income } from '@/types';
-import { propertiesAPI, paymentsAPI } from '@/lib/api';
+import {
+  Property,
+  ArrearsResponse,
+  ArrearsItem,
+  Income,
+  Tenant,
+  OverdueTenantsResponse,
+} from '@/types';
+import { propertiesAPI, paymentsAPI, tenantsAPI } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { exportArrearsToPDF } from '@/lib/arrearsPdfGenerator';
 import { exportPropertyToExcel, ExportSection } from '@/lib/excelGenerator';
 
-type TabType = 'income' | 'commissions' | 'payments' | 'arrears';
+type TabType = 'income' | 'commissions' | 'payments' | 'arrears' | 'overdues';
 
 // Define proper types for Framer Motion variants
 const containerVariants = {
@@ -97,6 +104,8 @@ export default function PropertyDetailInfoPage() {
   const [arrearsData, setArrearsData] = useState<ArrearsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [arrearsLoading, setArrearsLoading] = useState(false);
+  const [overdueData, setOverdueData] = useState<OverdueTenantsResponse | null>(null);
+  const [overduesLoading, setOverduesLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>('income');
   const [exporting, setExporting] = useState(false);
   const [exportingArrearsPdf, setExportingArrearsPdf] = useState(false);
@@ -105,6 +114,7 @@ export default function PropertyDetailInfoPage() {
   // State for expanded tenant tabs
   const [expandedIncomeTenant, setExpandedIncomeTenant] = useState<string | null>(null);
   const [expandedArrearsTenant, setExpandedArrearsTenant] = useState<string | null>(null);
+  const [expandedOverdueTenant, setExpandedOverdueTenant] = useState<string | null>(null);
 
   const [exportSections, setExportSections] = useState<ExportSection[]>([
     { id: 'propertyInfo', label: 'Property Information', selected: true },
@@ -125,7 +135,11 @@ export default function PropertyDetailInfoPage() {
     if (activeTab === 'arrears' && !arrearsData) {
       fetchArrearsData();
     }
-  }, [activeTab]);
+
+    if (activeTab === 'overdues' && !overdueData) {
+      fetchOverduesData();
+    }
+  }, [activeTab, arrearsData, overdueData]);
 
   const fetchPropertyDetails = async () => {
     try {
@@ -147,6 +161,18 @@ export default function PropertyDetailInfoPage() {
       console.error('Error fetching arrears data:', error);
     } finally {
       setArrearsLoading(false);
+    }
+  };
+
+  const fetchOverduesData = async () => {
+    setOverduesLoading(true);
+    try {
+      const data = await tenantsAPI.getOverdue(propertyId);
+      setOverdueData(data);
+    } catch (error) {
+      console.error('Error fetching overdue tenants:', error);
+    } finally {
+      setOverduesLoading(false);
     }
   };
 
@@ -383,6 +409,7 @@ export default function PropertyDetailInfoPage() {
 
   const groupedIncome = groupIncomeByTenant();
   const groupedArrears = groupArrearsByTenant();
+  const overdueTenants = overdueData?.tenants || [];
 
   return (
     <motion.div
@@ -797,6 +824,11 @@ export default function PropertyDetailInfoPage() {
               id: 'arrears',
               label: 'Arrears',
               icon: 'M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
+            },
+            {
+              id: 'overdues',
+              label: 'Overdues',
+              icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z',
             },
             {
               id: 'payments',
@@ -1478,6 +1510,276 @@ export default function PropertyDetailInfoPage() {
                   </div>
                   <p className="text-gray-900 font-medium">Failed to load arrears data</p>
                   <Button onClick={fetchArrearsData} className="mt-4">
+                    Retry
+                  </Button>
+                </div>
+              )}
+            </motion.div>
+          </div>
+        )}
+
+
+        {activeTab === 'overdues' && (
+          <div className="space-y-6">
+            <motion.div
+              variants={itemVariants}
+              className="bg-white rounded-2xl p-8 shadow-lg border border-gray-200"
+            >
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center">
+                  <svg
+                    className="w-6 h-6 text-orange-600"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                </div>
+                <div>
+                  <h2 className="text-2xl font-bold text-heading-color">Overdue Tenants</h2>
+                  <p className="text-sm text-gray-600 mt-1">
+                    {overdueTenants.length} tenant{overdueTenants.length !== 1 ? 's' : ''} overdue for this property
+                  </p>
+                </div>
+              </div>
+
+              {overduesLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center">
+                    <div className="relative w-12 h-12 mx-auto mb-4">
+                      <motion.div
+                        className="absolute inset-0 border-4 border-orange-200 rounded-full"
+                        animate={{ scale: [1, 1.2, 1] }}
+                        transition={{ duration: 1.5, repeat: Infinity }}
+                      />
+                      <motion.div
+                        className="absolute inset-0 border-4 border-t-orange-500 border-r-transparent border-b-transparent border-l-transparent rounded-full"
+                        animate={{ rotate: 360 }}
+                        transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                      />
+                    </div>
+                    <p className="text-gray-600 font-medium">Loading overdue tenants...</p>
+                  </motion.div>
+                </div>
+              ) : overdueData ? (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                    <div className="bg-linear-to-br from-orange-50 to-orange-100 rounded-xl p-6 border border-orange-200">
+                      <div className="text-sm font-medium text-orange-700 mb-2">Overdue Tenants</div>
+                      <div className="text-2xl font-bold text-orange-900">
+                        {overdueData.summary.totalOverdueTenants}
+                      </div>
+                    </div>
+                    <div className="bg-linear-to-br from-red-50 to-red-100 rounded-xl p-6 border border-red-200">
+                      <div className="text-sm font-medium text-red-700 mb-2">Total Overdue Amount</div>
+                      <div className="text-2xl font-bold text-red-900">
+                        Ksh {overdueData.summary.totalOverdueAmount.toLocaleString()}
+                      </div>
+                    </div>
+                    <div className="bg-linear-to-br from-blue-50 to-blue-100 rounded-xl p-6 border border-blue-200">
+                      <div className="text-sm font-medium text-blue-700 mb-2">Average Overdue</div>
+                      <div className="text-2xl font-bold text-blue-900">
+                        Ksh {overdueData.summary.averageOverdueAmount.toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+
+                  {overdueTenants.length > 0 ? (
+                    <div className="space-y-4">
+                      {overdueTenants.map((tenant: Tenant, index) => {
+                        const outstandingBalance = tenant.paymentSummary?.paymentHistory?.outstandingBalance || 0;
+                        const totalPaid = tenant.paymentSummary?.paymentHistory?.totalPaid || 0;
+                        const nextDueDate =
+                          tenant.paymentSummary?.nextPayment?.dueDateFormatted ||
+                          tenant.paymentSummary?.nextPayment?.dueDate ||
+                          '-';
+                        const paymentsBehind = tenant.paymentSummary?.nextPayment?.paymentsBehind || 0;
+                        const paymentPerPeriod = tenant.paymentSummary?.paymentAmountPerPeriod || 0;
+                        const unitLabel = [tenant.unit?.type, tenant.unit?.unitNo].filter(Boolean).join(' ') || tenant.unit?.unitType || 'Unit';
+
+                        return (
+                          <motion.div
+                            key={tenant.id}
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: index * 0.05 }}
+                            className="border-2 border-gray-200 rounded-xl overflow-hidden hover:border-orange-300 transition-colors"
+                          >
+                            <button
+                              onClick={() =>
+                                setExpandedOverdueTenant(
+                                  expandedOverdueTenant === tenant.id ? null : tenant.id
+                                )
+                              }
+                              className="w-full flex items-center justify-between p-5 bg-orange-50/40 hover:bg-orange-50/60 transition-colors text-left"
+                            >
+                              <div className="flex items-center gap-4">
+                                <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center">
+                                  <span className="text-lg font-bold text-orange-700">
+                                    {tenant.fullName.charAt(0).toUpperCase()}
+                                  </span>
+                                </div>
+
+                                <div>
+                                  <h3 className="text-lg font-bold text-gray-900">{tenant.fullName}</h3>
+                                  <div className="flex items-center gap-3 text-sm text-gray-600 mt-1 flex-wrap">
+                                    <span className="flex items-center gap-1">
+                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                                      </svg>
+                                      {unitLabel}
+                                    </span>
+                                    <span>•</span>
+                                    <span>{tenant.contact || tenant.email || 'No contact'}</span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-6">
+                                <div className="text-right">
+                                  <p className="text-xs text-gray-600 mb-1">
+                                    Payments Behind:
+                                    <span className="ml-1 font-medium text-orange-700">{paymentsBehind}</span>
+                                  </p>
+                                  <p className="text-sm text-gray-600">
+                                    Outstanding:
+                                    <span className="ml-1 text-red-600 font-bold text-lg">
+                                      Ksh {outstandingBalance.toLocaleString()}
+                                    </span>
+                                  </p>
+                                </div>
+
+                                <motion.div
+                                  animate={{ rotate: expandedOverdueTenant === tenant.id ? 180 : 0 }}
+                                  transition={{ duration: 0.2 }}
+                                  className="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-sm"
+                                >
+                                  <svg
+                                    className="w-5 h-5 text-gray-600"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M19 9l-7 7-7-7"
+                                    />
+                                  </svg>
+                                </motion.div>
+                              </div>
+                            </button>
+
+                            <AnimatePresence>
+                              {expandedOverdueTenant === tenant.id && (
+                                <motion.div
+                                  initial={{ height: 0, opacity: 0 }}
+                                  animate={{ height: 'auto', opacity: 1 }}
+                                  exit={{ height: 0, opacity: 0 }}
+                                  transition={{ duration: 0.3 }}
+                                  className="overflow-hidden"
+                                >
+                                  <div className="p-5 bg-white border-t border-gray-200">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                      <div className="bg-gray-50 rounded-lg p-4">
+                                        <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">
+                                          Payment Status
+                                        </p>
+                                        <p className="font-semibold text-gray-900">
+                                          {tenant.paymentSummary?.status || 'OVERDUE'}
+                                        </p>
+                                      </div>
+
+                                      <div className="bg-gray-50 rounded-lg p-4">
+                                        <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">
+                                          Next Due Date
+                                        </p>
+                                        <p className="font-semibold text-gray-900">{nextDueDate}</p>
+                                      </div>
+
+                                      <div className="bg-gray-50 rounded-lg p-4">
+                                        <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">
+                                          Payment Per Period
+                                        </p>
+                                        <p className="font-semibold text-gray-900">
+                                          Ksh {paymentPerPeriod.toLocaleString()}
+                                        </p>
+                                      </div>
+
+                                      <div className="bg-gray-50 rounded-lg p-4">
+                                        <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">
+                                          Total Paid
+                                        </p>
+                                        <p className="font-semibold text-green-700">
+                                          Ksh {totalPaid.toLocaleString()}
+                                        </p>
+                                      </div>
+
+                                      <div className="bg-gray-50 rounded-lg p-4 md:col-span-2">
+                                        <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">
+                                          Lease Term
+                                        </p>
+                                        <p className="font-semibold text-gray-900">{tenant.leaseTerm || '-'}</p>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
+                          </motion.div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="text-center py-12">
+                      <div className="w-16 h-16 mx-auto mb-4 bg-green-100 rounded-full flex items-center justify-center">
+                        <svg
+                          className="w-8 h-8 text-green-600"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                          />
+                        </svg>
+                      </div>
+                      <p className="text-gray-900 font-medium text-lg">No Overdues Found</p>
+                      <p className="text-gray-600 mt-2">
+                        All tenants in this property are up to date.
+                      </p>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="text-center py-12">
+                  <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+                    <svg
+                      className="w-8 h-8 text-gray-400"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                      />
+                    </svg>
+                  </div>
+                  <p className="text-gray-900 font-medium">Failed to load overdue tenants</p>
+                  <Button onClick={fetchOverduesData} className="mt-4">
                     Retry
                   </Button>
                 </div>
