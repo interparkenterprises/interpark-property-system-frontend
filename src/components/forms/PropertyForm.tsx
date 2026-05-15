@@ -4,6 +4,7 @@ import { useState, useEffect, forwardRef, ChangeEvent } from 'react';
 import { Property, Landlord, PropertyForm as PropertyFormType, UsageType } from '@/types';
 import { propertiesAPI, landlordsAPI } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { useGlobalPermissions } from '@/app/providers/PermissionsProvider';
 
 interface PropertyFormProps {
   property?: Property;
@@ -17,6 +18,16 @@ const getDraftKey = (propertyId?: string) =>
 
 const PropertyForm = forwardRef<HTMLFormElement, PropertyFormProps>(
   ({ property, onSuccess, onCancel }, ref) => {
+    const { 
+      canViewLandlordsForAssignment,
+      canCreateNewLandlord,
+      canAssignLandlord,
+      isAdmin,
+      isManager,
+      isManagedUser,
+      canCreateProperty
+    } = useGlobalPermissions();
+    
     const [formData, setFormData] = useState({
       name: '',
       address: '',
@@ -44,6 +55,7 @@ const PropertyForm = forwardRef<HTMLFormElement, PropertyFormProps>(
     const [landlordMode, setLandlordMode] = useState<'existing' | 'new'>('existing');
     const [imagePreview, setImagePreview] = useState<string | null>(null);
     const [hasDraft, setHasDraft] = useState(false);
+    const [fetchingLandlords, setFetchingLandlords] = useState(false);
 
     // Load draft from localStorage
     const loadDraft = () => {
@@ -102,8 +114,42 @@ const PropertyForm = forwardRef<HTMLFormElement, PropertyFormProps>(
       }
     };
 
+    const fetchLandlords = async () => {
+      // Only fetch landlords if user has permission to view them OR can create properties
+      if (!canViewLandlordsForAssignment && !isAdmin && !isManager && !canCreateProperty) {
+        console.log('User does not have permission to view landlords');
+        return;
+      }
+      
+      setFetchingLandlords(true);
+      try {
+        const data = await landlordsAPI.getAll();
+        setLandlords(data);
+      } catch (error: any) {
+        console.error('Error fetching landlords:', error);
+        // Don't show error to user for managed users - just show empty list
+        if (error?.response?.status !== 403) {
+          setError('Failed to load landlords. You can still create a new landlord.');
+        }
+        // Set empty array so user can still create new landlord
+        setLandlords([]);
+      } finally {
+        setFetchingLandlords(false);
+      }
+    };
+
     useEffect(() => {
-      fetchLandlords();
+      // Only fetch landlords if user has permission OR can create properties
+      if (canViewLandlordsForAssignment || isAdmin || isManager || canCreateProperty) {
+        fetchLandlords();
+      } else {
+        // For users without view permissions but with property create permission, default to new landlord mode
+        if (canCreateProperty) {
+          setLandlordMode('new');
+        } else {
+          setLandlordMode('existing');
+        }
+      }
       
       if (property) {
         const draftLoaded = loadDraft();
@@ -140,17 +186,7 @@ const PropertyForm = forwardRef<HTMLFormElement, PropertyFormProps>(
         // Creating new property - try to load draft
         loadDraft();
       }
-    }, [property]);
-
-    const fetchLandlords = async () => {
-      try {
-        const data = await landlordsAPI.getAll();
-        setLandlords(data);
-      } catch (error) {
-        console.error('Error fetching landlords:', error);
-        setError('Failed to load landlords. Please try again.');
-      }
-    };
+    }, [property, canViewLandlordsForAssignment, isAdmin, isManager, canCreateProperty]);
 
     const handleChange = (
       e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
@@ -264,6 +300,13 @@ const PropertyForm = forwardRef<HTMLFormElement, PropertyFormProps>(
 
       if (landlordMode === 'new' && !formData.landlordName.trim()) {
         setError('Landlord name is required.');
+        setLoading(false);
+        return;
+      }
+
+      // Check if user has permission to create new landlord
+      if (!property && !canCreateNewLandlord && landlordMode === 'new') {
+        setError('You do not have permission to create new landlords. Please select an existing landlord.');
         setLoading(false);
         return;
       }
@@ -382,6 +425,14 @@ const PropertyForm = forwardRef<HTMLFormElement, PropertyFormProps>(
       }
     };
 
+    // Determine if user can select existing landlords
+    // User can select existing landlords if they have permission to view landlords OR can create properties
+    const canSelectExistingLandlords = canViewLandlordsForAssignment || isAdmin || isManager;
+    
+    // Determine if user can create new landlords
+    // User can create new landlords if they have permission to create landlords OR can create properties
+    const canAddNewLandlord = canCreateNewLandlord || isAdmin || isManager;
+
     return (
       <form
         ref={ref}
@@ -413,6 +464,19 @@ const PropertyForm = forwardRef<HTMLFormElement, PropertyFormProps>(
         {error && (
           <div className="p-3 rounded-md bg-red-50 border border-red-200 text-red-700 text-sm">
             <strong>❌ Error:</strong> {error}
+          </div>
+        )}
+
+        {/* Permission Info Banner for Managed Users */}
+        {isManagedUser && !canSelectExistingLandlords && canAddNewLandlord && (
+          <div className="p-3 rounded-md bg-blue-50 border border-blue-200 text-blue-700 text-sm">
+            <strong>ℹ️ Info:</strong> You will need to create a new landlord for this property since you don't have access to view existing ones.
+          </div>
+        )}
+
+        {!canAssignLandlord && (
+          <div className="p-3 rounded-md bg-red-50 border border-red-200 text-red-700 text-sm">
+            <strong>❌ Error:</strong> You don't have permission to assign a landlord to this property. Please contact your administrator.
           </div>
         )}
 
@@ -708,33 +772,47 @@ const PropertyForm = forwardRef<HTMLFormElement, PropertyFormProps>(
           <label className="block text-sm font-medium text-gray-700 mb-3">
             Landlord Assignment
           </label>
-          <div className="flex flex-wrap gap-3 mb-4">
-            <button
-              type="button"
-              onClick={() => handleLandlordModeChange('existing')}
-              className={`px-4 py-2 rounded-lg border font-medium transition-colors ${
-                landlordMode === 'existing'
-                  ? 'bg-primary text-white border-primary'
-                  : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-              }`}
-            >
-              ✅ Select Existing Landlord
-            </button>
-            <button
-              type="button"
-              onClick={() => handleLandlordModeChange('new')}
-              className={`px-4 py-2 rounded-lg border font-medium transition-colors ${
-                landlordMode === 'new'
-                  ? 'bg-primary text-white border-primary'
-                  : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-              }`}
-            >
-              ➕ Add New Landlord
-            </button>
-          </div>
+          
+          {/* Only show toggle buttons if user has both options available */}
+          {(canSelectExistingLandlords && canAddNewLandlord && canAssignLandlord) ? (
+            <div className="flex flex-wrap gap-3 mb-4">
+              <button
+                type="button"
+                onClick={() => handleLandlordModeChange('existing')}
+                className={`px-4 py-2 rounded-lg border font-medium transition-colors ${
+                  landlordMode === 'existing'
+                    ? 'bg-primary text-white border-primary'
+                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                ✅ Select Existing Landlord
+              </button>
+              <button
+                type="button"
+                onClick={() => handleLandlordModeChange('new')}
+                className={`px-4 py-2 rounded-lg border font-medium transition-colors ${
+                  landlordMode === 'new'
+                    ? 'bg-primary text-white border-primary'
+                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                ➕ Add New Landlord
+              </button>
+            </div>
+          ) : (canSelectExistingLandlords && canAssignLandlord) ? (
+            // User can only select existing landlords
+            <div className="mb-4">
+              <p className="text-sm text-gray-600 mb-2">Selecting existing landlord</p>
+            </div>
+          ) : (canAddNewLandlord && canAssignLandlord) ? (
+            // User can only create new landlord
+            <div className="mb-4">
+              <p className="text-sm text-gray-600 mb-2">Creating a new landlord</p>
+            </div>
+          ) : null}
 
           {/* Existing Landlord */}
-          {landlordMode === 'existing' && (
+          {(landlordMode === 'existing' && canSelectExistingLandlords && canAssignLandlord) && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Select Landlord *
@@ -744,7 +822,7 @@ const PropertyForm = forwardRef<HTMLFormElement, PropertyFormProps>(
                 value={formData.landlordId}
                 onChange={handleChange}
                 required
-                disabled={loading}
+                disabled={loading || fetchingLandlords}
                 className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary text-black"
               >
                 <option value="" className="text-black">— Choose a landlord —</option>
@@ -754,6 +832,14 @@ const PropertyForm = forwardRef<HTMLFormElement, PropertyFormProps>(
                   </option>
                 ))}
               </select>
+              {fetchingLandlords && (
+                <p className="mt-1 text-xs text-gray-500">Loading landlords...</p>
+              )}
+              {landlords.length === 0 && !fetchingLandlords && (
+                <p className="mt-1 text-xs text-amber-600">
+                  No landlords available. You can create a new landlord instead.
+                </p>
+              )}
               <p className="mt-1 text-xs text-gray-500">
                 You can manage landlords in the <strong>Landlords</strong> section.
               </p>
@@ -761,7 +847,7 @@ const PropertyForm = forwardRef<HTMLFormElement, PropertyFormProps>(
           )}
 
           {/* New Landlord */}
-          {landlordMode === 'new' && (
+          {(landlordMode === 'new' && canAddNewLandlord && canAssignLandlord) && (
             <div className="space-y-3 p-4 bg-gray-50 rounded-lg border border-gray-200">
               <h4 className="font-medium text-gray-800 mb-2">New Landlord Details</h4>
               
@@ -851,6 +937,13 @@ const PropertyForm = forwardRef<HTMLFormElement, PropertyFormProps>(
               </div>
             </div>
           )}
+          
+          {/* No permission to assign landlords */}
+          {!canAssignLandlord && (
+            <div className="p-3 rounded-md bg-red-50 border border-red-200 text-red-700 text-sm">
+              <strong>❌ Error:</strong> You don't have permission to assign a landlord to this property. Please contact your administrator.
+            </div>
+          )}
         </div>
 
         {/* Action Buttons */}
@@ -868,7 +961,7 @@ const PropertyForm = forwardRef<HTMLFormElement, PropertyFormProps>(
           )}
           <Button
             type="submit"
-            disabled={loading}
+            disabled={loading || !canAssignLandlord}
             className="px-5 py-2.5 bg-primary text-white hover:bg-primary/90 shadow-sm hover:shadow transition-shadow"
           >
             {loading ? (

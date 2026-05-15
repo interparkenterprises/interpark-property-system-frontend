@@ -1,5 +1,6 @@
 'use client';
-import { useEffect, useState } from 'react';
+
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { motion, Variants } from 'framer-motion';
 import { Tenant, Invoice, InvoiceStatus, PaymentReport, PaymentPreview, CreatePaymentReportResponse, PaymentStatus, BillInvoice, PaymentPolicy, DemandLetter, DemandLetterStatus, CreatePaymentReportRequest } from '@/types';
@@ -20,11 +21,106 @@ import { Switch } from '@/components/ui/Switch';
 import { toast } from 'sonner';
 import { generatePaymentReportPDF, generateBillInvoiceReportPDF, generateComprehensiveReportPDF } from '@/lib/pdfGenerator';
 import { formatDateToOrdinal, getDaysRemaining } from '@/lib/dateUtils';
-
+import { PermissionGuard } from '@/components/auth/PermissionGuard';
+import { useGlobalPermissions } from '@/app/providers/PermissionsProvider';
+import { PermissionCode } from '@/types';
 
 export default function TenantDetailPage() {
   const params = useParams();
   const router = useRouter();
+  
+  // Permission hooks
+  const { 
+    permissions,
+    isAdmin, 
+    isManager,
+    hasPermission,
+    canAccessModule,
+  } = useGlobalPermissions();
+  
+  // ==============================================
+  // PAGE ACCESS PERMISSION CHECK
+  // ==============================================
+  const tenantDetailsAccessPermissions = useMemo(() => [
+    PermissionCode.VIEW_TENANT_FINANCIALS,
+    PermissionCode.VIEW_INVOICES,
+    PermissionCode.VIEW_PAYMENT_REPORTS,
+    PermissionCode.VIEW_BILL_INVOICES,
+    PermissionCode.VIEW_DEMAND_LETTERS,
+    PermissionCode.VIEW_DEMAND_LETTER_DETAILS,
+    PermissionCode.VIEW_OVERDUE_INVOICES,
+    PermissionCode.VIEW_PARTIAL_PAYMENTS,
+    PermissionCode.RECORD_PAYMENTS,
+    PermissionCode.CREATE_INVOICE,
+    PermissionCode.CREATE_BALANCE_INVOICE,
+    PermissionCode.EDIT_INVOICE_PAYMENT_POLICY,
+    PermissionCode.DOWNLOAD_INVOICE,
+    PermissionCode.CREATE_DEMAND_LETTER,
+    PermissionCode.SEND_DEMAND_LETTERS,
+    PermissionCode.AUTO_GENERATE_DEMAND_LETTER,
+    PermissionCode.DOWNLOAD_DEMAND_LETTER,
+  ], []);
+
+  const canAccessTenantDetailsPage = useMemo(() => {
+    if (isAdmin || isManager) return true;
+    return tenantDetailsAccessPermissions.some(permission => hasPermission(permission));
+  }, [isAdmin, isManager, hasPermission, tenantDetailsAccessPermissions]);
+
+  // Redirect if user doesn't have permission
+  useEffect(() => {
+    if (!canAccessTenantDetailsPage) {
+      router.push('/unauthorized');
+    }
+  }, [canAccessTenantDetailsPage, router]);
+  
+  // ==============================================
+  // PERMISSION CHECKS FOR SPECIFIC FEATURES
+  // ADMIN and MANAGER have full access
+  // USER has limited access based on their permissions
+  // ==============================================
+  
+  const canViewInvoices = isAdmin || isManager || 
+    hasPermission(PermissionCode.VIEW_INVOICES) ||
+    hasPermission(PermissionCode.CREATE_INVOICE) ||
+    hasPermission(PermissionCode.CREATE_BALANCE_INVOICE) ||
+    hasPermission(PermissionCode.EDIT_INVOICE_PAYMENT_POLICY) ||
+    hasPermission(PermissionCode.DOWNLOAD_INVOICE) ||
+    hasPermission(PermissionCode.VIEW_PARTIAL_PAYMENTS);
+    
+  const canCreateInvoices = isAdmin || isManager || hasPermission(PermissionCode.CREATE_INVOICE);
+  const canDeleteInvoices = isAdmin || isManager || hasPermission(PermissionCode.DELETE_INVOICE);
+  const canDownloadInvoices = isAdmin || isManager || hasPermission(PermissionCode.DOWNLOAD_INVOICE);
+  
+  const canViewPayments = isAdmin || isManager ||
+    hasPermission(PermissionCode.VIEW_PAYMENT_REPORTS) ||
+    hasPermission(PermissionCode.RECORD_PAYMENTS) ||
+    hasPermission(PermissionCode.VIEW_PARTIAL_PAYMENTS);
+    
+  const canCreatePayments = isAdmin || isManager || hasPermission(PermissionCode.RECORD_PAYMENTS);
+  const canDeletePayments = isAdmin || isManager || hasPermission(PermissionCode.DELETE_PAYMENT_REPORT);
+  const canDownloadPaymentReports = isAdmin || isManager || hasPermission(PermissionCode.VIEW_PAYMENT_REPORTS);
+  
+  const canViewBillInvoices = isAdmin || isManager || hasPermission(PermissionCode.VIEW_BILL_INVOICES);
+  const canDeleteBillInvoices = isAdmin || isManager || hasPermission(PermissionCode.DELETE_BILL_INVOICE);
+  const canDownloadBillInvoices = isAdmin || isManager || hasPermission(PermissionCode.DOWNLOAD_BILL_INVOICE);
+  const canCreateBillInvoices = isAdmin || isManager || hasPermission(PermissionCode.CREATE_BILL_INVOICE);
+  
+  const canViewDemandLetters = isAdmin || isManager ||
+    hasPermission(PermissionCode.VIEW_DEMAND_LETTERS) ||
+    hasPermission(PermissionCode.VIEW_DEMAND_LETTER_DETAILS) ||
+    hasPermission(PermissionCode.SEND_DEMAND_LETTERS) ||
+    hasPermission(PermissionCode.AUTO_GENERATE_DEMAND_LETTER) ||
+    hasPermission(PermissionCode.DOWNLOAD_DEMAND_LETTER);
+    
+  const canCreateDemandLetters = isAdmin || isManager ||
+    hasPermission(PermissionCode.CREATE_DEMAND_LETTER) ||
+    hasPermission(PermissionCode.AUTO_GENERATE_DEMAND_LETTER);
+  
+  const canViewOverdueInvoices = isAdmin || isManager || hasPermission(PermissionCode.VIEW_OVERDUE_INVOICES);
+  
+  const canViewComprehensiveReport = isAdmin || isManager;
+  
+  // State declarations
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [paymentReports, setPaymentReports] = useState<PaymentReport[]>([]);
@@ -62,7 +158,7 @@ export default function TenantDetailPage() {
   const [showInvoiceSelection, setShowInvoiceSelection] = useState(true);
   const [overdueInvoices, setOverdueInvoices] = useState<Invoice[]>([]);
   const [showOverdueInvoicesDialog, setShowOverdueInvoicesDialog] = useState(false);
-  const [deletingInvoiceId, setDeletingInvoiceId] = useState<string | null>(null); // Add state for tracking deletion
+  const [deletingInvoiceId, setDeletingInvoiceId] = useState<string | null>(null);
   const [deletingBillInvoiceId, setDeletingBillInvoiceId] = useState<string | null>(null);
   const [paymentPreview, setPaymentPreview] = useState<PaymentPreview | null>(null);
   const [allocatedInvoices, setAllocatedInvoices] = useState<CreatePaymentReportResponse['invoices']>([]);
@@ -73,8 +169,6 @@ export default function TenantDetailPage() {
   const [downloadingReceiptId, setDownloadingReceiptId] = useState<string | null>(null);
   const [deletingPaymentReportId, setDeletingPaymentReportId] = useState<string | null>(null);
 
-
-  
   const [invoiceForm, setInvoiceForm] = useState({
     dueDate: '',
     notes: '',
@@ -99,14 +193,25 @@ export default function TenantDetailPage() {
 
   const tenantId = params.id as string;
 
+  // Fetch data based on permissions
   useEffect(() => {
     fetchTenant();
-    fetchInvoices();
-    fetchPaymentReports();
-    fetchBillInvoices();
-    fetchDemandLetters();
-    fetchOutstandingInvoices(); 
-    fetchPaymentReportsWithReceipts();
+    if (canViewInvoices) {
+      fetchInvoices();
+    }
+    if (canViewBillInvoices) {
+      fetchBillInvoices();
+    }
+    if (canViewPayments) {
+      fetchPaymentReports();
+      fetchPaymentReportsWithReceipts();
+    }
+    if (canViewDemandLetters) {
+      fetchDemandLetters();
+    }
+    if (canViewPayments) {
+      fetchOutstandingInvoices();
+    }
   }, [tenantId]);
 
   // Fetch payment preview when amount changes
@@ -128,7 +233,7 @@ export default function TenantDetailPage() {
       }
     };
 
-    const timeoutId = setTimeout(fetchPreview, 500); // Debounce
+    const timeoutId = setTimeout(fetchPreview, 500);
     return () => clearTimeout(timeoutId);
   }, [paymentForm.amountPaid, tenantId]);
 
@@ -156,17 +261,15 @@ export default function TenantDetailPage() {
   };
 
   const fetchInvoices = async () => {
+    if (!canViewInvoices) return;
+    
     try {
       setInvoicesLoading(true);
-      
       const response = await invoicesAPI.getInvoicesByTenant(tenantId, {
         page: 1,
-        limit: 1000, // Large number to get all
-        //sortBy: 'createdAt',
-        //sortOrder: 'desc'
+        limit: 1000,
       });
       setInvoices(response.data || []);
-      
     } catch (error) {
       console.error('Error fetching invoices:', error);
       toast.error('Failed to load invoices');
@@ -176,6 +279,8 @@ export default function TenantDetailPage() {
   };
 
   const fetchPaymentReports = async () => {
+    if (!canViewPayments) return;
+    
     try {
       setPaymentReportsLoading(true);
       const reports = await paymentsAPI.getPaymentsByTenant(tenantId);
@@ -186,7 +291,7 @@ export default function TenantDetailPage() {
         setPaymentReports([]);
       }
     } catch (error) {
-      console.error('Error fetching payment reports:', error);~
+      console.error('Error fetching payment reports:', error);
       toast.error('Failed to load payment reports');
       setPaymentReports([]);
     } finally {
@@ -195,12 +300,13 @@ export default function TenantDetailPage() {
   };
 
   const fetchBillInvoices = async () => {
+    if (!canViewBillInvoices) return;
+    
     try {
       setBillInvoicesLoading(true);
-      // If API supports pagination, get all pages
       const response = await billInvoicesAPI.getByTenant(tenantId, {
         page: 1,
-        limit: 1000, // Increase limit to get more invoices
+        limit: 1000,
       });
       setBillInvoices(response.data || []);
     } catch (error) {
@@ -209,11 +315,14 @@ export default function TenantDetailPage() {
       setBillInvoicesLoading(false);
     }
   };
+  
   const fetchDemandLetters = async () => {
+    if (!canViewDemandLetters) return;
+    
     try {
       setDemandLettersLoading(true);
       const response = await demandLettersAPI.getAll({ tenantId });
-      setDemandLetters(response.data || []); // Extract data from response
+      setDemandLetters(response.data || []);
     } catch (error) {
       console.error('Error fetching demand letters:', error);
       toast.error('Failed to load demand letters');
@@ -221,11 +330,11 @@ export default function TenantDetailPage() {
       setDemandLettersLoading(false);
     }
   };
+  
   const fetchOverdueInvoices = async () => {
     try {
       const response = await demandLettersAPI.getOverdueInvoices(tenantId);
-      // The API returns an object with invoices array and other properties
-      return response?.invoices || []; // Extract invoices array from response
+      return response?.invoices || [];
     } catch (error) {
       console.error('Error fetching overdue invoices:', error);
       toast.error('Failed to load overdue invoices');
@@ -234,6 +343,11 @@ export default function TenantDetailPage() {
   };
 
   const handleViewOverdueInvoices = async () => {
+    if (!canViewOverdueInvoices) {
+      toast.error('You do not have permission to view overdue invoices');
+      return;
+    }
+    
     try {
       setLoadingOutstanding(true);
       const overdue = await fetchOverdueInvoices();
@@ -254,13 +368,12 @@ export default function TenantDetailPage() {
   };
 
   const fetchOutstandingInvoices = async () => {
-    if (!tenantId) return;
+    if (!tenantId || !canViewPayments) return;
     
     try {
       setLoadingOutstanding(true);
       const data = await paymentsAPI.getOutstandingInvoices(tenantId, true);
       setOutstandingInvoices(data.rentInvoices || []);
-      //setOutstandingBillInvoices(data.billInvoices || []);
     } catch (error) {
       console.error('Error fetching outstanding invoices:', error);
       toast.error('Failed to load outstanding invoices');
@@ -269,12 +382,9 @@ export default function TenantDetailPage() {
     }
   };
 
-
-
   const calculatePaymentAmounts = () => {
     if (!tenant) return { rent: 0, serviceCharge: 0, vat: 0, totalDue: 0, monthlyEquivalent: 0 };
 
-    // Calculate monthly base amounts first
     const monthlyRent = tenant.rent;
     let monthlyServiceCharge = 0;
     
@@ -303,22 +413,17 @@ export default function TenantDetailPage() {
 
     const monthlyTotalDue = tenant.vatType === 'INCLUSIVE' ? monthlySubtotal : monthlySubtotal + monthlyVat;
 
-    // Calculate period amounts based on payment policy
     let multiplier = 1;
-    let periodLabel = 'Monthly';
     
     switch (tenant.paymentPolicy) {
       case 'MONTHLY':
         multiplier = 1;
-        periodLabel = 'Monthly';
         break;
       case 'QUARTERLY':
         multiplier = 3;
-        periodLabel = 'Quarterly';
         break;
       case 'ANNUAL':
         multiplier = 12;
-        periodLabel = 'Annual';
         break;
     }
 
@@ -332,11 +437,10 @@ export default function TenantDetailPage() {
       serviceCharge: periodServiceCharge, 
       vat: periodVat, 
       totalDue: periodTotalDue,
-      monthlyEquivalent: monthlyTotalDue // Store monthly amount for reference
+      monthlyEquivalent: monthlyTotalDue
     };
   };
 
-  // Calculate total selected balance
   const calculateSelectedBalance = () => {
     const rentBalance = outstandingInvoices
       .filter(inv => selectedInvoiceIds.includes(inv.id))
@@ -349,7 +453,6 @@ export default function TenantDetailPage() {
     return { rentBalance, billBalance, total: rentBalance + billBalance };
   };
 
-  // Enhanced payment status calculation
   const calculatePaymentStatus = (): { status: PaymentStatus; details: string } => {
     const amountPaid = parseFloat(paymentForm.amountPaid) || 0;
     const selectedBalance = calculateSelectedBalance().total;
@@ -359,7 +462,6 @@ export default function TenantDetailPage() {
       return { status: 'UNPAID', details: 'No payment amount entered' };
     }
     
-    // Check if this is an overpayment scenario
     if (amountPaid > selectedBalance && selectedBalance > 0) {
       const excess = amountPaid - selectedBalance;
       return { 
@@ -388,7 +490,6 @@ export default function TenantDetailPage() {
     return { status: 'UNPAID', details: 'Payment amount insufficient' };
   };
 
-  // Modified handleCreatePayment to handle new response structure
   const handleCreatePayment = async () => {
     if (!paymentForm.paymentPeriod || !paymentForm.amountPaid) {
       toast.error('Please fill in the payment period and amount');
@@ -401,6 +502,11 @@ export default function TenantDetailPage() {
       return;
     }
 
+    if (!canCreatePayments) {
+      toast.error('You do not have permission to record payments');
+      return;
+    }
+
     try {
       setCreatingPayment(true);
       
@@ -410,21 +516,17 @@ export default function TenantDetailPage() {
         notes: paymentForm.notes || undefined,
         paymentPeriod: paymentForm.paymentPeriod,
         invoiceIds: selectedInvoiceIds,
-       // billInvoiceIds: selectedBillInvoiceIds,
-       // autoGenerateBalanceInvoice,
         createMissingInvoices,
         updateExistingInvoices,
-        handleOverpayment: true // Enable overpayment handling
+        handleOverpayment: true
       };
 
       const response = await paymentsAPI.createPaymentReport(paymentData);
       
-      // Store allocation details for display
       setAllocatedInvoices(response.invoices);
       setOverpaymentDetails(response.overpayment || null);
       setShowPaymentAllocation(true);
       
-      // Show detailed success message
       let successMessage = `Payment of Ksh ${amountPaid.toLocaleString()} recorded successfully!`;
       
       if (response.overpayment?.totalOverpayment) {
@@ -437,7 +539,6 @@ export default function TenantDetailPage() {
       
       toast.success(successMessage);
       
-      // Reset form
       setPaymentForm({
         paymentPeriod: '',
         datePaid: new Date().toISOString().split('T')[0],
@@ -453,11 +554,10 @@ export default function TenantDetailPage() {
       setUpdateExistingInvoices(true);
       setPaymentPreview(null);
       
-      // Refresh data
       fetchPaymentReports();
       fetchInvoices();
       fetchOutstandingInvoices();
-      fetchPaymentReportsWithReceipts(); 
+      fetchPaymentReportsWithReceipts();
       
     } catch (error: any) {
       console.error('Error creating payment report:', error);
@@ -466,7 +566,6 @@ export default function TenantDetailPage() {
       setCreatingPayment(false);
     }
   };
-
 
   const handleGenerateInvoice = async () => {
     if (!invoiceForm.dueDate) {
@@ -479,11 +578,13 @@ export default function TenantDetailPage() {
       return;
     }
 
+    if (!canCreateInvoices) {
+      toast.error('You do not have permission to generate invoices');
+      return;
+    }
+
     try {
       setGenerating(true);
-      
-      // The invoice will automatically use the tenant's payment policy from the backend
-      // Display the payment policy being used
       toast.loading(`Generating ${tenant.paymentPolicy} invoice...`);
       
       await invoicesAPI.generateInvoice({
@@ -497,7 +598,7 @@ export default function TenantDetailPage() {
       setShowInvoiceDialog(false);
       setInvoiceForm({ dueDate: '', notes: '' });
       fetchInvoices();
-      fetchOutstandingInvoices(); // <-- ADD THIS LINE
+      fetchOutstandingInvoices();
     } catch (error) {
       console.error('Error generating invoice:', error);
       toast.dismiss();
@@ -523,10 +624,13 @@ export default function TenantDetailPage() {
       return;
     }
 
+    if (!canCreateInvoices) {
+      toast.error('You do not have permission to generate invoices');
+      return;
+    }
+
     try {
       setGeneratingPartialInvoice(true);
-      
-      // Display the payment policy being used
       toast.loading(`Generating ${tenant.paymentPolicy} balance invoice...`);
       
       await invoicesAPI.generateFromPartialPayment({
@@ -542,7 +646,7 @@ export default function TenantDetailPage() {
       setSelectedPartialPayment(null);
       fetchInvoices();
       fetchPaymentReports();
-      fetchOutstandingInvoices(); // <-- ADD THIS LINE
+      fetchOutstandingInvoices();
     } catch (error: any) {
       console.error('Error generating partial payment invoice:', error);
       toast.dismiss();
@@ -552,8 +656,12 @@ export default function TenantDetailPage() {
     }
   };
 
-  //Delete payment report ID function
   const handleDeletePaymentReport = async (paymentReportId: string, paymentPeriod: string) => {
+    if (!canDeletePayments) {
+      toast.error('You do not have permission to delete payment reports');
+      return;
+    }
+
     if (!confirm(`Are you sure you want to delete payment report for ${paymentPeriod}?\n\nThis will:\n• Delete the payment record\n• Delete associated receipt\n• Unlink or delete related invoices\n• Delete associated income record\n\nThis action cannot be undone!`)) {
       return;
     }
@@ -562,15 +670,14 @@ export default function TenantDetailPage() {
       setDeletingPaymentReportId(paymentReportId);
       
       const result = await paymentsAPI.deletePaymentReport(paymentReportId, {
-        deleteLinkedInvoices: true,    // Delete linked rent invoices
-        deleteBillInvoices: false,     // Keep bill invoices (set to true if needed)
-        deleteIncome: true,            // Delete associated income record
-        force: false                   // Respect 90-day protection
+        deleteLinkedInvoices: true,
+        deleteBillInvoices: false,
+        deleteIncome: true,
+        force: false
       });
       
       toast.success(`Payment report for ${paymentPeriod} deleted successfully!`);
       
-      // Show detailed success message
       let details = [];
       if (result.data.deletedReceipt) details.push('receipt deleted');
       if (result.data.deletedInvoices.length > 0) details.push(`${result.data.deletedInvoices.length} invoice(s) deleted`);
@@ -581,7 +688,6 @@ export default function TenantDetailPage() {
         toast.info(`Cleanup: ${details.join(', ')}`);
       }
       
-      // Refresh data
       fetchPaymentReports();
       fetchInvoices();
       fetchOutstandingInvoices();
@@ -589,7 +695,6 @@ export default function TenantDetailPage() {
     } catch (error: any) {
       console.error('Error deleting payment report:', error);
       
-      // Handle specific error cases
       if (error.message?.includes('90 days')) {
         toast.error(error.message);
       } else if (error.message?.includes('foreign key')) {
@@ -601,9 +706,15 @@ export default function TenantDetailPage() {
       setDeletingPaymentReportId(null);
     }
   };
+  
   const handleGenerateDemandLetter = async () => {
     if (!tenant) {
       toast.error('Tenant information not available');
+      return;
+    }
+
+    if (!canCreateDemandLetters) {
+      toast.error('You do not have permission to generate demand letters');
       return;
     }
 
@@ -611,7 +722,6 @@ export default function TenantDetailPage() {
       setGeneratingDemandLetter(true);
       toast.loading('Generating demand letter...');
       
-      // Auto-generate demand letter for the tenant
       const demandLetter = await demandLettersAPI.autoGenerate(tenantId);
       
       toast.dismiss();
@@ -620,7 +730,6 @@ export default function TenantDetailPage() {
       setDemandLetterForm({ demandPeriod: '', notes: '' });
       fetchDemandLetters();
       
-      // Optionally download the PDF immediately
       if (demandLetter.documentUrl) {
         await demandLettersAPI.downloadPDF(demandLetter.id);
       }
@@ -643,8 +752,6 @@ export default function TenantDetailPage() {
     }
   };
 
-
-
   const openPartialPaymentInvoiceDialog = (payment: PaymentReport) => {
     setSelectedPartialPayment(payment);
     setPartialInvoiceForm({
@@ -655,6 +762,11 @@ export default function TenantDetailPage() {
   };
 
   const handleDownloadInvoice = async (invoiceId: string, invoiceNumber: string) => {
+    if (!canDownloadInvoices) {
+      toast.error('You do not have permission to download invoices');
+      return;
+    }
+
     try {
       const blob = await invoicesAPI.downloadInvoice(invoiceId);
       const url = window.URL.createObjectURL(blob);
@@ -674,6 +786,11 @@ export default function TenantDetailPage() {
 
   const handleDownloadPaymentReport = async () => {
     if (!tenant) return;
+    
+    if (!canDownloadPaymentReports) {
+      toast.error('You do not have permission to download payment reports');
+      return;
+    }
 
     try {
       setGeneratingPDF(true);
@@ -692,6 +809,11 @@ export default function TenantDetailPage() {
 
   const handleDownloadBillPaymentReport = async () => {
     if (!tenant) return;
+    
+    if (!canDownloadBillInvoices) {
+      toast.error('You do not have permission to download bill invoices');
+      return;
+    }
 
     try {
       setGeneratingBillPDF(true);
@@ -710,6 +832,11 @@ export default function TenantDetailPage() {
 
   const handleDownloadComprehensiveReport = async () => {
     if (!tenant) return;
+
+    if (!canViewComprehensiveReport) {
+      toast.error('You do not have permission to download comprehensive reports');
+      return;
+    }
 
     try {
       setGeneratingComprehensivePDF(true);
@@ -758,14 +885,12 @@ export default function TenantDetailPage() {
         return 'bg-green-100 text-green-800 border-green-200';
       case 'PARTIAL':
         return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-      case 'UNPAID':
-        return 'bg-red-100 text-red-800 border-red-200';
       default:
         return 'bg-gray-100 text-gray-800 border-gray-200';
     }
   };
 
-    const getDemandLetterStatusColor = (status: DemandLetterStatus) => {
+  const getDemandLetterStatusColor = (status: DemandLetterStatus) => {
     switch (status) {
       case 'DRAFT':
         return 'bg-gray-100 text-gray-800 border-gray-200';
@@ -818,8 +943,12 @@ export default function TenantDetailPage() {
     }
   };
 
-  // delete function for invoices
   const handleDeleteInvoice = async (invoiceId: string, invoiceNumber: string) => {
+    if (!canDeleteInvoices) {
+      toast.error('You do not have permission to delete invoices');
+      return;
+    }
+
     if (!confirm(`Are you sure you want to delete invoice ${invoiceNumber}? This action cannot be undone.`)) {
       return;
     }
@@ -829,9 +958,7 @@ export default function TenantDetailPage() {
       await invoicesAPI.deleteInvoice(invoiceId);
       toast.success(`Invoice ${invoiceNumber} deleted successfully!`);
       
-      // Update the invoices list by removing the deleted invoice
       setInvoices(prevInvoices => prevInvoices.filter(invoice => invoice.id !== invoiceId));
-      // Refresh outstanding invoices to remove the deleted invoice from that list too
       fetchOutstandingInvoices();
     } catch (error) {
       console.error('Error deleting invoice:', error);
@@ -841,8 +968,12 @@ export default function TenantDetailPage() {
     }
   };
 
-  // delete function for bill-invoices
   const handleDeleteBillInvoice = async (billInvoiceId: string, invoiceNumber: string) => {
+    if (!canDeleteBillInvoices) {
+      toast.error('You do not have permission to delete bill invoices');
+      return;
+    }
+
     if (!confirm(`Are you sure you want to delete bill invoice ${invoiceNumber}? This action cannot be undone.`)) {
       return;
     }
@@ -852,7 +983,6 @@ export default function TenantDetailPage() {
       await billInvoicesAPI.deleteBillInvoice(billInvoiceId);
       toast.success(`Bill invoice ${invoiceNumber} deleted successfully!`);
       
-      // Update the bill invoices list by removing the deleted invoice
       setBillInvoices(prevInvoices => prevInvoices.filter(invoice => invoice.id !== billInvoiceId));
     } catch (error) {
       console.error('Error deleting bill invoice:', error);
@@ -861,7 +991,7 @@ export default function TenantDetailPage() {
       setDeletingBillInvoiceId(null);
     }
   };
-  // enhanced receipt download function that checks for receipt URL or number and provides better feedback
+  
   const handleDownloadReceipt = async (paymentReportId: string, receiptNumber?: string) => {
     try {
       setDownloadingReceiptId(paymentReportId);
@@ -1009,61 +1139,82 @@ export default function TenantDetailPage() {
           </div>
         </div>
 
-        {/* Action Buttons */}
+        {/* Action Buttons - Conditionally rendered based on permissions */}
         <div className="flex flex-wrap gap-3">
-          <Button
-            onClick={() => setShowInvoiceDialog(true)}
-            className="px-6 py-3 bg-primary text-white hover:bg-primary/90 transition-all duration-300 shadow-md hover:shadow-lg rounded-lg flex items-center gap-2"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            Generate Invoice
-          </Button>
-          <Button
-            onClick={() => setShowInvoicesList(true)}
-            variant="outline"
-            className="px-6 py-3 border-2 border-primary text-primary hover:bg-primary/5 transition-all duration-300 rounded-lg flex items-center gap-2"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            View Invoices ({invoices.length})
-          </Button>
-          <Button
-            onClick={() => setShowCreatePaymentDialog(true)}
-            className="px-6 py-3 bg-blue-600 text-white hover:bg-blue-700 transition-all duration-300 shadow-md hover:shadow-lg rounded-lg flex items-center gap-2"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            Record Payment
-          </Button>
-          <Button
-            onClick={() => setShowPaymentReportsDialog(true)}
-            variant="outline"
-            className="px-6 py-3 border-2 border-green-600 text-green-600 hover:bg-green-50 transition-all duration-300 rounded-lg flex items-center gap-2"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-            </svg>
-            Payment Reports ({paymentReports.length})
-            {partialPaymentsCount > 0 && (
-              <span className="ml-1 px-2 py-0.5 bg-yellow-500 text-white text-xs rounded-full">
-                {partialPaymentsCount} partial
-              </span>
-            )}
-          </Button>
-          <Button
-            onClick={() => setShowBillInvoicesDialog(true)}
-            variant="outline"
-            className="px-6 py-3 border-2 border-purple-600 text-purple-600 hover:bg-purple-50 transition-all duration-300 rounded-lg flex items-center gap-2"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            Bill Invoices ({billInvoices.length})
-          </Button>
+          {/* Generate Invoice Button - ADMIN, MANAGER, or user with CREATE_INVOICE permission */}
+          {(isAdmin || isManager || hasPermission(PermissionCode.CREATE_INVOICE)) && (
+            <Button
+              onClick={() => setShowInvoiceDialog(true)}
+              className="px-6 py-3 bg-primary text-white hover:bg-primary/90 transition-all duration-300 shadow-md hover:shadow-lg rounded-lg flex items-center gap-2"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              Generate Invoice
+            </Button>
+          )}
+          
+          {/* View Invoices Button - ADMIN, MANAGER, or user with VIEW_INVOICES permission */}
+          {(isAdmin || isManager || hasPermission(PermissionCode.VIEW_INVOICES)) && (
+            <Button
+              onClick={() => setShowInvoicesList(true)}
+              variant="outline"
+              className="px-6 py-3 border-2 border-primary text-primary hover:bg-primary/5 transition-all duration-300 rounded-lg flex items-center gap-2"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              View Invoices ({invoices.length})
+            </Button>
+          )}
+          
+          {/* Record Payment Button - ADMIN, MANAGER, or user with RECORD_PAYMENTS permission */}
+          {(isAdmin || isManager || hasPermission(PermissionCode.RECORD_PAYMENTS)) && (
+            <Button
+              onClick={() => setShowCreatePaymentDialog(true)}
+              className="px-6 py-3 bg-blue-600 text-white hover:bg-blue-700 transition-all duration-300 shadow-md hover:shadow-lg rounded-lg flex items-center gap-2"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              Record Payment
+            </Button>
+          )}
+          
+          {/* Payment Reports Button - ADMIN, MANAGER, or user with VIEW_PAYMENT_REPORTS permission */}
+          {(isAdmin || isManager || hasPermission(PermissionCode.VIEW_PAYMENT_REPORTS)) && (
+            <Button
+              onClick={() => setShowPaymentReportsDialog(true)}
+              variant="outline"
+              className="px-6 py-3 border-2 border-green-600 text-green-600 hover:bg-green-50 transition-all duration-300 rounded-lg flex items-center gap-2"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+              </svg>
+              Payment Reports ({paymentReports.length})
+              {partialPaymentsCount > 0 && (
+                <span className="ml-1 px-2 py-0.5 bg-yellow-500 text-white text-xs rounded-full">
+                  {partialPaymentsCount} partial
+                </span>
+              )}
+            </Button>
+          )}
+          
+          {/* Bill Invoices Button - ADMIN, MANAGER, or user with VIEW_BILL_INVOICES permission */}
+          {(isAdmin || isManager || hasPermission(PermissionCode.VIEW_BILL_INVOICES)) && (
+            <Button
+              onClick={() => setShowBillInvoicesDialog(true)}
+              variant="outline"
+              className="px-6 py-3 border-2 border-purple-600 text-purple-600 hover:bg-purple-50 transition-all duration-300 rounded-lg flex items-center gap-2"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              Bill Invoices ({billInvoices.length})
+            </Button>
+          )}
+          
+          {/* My Bills Button - Available to all logged in users */}
           <Button
             onClick={() => router.push(`/properties/${params.id}/tenant-details/bills`)}
             variant="outline"
@@ -1074,27 +1225,34 @@ export default function TenantDetailPage() {
             </svg>
             My Bills
           </Button>
-                    {/* Demand Letter Button */}
-          <Button
-            onClick={() => setShowDemandLetterDialog(true)}
-            variant="outline"
-            className="px-6 py-3 border-2 border-red-600 text-red-600 hover:bg-red-50 transition-all duration-300 rounded-lg flex items-center gap-2"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
-            Demand Letter
-          </Button>
-          <Button
-            onClick={() => setShowDemandLettersListDialog(true)}
-            variant="outline"
-            className="px-6 py-3 border-2 border-orange-600 text-orange-600 hover:bg-orange-50 transition-all duration-300 rounded-lg flex items-center gap-2"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            View Demand Letters ({demandLetters.length})
-          </Button>
+          
+          {/* Demand Letter Button - ADMIN, MANAGER, or user with CREATE_DEMAND_LETTER permission */}
+          {(isAdmin || isManager || hasPermission(PermissionCode.CREATE_DEMAND_LETTER) || hasPermission(PermissionCode.AUTO_GENERATE_DEMAND_LETTER)) && (
+            <Button
+              onClick={() => setShowDemandLetterDialog(true)}
+              variant="outline"
+              className="px-6 py-3 border-2 border-red-600 text-red-600 hover:bg-red-50 transition-all duration-300 rounded-lg flex items-center gap-2"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              Demand Letter
+            </Button>
+          )}
+          
+          {/* View Demand Letters Button - ADMIN, MANAGER, or user with VIEW_DEMAND_LETTERS permission */}
+          {(isAdmin || isManager || hasPermission(PermissionCode.VIEW_DEMAND_LETTERS)) && (
+            <Button
+              onClick={() => setShowDemandLettersListDialog(true)}
+              variant="outline"
+              className="px-6 py-3 border-2 border-orange-600 text-orange-600 hover:bg-orange-50 transition-all duration-300 rounded-lg flex items-center gap-2"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              View Demand Letters ({demandLetters.length})
+            </Button>
+          )}
         </div>
       </motion.div>
 
@@ -1275,10 +1433,8 @@ export default function TenantDetailPage() {
             <h2 className="text-xl font-bold text-heading-color">Rent Information</h2>
           </div>
           <div className="space-y-6">
-            {/* Payment Amount Section */}
             <div className="p-6 bg-linear-to-r from-green-50 to-green-100 rounded-xl border border-green-200">
               <p className="text-sm font-semibold text-gray-800 mb-2">
-                {/* Dynamic heading based on payment policy */}
                 {tenant.paymentPolicy === 'MONTHLY' && 'Monthly Rent'}
                 {tenant.paymentPolicy === 'QUARTERLY' && 'Quarterly Rent'}
                 {tenant.paymentPolicy === 'ANNUAL' && 'Annual Rent'}
@@ -1287,14 +1443,12 @@ export default function TenantDetailPage() {
                 Ksh {tenant.rentInfo?.paymentAmount?.toLocaleString() || tenant.rent?.toLocaleString()}
               </p>
               <p className="text-sm text-gray-700 mt-2">
-                {/* Dynamic description based on payment policy */}
                 {tenant.paymentPolicy === 'MONTHLY' && 'Per month'}
                 {tenant.paymentPolicy === 'QUARTERLY' && 'Per quarter'}
                 {tenant.paymentPolicy === 'ANNUAL' && 'Per year'}
               </p>
             </div>
 
-            {/* Next Payment Due Section */}
             {tenant.paymentSummary?.nextPayment && (
               <div className="p-4 bg-amber-50 rounded-xl border border-amber-200">
                 <div className="flex items-center justify-between mb-3">
@@ -1310,7 +1464,6 @@ export default function TenantDetailPage() {
                   </span>
                 </div>
                 
-                {/* Due Date - Use formatDateToOrdinal */}
                 <div className="mb-3">
                   <p className="text-2xl font-bold text-gray-900">
                     {formatDateToOrdinal(tenant.paymentSummary.nextPayment.dueDate)}
@@ -1320,7 +1473,6 @@ export default function TenantDetailPage() {
                   </p>
                 </div>
                 
-                {/* Amount Due */}
                 <div className="flex items-center justify-between mb-3 pb-3 border-b border-amber-200">
                   <span className="text-sm font-medium text-gray-700">Amount Due:</span>
                   <span className="text-lg font-bold text-amber-700">
@@ -1328,7 +1480,6 @@ export default function TenantDetailPage() {
                   </span>
                 </div>
                 
-                {/* Time Remaining - Use getDaysRemaining for consistent calculation */}
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium text-gray-700">Time Remaining:</span>
                   <span className={`text-sm font-semibold ${
@@ -1347,7 +1498,6 @@ export default function TenantDetailPage() {
                   </span>
                 </div>
                 
-                {/* Grace Period Info */}
                 {tenant.paymentSummary.nextPayment.gracePeriodEnd && (
                   <div className="mt-3 pt-2 text-xs text-gray-500 border-t border-amber-100">
                     <span className="font-medium">Grace Period:</span> Until {formatDateToOrdinal(tenant.paymentSummary.nextPayment.gracePeriodEnd)}
@@ -1356,7 +1506,6 @@ export default function TenantDetailPage() {
               </div>
             )}
 
-            {/* Current Billing Period */}
             {tenant.paymentSummary?.currentPeriod && !tenant.paymentSummary.currentPeriod.isPending && (
               <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
                 <div className="flex items-center justify-between mb-2">
@@ -1382,7 +1531,6 @@ export default function TenantDetailPage() {
               </div>
             )}
 
-            {/* Pending Billing Period */}
             {tenant.paymentSummary?.currentPeriod?.isPending && (
               <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
                 <div className="flex items-center justify-between mb-2">
@@ -1400,7 +1548,6 @@ export default function TenantDetailPage() {
               </div>
             )}
 
-            {/* Payment Status Badge - UPDATED with all statuses */}
             {tenant.paymentSummary?.status && (
               <div className={`p-3 rounded-lg ${
                 tenant.paymentSummary.status === 'UP_TO_DATE' ? 'bg-green-50 border border-green-200' :
@@ -1428,7 +1575,6 @@ export default function TenantDetailPage() {
                     tenant.paymentSummary.status.replace(/_/g, ' ')}
                   </span>
                 </div>
-                {/* Helpful messages based on status */}
                 {tenant.paymentSummary.status === 'NOT_STARTED' && tenant.paymentSummary.rentStartDate && (
                   <p className="text-xs text-blue-700 mt-2">
                     Rent payments will begin on {formatDateToOrdinal(tenant.paymentSummary.rentStartDate)}
@@ -1457,7 +1603,6 @@ export default function TenantDetailPage() {
               </div>
             )}
 
-            {/* Rent Escalation Notice - For tenants with escalation */}
             {tenant.escalationRate && tenant.escalationRate > 0 && tenant.rentSchedule && tenant.rentSchedule.length > 1 && (
               <div className="p-3 bg-purple-50 rounded-lg border border-purple-200">
                 <div className="flex items-start gap-2">
@@ -1470,7 +1615,6 @@ export default function TenantDetailPage() {
                       Rent will increase by {tenant.escalationRate}% every {tenant.escalationFrequency === 'BI_ANNUALLY' ? '6 months' : 'year'}.
                       Next increase: {formatDateToOrdinal(tenant.rentSchedule[1]?.date)} to Ksh {tenant.rentSchedule[1]?.monthlyRent?.toLocaleString()}
                     </p>
-                    {/* Optional: Show full escalation schedule in a collapsible section */}
                     {tenant.rentSchedule.length > 2 && (
                       <details className="mt-2">
                         <summary className="text-xs text-purple-600 cursor-pointer hover:text-purple-800">
@@ -1607,7 +1751,6 @@ export default function TenantDetailPage() {
             </DialogDescription>
           </DialogHeader>
           
-          {/* Show next payment due date info */}
           {tenant.paymentSummary?.nextPayment && (
             <div className="mt-2 p-3 bg-amber-50 rounded-lg border border-amber-200">
               <div className="flex items-start gap-2">
@@ -1694,7 +1837,7 @@ export default function TenantDetailPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Invoices List Dialog */}
+      {/* Invoices List Dialog - With Delete button for ADMIN and MANAGER */}
       <Dialog open={showInvoicesList} onOpenChange={setShowInvoicesList}>
         <DialogContent className="max-w-6xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
@@ -1727,7 +1870,7 @@ export default function TenantDetailPage() {
                   >
                     <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
                       <div className="space-y-3 flex-1">
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-3 flex-wrap">
                           <h3 className="text-lg font-bold text-gray-900">{invoice.invoiceNumber}</h3>
                           <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getStatusColor(invoice.status)}`}>
                             {invoice.status}
@@ -1778,7 +1921,6 @@ export default function TenantDetailPage() {
                         )}
                       </div>
                       
-                      {/* Button Group - Now visible on all screen sizes */}
                       <div className="flex flex-col sm:flex-row lg:flex-col gap-2 shrink-0 w-full sm:w-auto">
                         <Button
                           onClick={() => handleDownloadInvoice(invoice.id, invoice.invoiceNumber)}
@@ -1792,32 +1934,34 @@ export default function TenantDetailPage() {
                           Download
                         </Button>
                         
-                        <Button
-                          onClick={() => handleDeleteInvoice(invoice.id, invoice.invoiceNumber)}
-                          variant="outline"
-                          size="sm"
-                          disabled={deletingInvoiceId === invoice.id}
-                          className="flex-1 justify-center border-2 border-red-500 text-red-600 hover:bg-red-50 hover:text-red-700 hover:border-red-600 font-medium transition-all duration-200"
-                        >
-                          {deletingInvoiceId === invoice.id ? (
-                            <>
-                              <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-red-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                              </svg>
-                              Deleting...
-                            </>
-                          ) : (
-                            <>
-                              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                              </svg>
-                              Delete
-                            </>
-                          )}
-                        </Button>
+                        {/* Delete Button - Only visible for ADMIN and MANAGER */}
+                        {(isAdmin || isManager) && (
+                          <Button
+                            onClick={() => handleDeleteInvoice(invoice.id, invoice.invoiceNumber)}
+                            variant="outline"
+                            size="sm"
+                            disabled={deletingInvoiceId === invoice.id}
+                            className="flex-1 justify-center border-2 border-red-500 text-red-600 hover:bg-red-50 hover:text-red-700 hover:border-red-600 font-medium transition-all duration-200"
+                          >
+                            {deletingInvoiceId === invoice.id ? (
+                              <>
+                                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-red-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                Deleting...
+                              </>
+                            ) : (
+                              <>
+                                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                                Delete
+                              </>
+                            )}
+                          </Button>
+                        )}
                         
-                        {/* Download Receipt Button - Now always visible when applicable */}
                         {receiptsMap.has(invoice.id) && (
                           <Button
                             onClick={() => {
@@ -1876,10 +2020,8 @@ export default function TenantDetailPage() {
             </DialogHeader>
           </div>
           
-          {/* Scrollable content area */}
           <div className="flex-1 overflow-y-auto px-6 py-4">
             <div className="space-y-6">
-              {/* Payment Policy Banner */}
               <div className="p-4 bg-linear-to-r from-purple-50 to-indigo-50 rounded-xl border border-purple-200">
                 <div className="flex items-center justify-between">
                   <div>
@@ -1901,7 +2043,6 @@ export default function TenantDetailPage() {
                 </p>
               </div>
 
-              {/* Payment Preview Card - Shows real-time calculation based on payment policy */}
               {paymentPreview && (
                 <motion.div 
                   initial={{ opacity: 0, y: -10 }}
@@ -1971,71 +2112,6 @@ export default function TenantDetailPage() {
                 </motion.div>
               )}
 
-              {/* Payment Summary Card - Shows calculation breakdown */}
-              <div className="p-4 bg-linear-to-r from-green-50 to-emerald-50 rounded-xl border border-green-200">
-                <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                  <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  Payment Breakdown ({tenant.paymentPolicy})
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-3">
-                    <div className="p-3 bg-white rounded-lg">
-                      <p className="text-gray-600 font-medium">
-                        {tenant.paymentPolicy === 'MONTHLY' && 'Monthly Rent'}
-                        {tenant.paymentPolicy === 'QUARTERLY' && 'Quarterly Rent (3 months)'}
-                        {tenant.paymentPolicy === 'ANNUAL' && 'Annual Rent (12 months)'}
-                      </p>
-                      <p className="text-gray-900 font-bold text-lg">Ksh {(tenant.rentInfo?.paymentAmount || rent || 0).toLocaleString()}</p>
-                      {tenant.paymentPolicy !== 'MONTHLY' && (
-                        <p className="text-xs text-gray-500 mt-1">
-                          Base monthly rent: Ksh {tenant.rent?.toLocaleString()}
-                        </p>
-                      )}
-                    </div>
-                    {serviceCharge > 0 && (
-                      <div className="p-3 bg-white rounded-lg">
-                        <p className="text-gray-600 font-medium">Service Charge</p>
-                        <p className="text-gray-900 font-bold">Ksh {serviceCharge.toLocaleString()}</p>
-                        {tenant.paymentPolicy !== 'MONTHLY' && (
-                          <p className="text-xs text-gray-500 mt-1">
-                            {tenant.serviceCharge?.type === 'PERCENTAGE' 
-                              ? `${tenant.serviceCharge.percentage}% of rent × ${tenant.paymentPolicy === 'QUARTERLY' ? 3 : 12} months`
-                              : `${tenant.paymentPolicy === 'QUARTERLY' ? '× 3 months' : '× 12 months'}`
-                            }
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  <div className="space-y-3">
-                    {vat > 0 && (
-                      <div className="p-3 bg-white rounded-lg">
-                        <p className="text-gray-600 font-medium">VAT ({tenant.vatRate}%)</p>
-                        <p className="text-gray-900 font-bold">Ksh {vat.toLocaleString()}</p>
-                        <p className="text-xs text-gray-500 mt-1">
-                          {tenant.vatType === 'INCLUSIVE' ? 'Included in rent' : 'Added to subtotal'}
-                          {tenant.paymentPolicy !== 'MONTHLY' && ` × ${tenant.paymentPolicy === 'QUARTERLY' ? 3 : 12} months`}
-                        </p>
-                      </div>
-                    )}
-                    <div className="p-3 bg-emerald-100 rounded-lg border-2 border-emerald-300">
-                      <p className="text-emerald-800 font-medium">
-                        Total {tenant.paymentPolicy === 'MONTHLY' ? 'Monthly' : tenant.paymentPolicy === 'QUARTERLY' ? 'Quarterly' : 'Annual'} Due
-                      </p>
-                      <p className="text-emerald-900 font-bold text-xl">Ksh {totalDue.toLocaleString()}</p>
-                      {tenant.paymentPolicy !== 'MONTHLY' && (
-                        <p className="text-xs text-emerald-700 mt-1">
-                          Equivalent to Ksh {monthlyEquivalent.toLocaleString()}/month
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Outstanding Invoices Selection Section */}
               <div className="p-4 bg-orange-50 rounded-xl border border-orange-200">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-semibold text-gray-800">Outstanding Invoices</h3>
@@ -2057,7 +2133,6 @@ export default function TenantDetailPage() {
                       </div>
                     ) : (
                       <>
-                        {/* Selected Balance Summary */}
                         {(selectedInvoiceIds.length > 0 || selectedBillInvoiceIds.length > 0) && (
                           <div className="mb-4 p-3 bg-white rounded-lg border-2 border-orange-300 shadow-sm">
                             <div className="flex items-center justify-between text-sm mb-2">
@@ -2097,7 +2172,6 @@ export default function TenantDetailPage() {
                           </div>
                         )}
 
-                        {/* Rent Invoices */}
                         {outstandingInvoices.length > 0 && (
                           <div className="mb-4">
                             <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
@@ -2128,11 +2202,11 @@ export default function TenantDetailPage() {
                                     className="mt-1 h-4 w-4 text-orange-600 focus:ring-orange-500 border-gray-300 rounded"
                                   />
                                   <div className="flex-1 min-w-0">
-                                    <div className="flex items-center justify-between mb-1">
+                                    <div className="flex items-center justify-between mb-1 flex-wrap gap-1">
                                       <span className="font-semibold text-sm text-gray-900 truncate">
                                         {invoice.invoiceNumber}
                                       </span>
-                                      <div className="flex items-center gap-2">
+                                      <div className="flex items-center gap-1">
                                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getPaymentPolicyColor(invoice.paymentPolicy)}`}>
                                           {invoice.paymentPolicy}
                                         </span>
@@ -2165,81 +2239,6 @@ export default function TenantDetailPage() {
                           </div>
                         )}
 
-                        {/* Bill Invoices */}
-                        {outstandingBillInvoices.length > 0 && (
-                          <div>
-                            <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                              <span className="w-2 h-2 bg-purple-500 rounded-full"></span>
-                              Bill Invoices ({outstandingBillInvoices.length})
-                            </h4>
-                            <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                              {outstandingBillInvoices.map((billInvoice) => (
-                                <motion.label
-                                  key={billInvoice.id}
-                                  whileHover={{ scale: 1.01 }}
-                                  className={`flex items-start gap-3 p-3 rounded-lg border-2 transition-all cursor-pointer ${
-                                    selectedBillInvoiceIds.includes(billInvoice.id)
-                                      ? 'border-orange-500 bg-orange-100 shadow-md'
-                                      : 'border-gray-200 hover:border-orange-300 bg-white hover:shadow-sm'
-                                  }`}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={selectedBillInvoiceIds.includes(billInvoice.id)}
-                                    onChange={(e) => {
-                                      if (e.target.checked) {
-                                        setSelectedBillInvoiceIds([...selectedBillInvoiceIds, billInvoice.id]);
-                                      } else {
-                                        setSelectedBillInvoiceIds(selectedBillInvoiceIds.filter(id => id !== billInvoice.id));
-                                      }
-                                    }}
-                                    className="mt-1 h-4 w-4 text-orange-600 focus:ring-orange-500 border-gray-300 rounded"
-                                  />
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center justify-between mb-1">
-                                      <span className="font-semibold text-sm text-gray-900 truncate">
-                                        {billInvoice.invoiceNumber}
-                                      </span>
-                                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(billInvoice.status)}`}>
-                                        {billInvoice.status}
-                                      </span>
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
-                                      <div>
-                                        <span className="font-medium">Type:</span> {billInvoice.billType}
-                                      </div>
-                                      <div>
-                                        <span className="font-medium">Due:</span> {new Date(billInvoice.dueDate).toLocaleDateString()}
-                                      </div>
-                                      <div>
-                                        <span className="font-medium">Total:</span> Ksh {billInvoice.grandTotal.toLocaleString()}
-                                      </div>
-                                      <div>
-                                        <span className="font-medium">Balance:</span>{' '}
-                                        <span className="text-red-600 font-bold">
-                                          Ksh {billInvoice.balance.toLocaleString()}
-                                        </span>
-                                      </div>
-                                    </div>
-                                  </div>
-                                </motion.label>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* No Outstanding Invoices Message */}
-                        {outstandingInvoices.length === 0 && outstandingBillInvoices.length === 0 && (
-                          <div className="text-center py-8 text-gray-500 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
-                            <svg className="w-12 h-12 mx-auto mb-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                            </svg>
-                            <p className="text-sm font-medium">No outstanding invoices found</p>
-                            <p className="text-xs mt-1">Payment will be recorded without specific invoice selection</p>
-                          </div>
-                        )}
-
-                        {/* Auto-payment Notice */}
                         {selectedInvoiceIds.length === 0 && selectedBillInvoiceIds.length === 0 && 
                         (outstandingInvoices.length > 0 || outstandingBillInvoices.length > 0) && (
                           <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
@@ -2259,7 +2258,6 @@ export default function TenantDetailPage() {
                 )}
               </div>
 
-              {/* Invoice Options Section */}
               <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
                 <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
                   <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2319,7 +2317,6 @@ export default function TenantDetailPage() {
                 </div>
               </div>
 
-              {/* Payment Details Form */}
               <div className="space-y-6">
                 <div className="space-y-2">
                   <Label htmlFor="paymentPeriod" className="text-sm font-semibold text-gray-800">
@@ -2355,7 +2352,6 @@ export default function TenantDetailPage() {
                     />
                   </div>
                   
-                  {/* Dynamic Payment Analysis */}
                   {paymentForm.amountPaid && (
                     <motion.div 
                       initial={{ opacity: 0, height: 0 }}
@@ -2376,7 +2372,6 @@ export default function TenantDetailPage() {
                       </div>
                       <p className="text-xs text-gray-600">{calculatePaymentStatus().details}</p>
                       
-                      {/* Payment Percentage Indicator */}
                       {parseFloat(paymentForm.amountPaid) > 0 && parseFloat(paymentForm.amountPaid) < totalDue && (
                         <div className="mt-2">
                           <div className="flex justify-between text-xs text-gray-600 mb-1">
@@ -2392,7 +2387,6 @@ export default function TenantDetailPage() {
                         </div>
                       )}
                       
-                      {/* Overpayment Warning */}
                       {parseFloat(paymentForm.amountPaid) > totalDue && (
                         <div className="p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
                           <span className="font-semibold">⚠️ Overpayment:</span> Excess of Ksh {(parseFloat(paymentForm.amountPaid) - totalDue).toLocaleString()} will be handled according to your overpayment settings.
@@ -2418,7 +2412,6 @@ export default function TenantDetailPage() {
             </div>
           </div>
           
-          {/* Fixed footer with buttons */}
           <DialogFooter className="px-6 py-4 border-t bg-gray-50">
             <Button
               variant="outline"
@@ -2454,7 +2447,7 @@ export default function TenantDetailPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Payment Allocation Result Dialog - Shows after payment creation */}
+      {/* Payment Allocation Result Dialog */}
       <Dialog open={showPaymentAllocation} onOpenChange={setShowPaymentAllocation}>
         <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
@@ -2465,7 +2458,6 @@ export default function TenantDetailPage() {
           </DialogHeader>
           
           <div className="space-y-6 py-4">
-            {/* Invoices Paid */}
             {allocatedInvoices.length > 0 && (
               <div className="space-y-3">
                 <h3 className="text-lg font-semibold text-gray-800">Invoices Paid/Updated</h3>
@@ -2507,7 +2499,6 @@ export default function TenantDetailPage() {
               </div>
             )}
 
-            {/* Overpayment Details */}
             {overpaymentDetails && overpaymentDetails.totalOverpayment > 0 && (
               <div className="p-4 bg-amber-50 rounded-xl border-2 border-amber-200">
                 <h3 className="text-lg font-semibold text-amber-900 mb-3">Overpayment Handling</h3>
@@ -2551,7 +2542,6 @@ export default function TenantDetailPage() {
         </DialogContent>
       </Dialog>
 
-
       {/* Payment Reports Dialog */}
       <Dialog open={showPaymentReportsDialog} onOpenChange={setShowPaymentReportsDialog}>
         <DialogContent className="max-w-6xl max-h-[80vh] overflow-y-auto">
@@ -2560,29 +2550,31 @@ export default function TenantDetailPage() {
             <DialogDescription className="text-gray-700">
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                 <span className="text-sm sm:text-base">All payment reports for {tenant.fullName}</span>
-                <Button
-                  onClick={handleDownloadPaymentReport}
-                  disabled={generatingPDF || paymentReports.length === 0}
-                  size="sm"
-                  className="w-full sm:w-auto whitespace-nowrap"
-                >
-                  {generatingPDF ? (
-                    <>
-                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
-                      Generating...
-                    </>
-                  ) : (
-                    <>
-                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                      </svg>
-                      Download Report
-                    </>
-                  )}
-                </Button>
+                {(isAdmin || isManager || hasPermission(PermissionCode.VIEW_PAYMENT_REPORTS)) && (
+                  <Button
+                    onClick={handleDownloadPaymentReport}
+                    disabled={generatingPDF || paymentReports.length === 0}
+                    size="sm"
+                    className="w-full sm:w-auto whitespace-nowrap"
+                  >
+                    {generatingPDF ? (
+                      <>
+                        <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                        Download Report
+                      </>
+                    )}
+                  </Button>
+                )}
               </div>
             </DialogDescription>
           </DialogHeader>
@@ -2609,7 +2601,6 @@ export default function TenantDetailPage() {
                     className="p-4 sm:p-6 border border-gray-200 rounded-xl hover:shadow-lg transition-shadow bg-white"
                   >
                     <div className="flex flex-col lg:flex-row lg:items-start gap-4">
-                      {/* Main Content - Always takes available space */}
                       <div className="space-y-3 flex-1 min-w-0">
                         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                           <h3 className="text-base sm:text-lg font-bold text-gray-900">{report.paymentPeriod}</h3>
@@ -2647,10 +2638,8 @@ export default function TenantDetailPage() {
                         )}
                       </div>
 
-                      {/* Action Buttons - Responsive layout */}
                       <div className="flex flex-row lg:flex-col gap-2 shrink-0 w-full lg:w-auto mt-2 lg:mt-0 pt-3 lg:pt-0 border-t lg:border-t-0 border-gray-100">
-                        {/* Generate Balance Invoice Button - Only for partial payments */}
-                        {report.status === 'PARTIAL' && report.arrears > 0 && (
+                        {report.status === 'PARTIAL' && report.arrears > 0 && (isAdmin || isManager || hasPermission(PermissionCode.CREATE_INVOICE)) && (
                           <Button
                             onClick={() => openPartialPaymentInvoiceDialog(report)}
                             size="sm"
@@ -2664,33 +2653,34 @@ export default function TenantDetailPage() {
                           </Button>
                         )}
 
-                        {/* DELETE BUTTON */}
-                        <Button
-                          onClick={() => handleDeletePaymentReport(report.id, report.paymentPeriod)}
-                          variant="outline"
-                          size="sm"
-                          disabled={deletingPaymentReportId === report.id}
-                          className="flex-1 lg:flex-none border-2 border-red-500 text-red-600 hover:bg-red-50 hover:text-red-700 font-medium transition-all duration-200 text-xs sm:text-sm whitespace-nowrap"
-                        >
-                          {deletingPaymentReportId === report.id ? (
-                            <>
-                              <svg className="animate-spin -ml-1 mr-2 h-3 w-3 sm:h-4 sm:w-4 text-red-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                              </svg>
-                              <span className="hidden sm:inline">Deleting...</span>
-                              <span className="sm:hidden">...</span>
-                            </>
-                          ) : (
-                            <>
-                              <svg className="w-3 h-3 sm:w-4 sm:h-4 mr-1 sm:mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                              </svg>
-                              <span className="hidden sm:inline">Delete</span>
-                              <span className="sm:hidden">Del</span>
-                            </>
-                          )}
-                        </Button>
+                        {(isAdmin || isManager || hasPermission(PermissionCode.RECORD_PAYMENTS)) && (
+                          <Button
+                            onClick={() => handleDeletePaymentReport(report.id, report.paymentPeriod)}
+                            variant="outline"
+                            size="sm"
+                            disabled={deletingPaymentReportId === report.id}
+                            className="flex-1 lg:flex-none border-2 border-red-500 text-red-600 hover:bg-red-50 hover:text-red-700 font-medium transition-all duration-200 text-xs sm:text-sm whitespace-nowrap"
+                          >
+                            {deletingPaymentReportId === report.id ? (
+                              <>
+                                <svg className="animate-spin -ml-1 mr-2 h-3 w-3 sm:h-4 sm:w-4 text-red-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                <span className="hidden sm:inline">Deleting...</span>
+                                <span className="sm:hidden">...</span>
+                              </>
+                            ) : (
+                              <>
+                                <svg className="w-3 h-3 sm:w-4 sm:h-4 mr-1 sm:mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                                <span className="hidden sm:inline">Delete</span>
+                                <span className="sm:hidden">Del</span>
+                              </>
+                            )}
+                          </Button>
+                        )}
                       </div>
                     </div>
                   </motion.div>
@@ -2771,81 +2761,88 @@ export default function TenantDetailPage() {
             >
               Cancel
             </Button>
-            <Button
-              onClick={handleGeneratePartialPaymentInvoice}
-              disabled={generatingPartialInvoice || !partialInvoiceForm.dueDate}
-              className="bg-yellow-600 hover:bg-yellow-700"
-            >
-              {generatingPartialInvoice ? (
-                <>
-                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  Generating...
-                </>
-              ) : (
-                'Generate Balance Invoice'
-              )}
-            </Button>
+            {(isAdmin || isManager || hasPermission(PermissionCode.CREATE_INVOICE)) && (
+              <Button
+                onClick={handleGeneratePartialPaymentInvoice}
+                disabled={generatingPartialInvoice || !partialInvoiceForm.dueDate}
+                className="bg-yellow-600 hover:bg-yellow-700"
+              >
+                {generatingPartialInvoice ? (
+                  <>
+                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Generating...
+                  </>
+                ) : (
+                  'Generate Balance Invoice'
+                )}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Bill Invoices Dialog */}
+      {/* Bill Invoices Dialog - With Delete button for ADMIN and MANAGER */}
       <Dialog open={showBillInvoicesDialog} onOpenChange={setShowBillInvoicesDialog}>
         <DialogContent className="max-w-6xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-2xl font-bold text-heading-color">Bill Invoices</DialogTitle>
             <DialogDescription className="text-gray-700">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between flex-wrap gap-3">
                 <span>All bill invoices for {tenant.fullName}</span>
                 <div className="flex gap-2">
-                  <Button
-                    onClick={handleDownloadBillPaymentReport}
-                    disabled={generatingBillPDF || billInvoices.length === 0}
-                    size="sm"
-                    variant="outline"
-                  >
-                    {generatingBillPDF ? (
-                      <>
-                        <svg className="animate-spin -ml-1 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        Generating...
-                      </>
-                    ) : (
-                      <>
-                        <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                        </svg>
-                        Bill Report
-                      </>
-                    )}
-                  </Button>
-                  <Button
-                    onClick={handleDownloadComprehensiveReport}
-                    disabled={generatingComprehensivePDF || (paymentReports.length === 0 && billInvoices.length === 0)}
-                    size="sm"
-                  >
-                    {generatingComprehensivePDF ? (
-                      <>
-                        <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        Generating...
-                      </>
-                    ) : (
-                      <>
-                        <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                        </svg>
-                        Full Report
-                      </>
-                    )}
-                  </Button>
+                  {(isAdmin || isManager || hasPermission(PermissionCode.VIEW_BILL_INVOICES)) && (
+                    <Button
+                      onClick={handleDownloadBillPaymentReport}
+                      disabled={generatingBillPDF || billInvoices.length === 0}
+                      size="sm"
+                      variant="outline"
+                    >
+                      {generatingBillPDF ? (
+                        <>
+                          <svg className="animate-spin -ml-1 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Generating...
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                          </svg>
+                          Bill Report
+                        </>
+                      )}
+                    </Button>
+                  )}
+                  
+                  {canViewComprehensiveReport && (
+                    <Button
+                      onClick={handleDownloadComprehensiveReport}
+                      disabled={generatingComprehensivePDF || (paymentReports.length === 0 && billInvoices.length === 0)}
+                      size="sm"
+                    >
+                      {generatingComprehensivePDF ? (
+                        <>
+                          <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Generating...
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                          </svg>
+                          Full Report
+                        </>
+                      )}
+                    </Button>
+                  )}
                 </div>
               </div>
             </DialogDescription>
@@ -2873,13 +2870,12 @@ export default function TenantDetailPage() {
                     className="p-6 border border-gray-200 rounded-xl hover:shadow-lg transition-shadow bg-white"
                   >
                     <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <h3 className="text-lg font-bold text-gray-900">{billInvoice.invoiceNumber}</h3>
                           <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getStatusColor(billInvoice.status)}`}>
                             {billInvoice.status}
                           </span>
-                          
                           <span className="px-3 py-1 rounded-full text-xs font-semibold border bg-purple-100 text-purple-800 border-purple-200">
                             {billInvoice.billType}
                           </span>
@@ -2920,32 +2916,35 @@ export default function TenantDetailPage() {
                         </div>
                       )}
                     </div>
-                    <div className="flex flex-col gap-2 ml-4 shrink-0">
-                     <Button
-                        onClick={() => handleDeleteBillInvoice(billInvoice.id, billInvoice.invoiceNumber)}
-                        variant="outline"
-                        size="sm"
-                        disabled={deletingBillInvoiceId === billInvoice.id}
-                        className="w-full bg-linear-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-medium shadow-md hover:shadow-lg transition-all duration-200 border border-red-700"
-                      >
-                        {deletingBillInvoiceId === billInvoice.id ? (
-                          <>
-                            <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                            </svg>
-                            Deleting...
-                          </>
-                        ) : (
-                          <>
-                            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                            </svg>
-                            Delete
-                          </>
-                        )}
+                    <div className="flex flex-col gap-2 mt-4">
+                      {/* Delete Button - Only visible for ADMIN and MANAGER */}
+                      {(isAdmin || isManager) && (
+                        <Button
+                          onClick={() => handleDeleteBillInvoice(billInvoice.id, billInvoice.invoiceNumber)}
+                          variant="outline"
+                          size="sm"
+                          disabled={deletingBillInvoiceId === billInvoice.id}
+                          className="w-full bg-linear-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-medium shadow-md hover:shadow-lg transition-all duration-200 border border-red-700"
+                        >
+                          {deletingBillInvoiceId === billInvoice.id ? (
+                            <>
+                              <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                              </svg>
+                              Deleting...
+                            </>
+                          ) : (
+                            <>
+                              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                              Delete
+                            </>
+                          )}
                         </Button>
-                    </div> 
+                      )}
+                    </div>
                   </motion.div>
                 ))}
               </div>
@@ -2953,6 +2952,7 @@ export default function TenantDetailPage() {
           </div>
         </DialogContent>
       </Dialog>
+
       {/* Demand Letter Generation Dialog */}
       <Dialog open={showDemandLetterDialog} onOpenChange={setShowDemandLetterDialog}>
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
@@ -2965,10 +2965,8 @@ export default function TenantDetailPage() {
             </DialogHeader>
           </div>
           
-          {/* Scrollable content area */}
           <div className="flex-1 overflow-y-auto pr-2 -mr-2">
             <div className="space-y-6 py-4 pr-2">
-              {/* Show overdue invoices info */}
               <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
                 <div className="flex items-start gap-3">
                   <svg className="w-5 h-5 text-yellow-600 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2979,25 +2977,26 @@ export default function TenantDetailPage() {
                     <p className="text-sm text-yellow-700">
                       The system will automatically fetch all overdue invoices for this tenant and calculate the total outstanding amount.
                     </p>
-                    <Button
-                      onClick={handleViewOverdueInvoices}
-                      variant="outline"
-                      disabled={loadingOutstanding}
-                      className="text-yellow-700 hover:text-yellow-800 p-0 h-auto mt-2 flex items-center gap-1"
-                    >
-                      {loadingOutstanding && (
-                        <svg className="animate-spin h-4 w-4 text-yellow-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                      )}
-                      View overdue invoices
-                    </Button>
+                    {(isAdmin || isManager || hasPermission(PermissionCode.VIEW_OVERDUE_INVOICES)) && (
+                      <Button
+                        onClick={handleViewOverdueInvoices}
+                        variant="outline"
+                        disabled={loadingOutstanding}
+                        className="text-yellow-700 hover:text-yellow-800 p-0 h-auto mt-2 flex items-center gap-1"
+                      >
+                        {loadingOutstanding && (
+                          <svg className="animate-spin h-4 w-4 text-yellow-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                        )}
+                        View overdue invoices
+                      </Button>
+                    )}
                   </div>
                 </div>
               </div>
 
-              {/* Optional Notes */}
               <div className="space-y-2">
                 <Label htmlFor="demand-notes" className="text-sm font-medium text-gray-700">
                   Additional Notes (Optional)
@@ -3017,7 +3016,6 @@ export default function TenantDetailPage() {
                 </p>
               </div>
 
-              {/* Info about what will be included */}
               <div className="space-y-2 p-4 bg-blue-50 border border-blue-200 rounded-lg">
                 <p className="text-sm font-semibold text-blue-800">The demand letter will include:</p>
                 <ul className="text-sm text-blue-700 space-y-1 list-disc list-inside">
@@ -3029,7 +3027,6 @@ export default function TenantDetailPage() {
                 </ul>
               </div>
               
-              {/* Additional content area if needed */}
               <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
                 <p className="text-sm font-semibold text-gray-800 mb-2">Important Reminders:</p>
                 <ul className="text-sm text-gray-600 space-y-1 list-disc list-inside">
@@ -3041,24 +3038,6 @@ export default function TenantDetailPage() {
               </div>
             </div>
           </div>
-          
-          {/* Custom scrollbar styling */}
-          <style jsx>{`
-            .overflow-y-auto::-webkit-scrollbar {
-              width: 8px;
-            }
-            .overflow-y-auto::-webkit-scrollbar-track {
-              background: #f1f1f1;
-              border-radius: 4px;
-            }
-            .overflow-y-auto::-webkit-scrollbar-thumb {
-              background: #888;
-              border-radius: 4px;
-            }
-            .overflow-y-auto::-webkit-scrollbar-thumb:hover {
-              background: #555;
-            }
-          `}</style>
           
           <DialogFooter className="shrink-0 pt-4 border-t border-gray-200">
             <Button
@@ -3072,27 +3051,30 @@ export default function TenantDetailPage() {
             >
               Cancel
             </Button>
-            <Button
-              onClick={handleGenerateDemandLetter}
-              disabled={generatingDemandLetter}
-              className="bg-red-600 hover:bg-red-700 text-white px-6"
-            >
-              {generatingDemandLetter ? (
-                <>
-                  <motion.div
-                    className="w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2"
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                  />
-                  Generating...
-                </>
-              ) : (
-                'Generate Demand Letter'
-              )}
-            </Button>
+            {(isAdmin || isManager || hasPermission(PermissionCode.CREATE_DEMAND_LETTER) || hasPermission(PermissionCode.AUTO_GENERATE_DEMAND_LETTER)) && (
+              <Button
+                onClick={handleGenerateDemandLetter}
+                disabled={generatingDemandLetter}
+                className="bg-red-600 hover:bg-red-700 text-white px-6"
+              >
+                {generatingDemandLetter ? (
+                  <>
+                    <motion.div
+                      className="w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2"
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                    />
+                    Generating...
+                  </>
+                ) : (
+                  'Generate Demand Letter'
+                )}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
       {/* Overdue Invoices Dialog */}
       <Dialog open={showOverdueInvoicesDialog} onOpenChange={setShowOverdueInvoicesDialog}>
         <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
@@ -3142,8 +3124,8 @@ export default function TenantDetailPage() {
                       className="p-6 border border-gray-200 rounded-xl hover:shadow-lg transition-shadow bg-white"
                     >
                       <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <h3 className="text-lg font-bold text-gray-900">{invoice.invoiceNumber}</h3>
                             <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getStatusColor(invoice.status)}`}>
                               {invoice.status}
@@ -3261,59 +3243,36 @@ export default function TenantDetailPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {demandLettersLoading ? (
-                      <tr>
-                        <td colSpan={6} className="py-8 text-center">
-                          <div className="flex items-center justify-center gap-2">
-                            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
-                            <span className="text-gray-700">Loading demand letters...</span>
-                          </div>
+                    {demandLetters.map((letter) => (
+                      <tr key={letter.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                        <td className="py-3 px-4 font-semibold text-gray-900">{letter.letterNumber}</td>
+                        <td className="py-3 px-4 text-gray-800 font-medium">
+                          {letter.issueDate ? new Date(letter.issueDate).toLocaleDateString() : 'N/A'}
+                        </td>
+                        <td className="py-3 px-4 font-bold text-gray-900">
+                          Ksh {letter.outstandingAmount?.toLocaleString() ?? '0'}
+                        </td>
+                        <td className="py-3 px-4 text-gray-800 font-medium">{letter.rentalPeriod}</td>
+                        <td className="py-3 px-4">
+                          <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getDemandLetterStatusColor(letter.status)}`}>
+                            {letter.status}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleDownloadDemandLetter(letter.id)}
+                            className="flex items-center gap-2 text-gray-800 hover:text-gray-900 border-gray-400 hover:border-gray-600 bg-white hover:bg-gray-50 font-medium"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            Download
+                          </Button>
                         </td>
                       </tr>
-                    ) : !Array.isArray(demandLetters) ? (
-                      <tr>
-                        <td colSpan={6} className="py-8 text-center text-red-500">
-                          Error: Invalid data format received
-                        </td>
-                      </tr>
-                    ) : demandLetters.length === 0 ? (
-                      <tr>
-                        <td colSpan={6} className="py-8 text-center text-gray-500">
-                          No demand letters found for this tenant
-                        </td>
-                      </tr>
-                    ) : (
-                      demandLetters.map((letter) => (
-                        <tr key={letter.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                          <td className="py-3 px-4 font-semibold text-gray-900">{letter.letterNumber}</td>
-                          <td className="py-3 px-4 text-gray-800 font-medium">
-                            {letter.issueDate ? new Date(letter.issueDate).toLocaleDateString() : 'N/A'}
-                          </td>
-                          <td className="py-3 px-4 font-bold text-gray-900">
-                            Ksh {letter.outstandingAmount?.toLocaleString() ?? '0'}
-                          </td>
-                          <td className="py-3 px-4 text-gray-800 font-medium">{letter.rentalPeriod}</td>
-                          <td className="py-3 px-4">
-                            <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getDemandLetterStatusColor(letter.status)}`}>
-                              {letter.status}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleDownloadDemandLetter(letter.id)}
-                              className="flex items-center gap-2 text-gray-800 hover:text-gray-900 border-gray-400 hover:border-gray-600 bg-white hover:bg-gray-50 font-medium"
-                            >
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                              </svg>
-                              Download
-                            </Button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
+                    ))}
                   </tbody>
                 </table>
               </div>
@@ -3324,6 +3283,3 @@ export default function TenantDetailPage() {
     </motion.div>
   );
 }
-
-
-

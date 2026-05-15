@@ -1,15 +1,16 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { useAuth } from '@/context/AuthContext'
 
 export default function LoginPage() {
+  const { login } = useAuth()
+
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const router = useRouter()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -17,37 +18,21 @@ export default function LoginPage() {
     setLoading(true)
 
     try {
-      const res = await fetch('https://api.interparkpropertysystem.co.ke/api/auth/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email, password }),
-      })
-
-      const data = await res.json()
-
-      if (res.ok) {
-        localStorage.setItem('token', data.token)
-        router.push('/dashboard')
-      } else {
-        setError(data.message)
-      }
-    } catch (err) {
-      setError('An error occurred. Please try again.')
+      await login(email, password)
+    } catch (err: any) {
+      setError(err?.message || 'An error occurred. Please try again.')
+    } finally {
+      setLoading(false)
     }
-
-    setLoading(false)
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center 
-      bg-linear-to-br from-[#005478] to-[#58595B] px-4 py-12">
-      
+    <div
+      className="min-h-screen flex items-center justify-center 
+      bg-linear-to-br from-[#005478] to-[#58595B] px-4 py-12"
+    >
       <div className="max-w-md w-full bg-white/10 backdrop-blur-lg p-8 rounded-2xl shadow-xl space-y-8 border border-white/20">
-        <h2 className="text-center text-3xl font-bold text-white">
-          Welcome Back
-        </h2>
+        <h2 className="text-center text-3xl font-bold text-white">Welcome Back</h2>
 
         <form className="mt-6 space-y-5" onSubmit={handleSubmit}>
           <input

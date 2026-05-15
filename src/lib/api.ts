@@ -42,7 +42,23 @@ import {
   SubmitActivationRequest,
   PaymentStatus,
   IncomeFrequency,
-  OverdueTenantsResponse
+  OverdueTenantsResponse,
+    // RBAC types
+  Permission,
+  CreatePermissionRequest,
+  CustomRole,
+  CreateCustomRoleRequest,
+  UpdateCustomRoleRequest,
+  ManagedUser,
+  CreateManagedUserRequest,
+  UpdateManagedUserAccessRequest,
+  GrantPropertyAccessRequest,
+  UpdatePropertyPermissionsRequest,
+  BulkUpdateAccessRequest,
+  UserAccessDetails,
+  AuditLog,
+  AuditLogQueryParams,
+  CacheStats,
 } from '@/types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.interparkpropertysystem.co.ke/api';
@@ -387,6 +403,16 @@ export const tenantsAPI = {
       return response.data;
     } catch (error) {
       return handleApiError(error);
+    }
+  },
+    // NEW: Get tenants by property ID
+  getByProperty: async (propertyId: string): Promise<Tenant[]> => {
+    try {
+      const response = await api.get(`/tenants/property/${propertyId}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching tenants by property:', error);
+      return [];
     }
   },
   getById: async (id: string): Promise<Tenant> => {
@@ -2577,6 +2603,261 @@ export const demandLettersAPI = {
         statusCode: error?.response?.status,
         ...errorData
       });
+    }
+  },
+};
+
+// ======================================================
+// PERMISSION API FUNCTIONS
+// ======================================================
+
+export const permissionsAPI = {
+  getAll: async (): Promise<Permission[]> => {
+    try {
+      const response = await api.get('/rbac/permissions');
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to fetch permissions:', error);
+      throw new Error(error?.response?.data?.message || error?.message || 'Failed to fetch permissions');
+    }
+  },
+
+  create: async (permissionData: CreatePermissionRequest): Promise<Permission> => {
+    try {
+      const response = await api.post('/rbac/permissions', permissionData);
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to create permission:', error);
+      throw new Error(error?.response?.data?.message || error?.message || 'Failed to create permission');
+    }
+  },
+};
+
+// ======================================================
+// CUSTOM ROLE API FUNCTIONS
+// ======================================================
+
+export const customRolesAPI = {
+  getAll: async (): Promise<CustomRole[]> => {
+    try {
+      const response = await api.get('/rbac/roles');
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to fetch custom roles:', error);
+      throw new Error(error?.response?.data?.message || error?.message || 'Failed to fetch custom roles');
+    }
+  },
+
+  create: async (roleData: CreateCustomRoleRequest): Promise<CustomRole> => {
+    try {
+      const response = await api.post('/rbac/roles', roleData);
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to create custom role:', error);
+      throw new Error(error?.response?.data?.message || error?.message || 'Failed to create custom role');
+    }
+  },
+
+  update: async (roleId: string, roleData: UpdateCustomRoleRequest): Promise<CustomRole> => {
+    try {
+      const response = await api.put(`/rbac/roles/${roleId}`, roleData);
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to update custom role:', error);
+      throw new Error(error?.response?.data?.message || error?.message || 'Failed to update custom role');
+    }
+  },
+
+  delete: async (roleId: string): Promise<{ success: boolean; message: string }> => {
+    try {
+      const response = await api.delete(`/rbac/roles/${roleId}`);
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to delete custom role:', error);
+      throw new Error(error?.response?.data?.message || error?.message || 'Failed to delete custom role');
+    }
+  },
+};
+
+// ======================================================
+// MANAGED USER API FUNCTIONS
+// ======================================================
+
+export const managedUsersAPI = {
+  getAll: async (params?: {
+    role?: string;
+    isActive?: boolean;
+    propertyId?: string;
+  }): Promise<ManagedUser[]> => {
+    try {
+      const response = await api.get('/rbac/users', { params });
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to fetch managed users:', error);
+      throw new Error(error?.response?.data?.message || error?.message || 'Failed to fetch managed users');
+    }
+  },
+
+  create: async (userData: CreateManagedUserRequest): Promise<ManagedUser> => {
+    try {
+      const response = await api.post('/rbac/users', userData);
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to create managed user:', error);
+      throw new Error(error?.response?.data?.message || error?.message || 'Failed to create managed user');
+    }
+  },
+
+  delete: async (userId: string): Promise<{ success: boolean; message: string }> => {
+    try {
+      const response = await api.delete(`/rbac/users/${userId}`);
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to delete managed user:', error);
+      throw new Error(error?.response?.data?.message || error?.message || 'Failed to delete managed user');
+    }
+  },
+
+  updateAccess: async (
+    userId: string,
+    accessData: UpdateManagedUserAccessRequest
+  ): Promise<{ success: boolean; message: string }> => {
+    try {
+      const response = await api.put(`/rbac/users/${userId}/access`, accessData);
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to update managed user access:', error);
+      throw new Error(error?.response?.data?.message || error?.message || 'Failed to update managed user access');
+    }
+  },
+
+  getAccessDetails: async (userId: string): Promise<UserAccessDetails> => {
+    try {
+      const response = await api.get(`/rbac/users/${userId}/access-details`);
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to fetch user access details:', error);
+      throw new Error(error?.response?.data?.message || error?.message || 'Failed to fetch user access details');
+    }
+  },
+
+  grantPropertyAccess: async (
+    userId: string,
+    accessData: GrantPropertyAccessRequest
+  ): Promise<{ success: boolean; message: string; data: any }> => {
+    try {
+      const response = await api.post(`/rbac/users/${userId}/property-access`, accessData);
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to grant property access:', error);
+      throw new Error(error?.response?.data?.message || error?.message || 'Failed to grant property access');
+    }
+  },
+
+  revokePropertyAccess: async (
+    userId: string,
+    propertyId: string
+  ): Promise<{ success: boolean; message: string }> => {
+    try {
+      const response = await api.delete(`/rbac/users/${userId}/property-access/${propertyId}`);
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to revoke property access:', error);
+      throw new Error(error?.response?.data?.message || error?.message || 'Failed to revoke property access');
+    }
+  },
+
+  updatePropertyPermissions: async (
+    userId: string,
+    propertyId: string,
+    permissionsData: UpdatePropertyPermissionsRequest
+  ): Promise<{ success: boolean; message: string }> => {
+    try {
+      const response = await api.put(
+        `/rbac/users/${userId}/property-access/${propertyId}/permissions`,
+        permissionsData
+      );
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to update property permissions:', error);
+      throw new Error(error?.response?.data?.message || error?.message || 'Failed to update property permissions');
+    }
+  },
+
+  disable: async (userId: string): Promise<{ success: boolean; message: string }> => {
+    try {
+      // Send an empty object as body to satisfy backend's req.body requirement
+      const response = await api.post(`/rbac/users/${userId}/disable`, {});
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to disable managed user:', error);
+      throw new Error(error?.response?.data?.message || error?.message || 'Failed to disable managed user');
+    }
+  },
+
+  enable: async (userId: string): Promise<{ success: boolean; message: string }> => {
+    try {
+      // Send an empty object as body to satisfy backend's req.body requirement
+      const response = await api.post(`/rbac/users/${userId}/enable`, {});
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to enable managed user:', error);
+      throw new Error(error?.response?.data?.message || error?.message || 'Failed to enable managed user');
+    }
+  },
+
+  bulkUpdateAccess: async (
+    userId: string,
+    bulkData: BulkUpdateAccessRequest
+  ): Promise<{ success: boolean; message: string }> => {
+    try {
+      const response = await api.put(`/rbac/users/${userId}/bulk-access`, bulkData);
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to bulk update user access:', error);
+      throw new Error(error?.response?.data?.message || error?.message || 'Failed to bulk update user access');
+    }
+  },
+};
+
+// ======================================================
+// AUDIT LOG API FUNCTIONS
+// ======================================================
+
+export const auditLogsAPI = {
+  getAll: async (params?: AuditLogQueryParams): Promise<AuditLog[]> => {
+    try {
+      const response = await api.get('/rbac/audit-logs', { params });
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to fetch audit logs:', error);
+      throw new Error(error?.response?.data?.message || error?.message || 'Failed to fetch audit logs');
+    }
+  },
+};
+
+// ======================================================
+// CACHE MANAGEMENT API FUNCTIONS
+// ======================================================
+
+export const cacheAPI = {
+  getStats: async (): Promise<CacheStats> => {
+    try {
+      const response = await api.get('/rbac/cache-stats');
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to fetch cache stats:', error);
+      throw new Error(error?.response?.data?.message || error?.message || 'Failed to fetch cache stats');
+    }
+  },
+
+  clearAll: async (): Promise<{ success: boolean; message: string }> => {
+    try {
+      const response = await api.delete('/rbac/cache');
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to clear cache:', error);
+      throw new Error(error?.response?.data?.message || error?.message || 'Failed to clear cache');
     }
   },
 };

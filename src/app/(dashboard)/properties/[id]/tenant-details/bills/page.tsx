@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { motion, Variants } from 'framer-motion';
 import { Bill, BillType, BillStatus, Tenant, BillInvoice, InvoiceStatus, PaymentPolicy } from '@/types';
@@ -25,6 +25,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from 'sonner';
+import { PermissionGuard } from '@/components/auth/PermissionGuard';
+import { useGlobalPermissions } from '@/app/providers/PermissionsProvider';
+import { PermissionCode } from '@/types';
 
 interface BillFormData {
   type: BillType;
@@ -46,6 +49,65 @@ export default function TenantBillsPage() {
   const params = useParams();
   const router = useRouter();
   const tenantId = params.id as string;
+  
+  // Permission hooks
+  const { 
+    permissions,
+    isAdmin, 
+    isManager,
+    hasPermission,
+    canAccessModule,
+  } = useGlobalPermissions();
+  
+  // ==============================================
+  // PAGE ACCESS PERMISSION CHECK
+  // ==============================================
+  const billsPageAccessPermissions = useMemo(() => [
+    PermissionCode.VIEW_BILLS,
+    PermissionCode.VIEW_BILL_DETAILS,
+    PermissionCode.CREATE_BILL,
+    PermissionCode.EDIT_BILL,
+    PermissionCode.DELETE_BILL,
+    PermissionCode.PAY_BILL,
+    PermissionCode.VIEW_BILL_INVOICES,
+    PermissionCode.CREATE_BILL_INVOICE,
+    PermissionCode.DOWNLOAD_BILL_INVOICE,
+  ], []);
+
+  const canAccessBillsPage = useMemo(() => {
+    if (isAdmin || isManager) return true;
+    return billsPageAccessPermissions.some(permission => hasPermission(permission));
+  }, [isAdmin, isManager, hasPermission, billsPageAccessPermissions]);
+
+  // Redirect if user doesn't have permission
+  useEffect(() => {
+    if (!canAccessBillsPage) {
+      toast.error('You do not have permission to access bills');
+      router.back();
+    }
+  }, [canAccessBillsPage, router]);
+
+  // ==============================================
+  // PERMISSION CHECKS FOR SPECIFIC FEATURES
+  // ADMIN and MANAGER have full access
+  // USER has limited access based on their permissions
+  // ==============================================
+  
+  const canViewBills = isAdmin || isManager || hasPermission(PermissionCode.VIEW_BILLS);
+  const canViewBillDetails = isAdmin || isManager || hasPermission(PermissionCode.VIEW_BILL_DETAILS);
+  const canCreateBill = isAdmin || isManager || hasPermission(PermissionCode.CREATE_BILL);
+  const canEditBill = isAdmin || isManager || hasPermission(PermissionCode.EDIT_BILL);
+  const canDeleteBill = isAdmin || isManager || hasPermission(PermissionCode.DELETE_BILL);
+  const canPayBill = isAdmin || isManager || hasPermission(PermissionCode.PAY_BILL);
+  const canRecordMeterReadings = isAdmin || isManager || hasPermission(PermissionCode.RECORD_METER_READINGS);
+  
+  const canViewBillInvoices = isAdmin || isManager || hasPermission(PermissionCode.VIEW_BILL_INVOICES);
+  const canViewBillInvoiceDetails = isAdmin || isManager || hasPermission(PermissionCode.VIEW_BILL_INVOICE_DETAILS);
+  const canCreateBillInvoice = isAdmin || isManager || hasPermission(PermissionCode.CREATE_BILL_INVOICE);
+  const canRecordBillInvoicePayment = isAdmin || isManager || hasPermission(PermissionCode.RECORD_BILL_INVOICE_PAYMENT);
+  const canDeleteBillInvoice = isAdmin || isManager || hasPermission(PermissionCode.DELETE_BILL_INVOICE);
+  const canDownloadBillInvoice = isAdmin || isManager || hasPermission(PermissionCode.DOWNLOAD_BILL_INVOICE);
+
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [bills, setBills] = useState<Bill[]>([]);
   const [billInvoices, setBillInvoices] = useState<BillInvoice[]>([]);
@@ -87,7 +149,7 @@ export default function TenantBillsPage() {
     dueDate: '',
     notes: '',
   });
-  // Add these with your other state declarations around line 65
+  
   const [lastBillInfo, setLastBillInfo] = useState<{
     lastBill: {
       id: string;
@@ -102,16 +164,19 @@ export default function TenantBillsPage() {
     daysSinceLastBill: number;
   } | null>(null);
 
-
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalBills, setTotalBills] = useState(0);
 
   useEffect(() => {
-    fetchTenant();
-    fetchBills();
-    fetchBillInvoices();
+    if (canViewBills) {
+      fetchTenant();
+      fetchBills();
+    }
+    if (canViewBillInvoices) {
+      fetchBillInvoices();
+    }
   }, [tenantId, currentPage]);
 
   const fetchTenant = async () => {
@@ -127,11 +192,13 @@ export default function TenantBillsPage() {
   };
 
   const fetchBills = async () => {
+    if (!canViewBills) return;
+    
     try {
       setBillsLoading(true);
       const response = await billsAPI.getByTenant(tenantId, {
         page: currentPage,
-        limit: 10,//adjust limit as needed to get more/all bills
+        limit: 10,
       });
       setBills(response.bills);
       setTotalPages(response.pagination.totalPages);
@@ -145,12 +212,13 @@ export default function TenantBillsPage() {
   };
 
   const fetchBillInvoices = async () => {
+    if (!canViewBillInvoices) return;
+    
     try {
       setBillInvoicesLoading(true);
-      // If API supports pagination, get all pages
       const response = await billInvoicesAPI.getByTenant(tenantId, {
         page: 1,
-        limit: 1000, // Increase limit to get more invoices
+        limit: 1000,
       });
       setBillInvoices(response.data || []);
     } catch (error) {
@@ -158,6 +226,59 @@ export default function TenantBillsPage() {
     } finally {
       setBillInvoicesLoading(false);
     }
+  };
+
+  // Helper function to update bill after payment
+  const updateBillAfterPayment = (billId: string, paymentAmount: number) => {
+    setBills(prevBills => 
+      prevBills.map(bill => {
+        if (bill.id === billId) {
+          const newAmountPaid = (bill.amountPaid || 0) + paymentAmount;
+          const newBalance = bill.grandTotal - newAmountPaid;
+          let newStatus: BillStatus = bill.status;
+          
+          if (newBalance <= 0.01) {
+            newStatus = 'PAID';
+          } else if (newAmountPaid > 0) {
+            newStatus = 'PARTIAL';
+          }
+          
+          return {
+            ...bill,
+            amountPaid: newAmountPaid,
+            status: newStatus
+          };
+        }
+        return bill;
+      })
+    );
+  };
+
+  // Helper function to update bill invoice after payment
+  const updateBillInvoiceAfterPayment = (invoiceId: string, paymentAmount: number) => {
+    setBillInvoices(prevInvoices => 
+      prevInvoices.map(invoice => {
+        if (invoice.id === invoiceId) {
+          const newAmountPaid = invoice.amountPaid + paymentAmount;
+          const newBalance = invoice.grandTotal - newAmountPaid;
+          let newStatus: InvoiceStatus = invoice.status;
+          
+          if (newBalance <= 0.01) {
+            newStatus = 'PAID';
+          } else if (newAmountPaid > 0) {
+            newStatus = 'PARTIAL';
+          }
+          
+          return {
+            ...invoice,
+            amountPaid: newAmountPaid,
+            balance: newBalance,
+            status: newStatus
+          };
+        }
+        return invoice;
+      })
+    );
   };
 
   const resetBillForm = () => {
@@ -181,6 +302,11 @@ export default function TenantBillsPage() {
   };
 
   const handleCreateBill = async () => {
+    if (!canCreateBill) {
+      toast.error('You do not have permission to create bills');
+      return;
+    }
+    
     if (!billForm.previousReading || !billForm.currentReading || !billForm.chargePerUnit) {
       toast.error('Please fill in all required fields');
       return;
@@ -217,6 +343,11 @@ export default function TenantBillsPage() {
   };
 
   const handleUpdateBill = async () => {
+    if (!canEditBill) {
+      toast.error('You do not have permission to edit bills');
+      return;
+    }
+    
     if (!selectedBill) return;
     if (!billForm.previousReading || !billForm.currentReading || !billForm.chargePerUnit) {
       toast.error('Please fill in all required fields');
@@ -254,63 +385,66 @@ export default function TenantBillsPage() {
   };
 
   const handlePayBill = async () => {
+    if (!canPayBill) {
+      toast.error('You do not have permission to pay bills');
+      return;
+    }
+    
     if (!selectedBill) return;
     
-    // Parse the payment amount with proper float handling
     const amount = parseFloat(paymentAmount);
     if (isNaN(amount) || amount <= 0) {
       toast.error('Please enter a valid payment amount');
       return;
     }
     
-    // Calculate remaining balance with proper rounding
     const remainingBalance = selectedBill.grandTotal - (selectedBill.amountPaid || 0);
-    
-    // Use a tolerance of 0.01 for floating point precision issues
     const tolerance = 0.01;
     const roundedRemainingBalance = Math.round(remainingBalance * 100) / 100;
     const roundedAmount = Math.round(amount * 100) / 100;
     
-    // Check if payment exceeds remaining balance (with tolerance)
     if (roundedAmount > roundedRemainingBalance + tolerance) {
       toast.error(`Payment amount cannot exceed the remaining balance of Ksh ${remainingBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
       return;
     }
     
-    // Check if amount is effectively the same as remaining balance (within tolerance)
     const isFullPayment = Math.abs(roundedAmount - roundedRemainingBalance) <= tolerance;
-    
-    // If it's a full payment, use the exact remaining balance to avoid floating point issues
     const finalPaymentAmount = isFullPayment ? remainingBalance : amount;
     
     try {
       setPaying(true);
       
-      // Send payment with properly rounded amount
       const response = await billsAPI.payBill(selectedBill.id, { 
         amount: parseFloat(finalPaymentAmount.toFixed(2))
       });
       
       if (response.success) {
         toast.success(response.message || 'Payment recorded successfully!');
+        
+        // Update the bill in the bills state immediately
+        updateBillAfterPayment(selectedBill.id, finalPaymentAmount);
+        
+        // Also update related bill invoices if they exist
+        const relatedInvoices = billInvoices.filter(invoice => invoice.billId === selectedBill.id);
+        if (relatedInvoices.length > 0 && canViewBillInvoices) {
+          // Refetch bill invoices to ensure they're synced
+          await fetchBillInvoices();
+        }
+        
         setShowPayDialog(false);
         setSelectedBill(null);
         setPaymentAmount('');
-        fetchBills();
-        fetchBillInvoices();
       } else {
         toast.error(response.message || 'Failed to record payment');
       }
     } catch (error: any) {
       console.error('Error paying bill:', error);
       
-      // Provide more specific error messages
       if (error.message?.includes('exceeds bill total') || error.message?.includes('maximum payment')) {
         toast.error(error.message);
       } else if (error.message?.includes('Duplicate payment')) {
         toast.error('This payment appears to have already been processed');
       } else if (error.message?.includes('precision') || error.message?.includes('decimal')) {
-        // Handle decimal precision errors
         toast.error('Please enter payment amount with up to 2 decimal places');
       } else {
         toast.error('Failed to record payment. Please try again.');
@@ -319,7 +453,9 @@ export default function TenantBillsPage() {
       setPaying(false);
     }
   };
+  
   const fetchLastBillInfo = async (type: BillType) => {
+    if (!canViewBillDetails && !canRecordMeterReadings) return;
     if (!tenantId) return;
     
     setLoadingLastBill(true);
@@ -331,7 +467,6 @@ export default function TenantBillsPage() {
       if (response.success && response.data) {
         setLastBillInfo(response.data);
         
-        // Auto-fill the previous reading
         setBillForm(prev => ({
           ...prev,
           previousReading: response.data.suggestedPreviousReading.toString()
@@ -345,13 +480,11 @@ export default function TenantBillsPage() {
       setLastBillInfo(null);
       setPreviousReadingAutoFilled(false);
       
-      // Clear previous reading if no last bill found
       setBillForm(prev => ({
         ...prev,
         previousReading: ''
       }));
       
-      // Only show toast if it's not a 404 (no previous bill is expected for first bill)
       if (error?.response?.status !== 404) {
         toast.error('Failed to fetch previous bill info');
       }
@@ -361,33 +494,30 @@ export default function TenantBillsPage() {
   };
 
   const handleRecordBillInvoicePayment = async () => {
+    if (!canRecordBillInvoicePayment) {
+      toast.error('You do not have permission to record bill invoice payments');
+      return;
+    }
+    
     if (!selectedBillInvoice) return;
     
-    // Parse the payment amount with proper float handling
     const amount = parseFloat(paymentAmount);
     if (isNaN(amount) || amount <= 0) {
       toast.error('Please enter a valid payment amount');
       return;
     }
     
-    // Calculate remaining balance with proper rounding
     const remainingBalance = selectedBillInvoice.grandTotal - selectedBillInvoice.amountPaid;
-    
-    // Use a tolerance of 0.01 for floating point precision issues
     const tolerance = 0.01;
     const roundedRemainingBalance = Math.round(remainingBalance * 100) / 100;
     const roundedAmount = Math.round(amount * 100) / 100;
     
-    // Check if payment exceeds remaining balance (with tolerance)
     if (roundedAmount > roundedRemainingBalance + tolerance) {
       toast.error(`Payment amount cannot exceed the remaining balance of Ksh ${remainingBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
       return;
     }
     
-    // Check if amount is effectively the same as remaining balance (within tolerance)
     const isFullPayment = Math.abs(roundedAmount - roundedRemainingBalance) <= tolerance;
-    
-    // If it's a full payment, use the exact remaining balance to avoid floating point issues
     const finalPaymentAmount = isFullPayment ? remainingBalance : amount;
     
     try {
@@ -400,14 +530,37 @@ export default function TenantBillsPage() {
       });
       
       toast.success('Payment recorded successfully!');
+      
+      // Update the bill invoice in the invoices state immediately
+      updateBillInvoiceAfterPayment(selectedBillInvoice.id, finalPaymentAmount);
+      
+      // Also update the corresponding bill if it exists
+      if (selectedBillInvoice.billId && canViewBills) {
+        // Find the associated bill and update its amount paid
+        const associatedBill = bills.find(bill => bill.id === selectedBillInvoice.billId);
+        if (associatedBill) {
+          // Calculate total paid across all invoices for this bill
+          const updatedInvoices = billInvoices.map(invoice => 
+            invoice.id === selectedBillInvoice.id 
+              ? { ...invoice, amountPaid: invoice.amountPaid + finalPaymentAmount }
+              : invoice
+          );
+          
+          const totalPaidOnBill = updatedInvoices
+            .filter(inv => inv.billId === selectedBillInvoice.billId)
+            .reduce((sum, inv) => sum + inv.amountPaid, 0);
+          
+          // Update the bill with the new total paid amount
+          updateBillAfterPayment(selectedBillInvoice.billId, finalPaymentAmount);
+        }
+      }
+      
       setShowPayDialog(false);
       setSelectedBillInvoice(null);
       setPaymentAmount('');
-      fetchBillInvoices();
     } catch (error: any) {
       console.error('Error recording bill invoice payment:', error);
       
-      // Handle specific error cases
       if (error.message?.includes('precision') || error.message?.includes('decimal')) {
         toast.error('Please enter payment amount with up to 2 decimal places');
       } else {
@@ -419,13 +572,17 @@ export default function TenantBillsPage() {
   };
 
   const handleGenerateBillInvoice = async () => {
+    if (!canCreateBillInvoice) {
+      toast.error('You do not have permission to generate bill invoices');
+      return;
+    }
+    
     if (!selectedBill || !tenant) return;
     if (!billInvoiceForm.dueDate) {
         toast.error('Please select a due date');
         return;
     }
 
-    // Calculate remaining balance
     const remainingBalance = selectedBill.grandTotal - (selectedBill.amountPaid || 0);
     
     if (remainingBalance <= 0) {
@@ -436,12 +593,10 @@ export default function TenantBillsPage() {
     try {
         setGeneratingInvoice(true);
         
-        // Payment now occurs monthly by default, no need to pass paymentPolicy
         const response = await billInvoicesAPI.generate({
           billId: selectedBill.id,
           dueDate: billInvoiceForm.dueDate,
           notes: billInvoiceForm.notes || `Invoice for remaining balance of Ksh ${remainingBalance.toLocaleString()}`
-          // Removed: paymentPolicy: paymentPolicy
         });
         
         toast.success('Bill invoice generated successfully!');
@@ -450,14 +605,12 @@ export default function TenantBillsPage() {
         resetBillInvoiceForm();
         fetchBillInvoices();
         
-        // If this was a partial payment invoice, also refresh bills to show updated status
         if (remainingBalance < selectedBill.grandTotal) {
           fetchBills();
         }
     } catch (error: any) {
         console.error('Error generating bill invoice:', error);
         
-        // Provide specific error messages
         if (error.message?.includes('already fully paid')) {
         toast.error('This bill is already fully paid and cannot generate an invoice');
         } else if (error.message?.includes('No balance remaining')) {
@@ -471,6 +624,11 @@ export default function TenantBillsPage() {
   };
 
   const handleDeleteBill = async (billId: string) => {
+    if (!canDeleteBill) {
+      toast.error('You do not have permission to delete bills');
+      return;
+    }
+    
     if (!confirm('Are you sure you want to delete this bill?')) return;
     try {
       await billsAPI.delete(billId);
@@ -483,6 +641,11 @@ export default function TenantBillsPage() {
   };
 
   const handleDownloadBillInvoice = async (invoiceId: string, invoiceNumber: string) => {
+    if (!canDownloadBillInvoice) {
+      toast.error('You do not have permission to download bill invoices');
+      return;
+    }
+    
     try {
       const blob = await billInvoicesAPI.download(invoiceId);
       const url = window.URL.createObjectURL(blob);
@@ -501,6 +664,11 @@ export default function TenantBillsPage() {
   };
 
   const openEditDialog = (bill: Bill) => {
+    if (!canEditBill) {
+      toast.error('You do not have permission to edit bills');
+      return;
+    }
+    
     setSelectedBill(bill);
     setBillForm({
       type: bill.type,
@@ -516,6 +684,11 @@ export default function TenantBillsPage() {
   };
 
   const openPayDialog = (bill: Bill) => {
+    if (!canPayBill) {
+      toast.error('You do not have permission to pay bills');
+      return;
+    }
+    
     setSelectedBill(bill);
     setSelectedBillInvoice(null);
     setPaymentAmount('');
@@ -523,6 +696,11 @@ export default function TenantBillsPage() {
   };
 
   const openPayBillInvoiceDialog = (invoice: BillInvoice) => {
+    if (!canRecordBillInvoicePayment) {
+      toast.error('You do not have permission to record bill invoice payments');
+      return;
+    }
+    
     setSelectedBillInvoice(invoice);
     setSelectedBill(null);
     setPaymentAmount('');
@@ -530,15 +708,18 @@ export default function TenantBillsPage() {
   };
 
   const openGenerateInvoiceDialog = (bill: Bill) => {
+    if (!canCreateBillInvoice) {
+      toast.error('You do not have permission to generate bill invoices');
+      return;
+    }
+    
     setSelectedBill(bill);
     resetBillInvoiceForm();
     
-    // Set default due date based on tenant's payment policy
     if (tenant) {
       const today = new Date();
       let dueDate = new Date();
       
-      // Set due date based on payment policy
       switch (tenant.paymentPolicy) {
         case 'MONTHLY':
           dueDate.setMonth(today.getMonth() + 1);
@@ -550,7 +731,7 @@ export default function TenantBillsPage() {
           dueDate.setFullYear(today.getFullYear() + 1);
           break;
         default:
-          dueDate.setMonth(today.getMonth() + 1); // Default to monthly
+          dueDate.setMonth(today.getMonth() + 1);
       }
       
       setBillInvoiceForm(prev => ({
@@ -632,6 +813,11 @@ export default function TenantBillsPage() {
     },
   };
 
+  // If user doesn't have permission to view the page
+  if (!canAccessBillsPage) {
+    return null; // Will redirect in useEffect
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -707,85 +893,96 @@ export default function TenantBillsPage() {
           </div>
         </div>
         <div className="flex gap-3">
-          <Button
-            onClick={() => setShowBillInvoicesDialog(true)}
-            variant="outline"
-            className="px-6 py-3 border-2 border-purple-600 text-purple-600 hover:bg-purple-50"
-          >
-            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            View Bill Invoices ({billInvoices.length})
-          </Button>
-          <Button
-            onClick={() => {
-              resetBillForm();
-              setShowCreateDialog(true);
-              setTimeout(() => fetchLastBillInfo('WATER'), 0);
-            }}
-            className="px-6 py-3 bg-primary text-white hover:bg-primary/90"
-          >
-            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            Create New Bill
-          </Button>
+          {/* View Bill Invoices Button - ADMIN, MANAGER, or user with VIEW_BILL_INVOICES permission */}
+          {(isAdmin || isManager || hasPermission(PermissionCode.VIEW_BILL_INVOICES)) && (
+            <Button
+              onClick={() => setShowBillInvoicesDialog(true)}
+              variant="outline"
+              className="px-6 py-3 border-2 border-purple-600 text-purple-600 hover:bg-purple-50"
+            >
+              <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              View Bill Invoices ({billInvoices.length})
+            </Button>
+          )}
+          
+          {/* Create New Bill Button - ADMIN, MANAGER, or user with CREATE_BILL permission */}
+          {(isAdmin || isManager || hasPermission(PermissionCode.CREATE_BILL)) && (
+            <Button
+              onClick={() => {
+                resetBillForm();
+                setShowCreateDialog(true);
+                if (canViewBillDetails || canRecordMeterReadings) {
+                  setTimeout(() => fetchLastBillInfo('WATER'), 0);
+                }
+              }}
+              className="px-6 py-3 bg-primary text-white hover:bg-primary/90"
+            >
+              <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              Create New Bill
+            </Button>
+          )}
         </div>
       </motion.div>
 
-      {/* Summary Cards */}
-      <motion.div variants={itemVariants} className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="bg-white rounded-2xl p-6 shadow-lg border border-gray-200">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-              <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
+      {/* Summary Cards - Only show if user can view bills */}
+      {canViewBills && (
+        <motion.div variants={itemVariants} className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <div className="bg-white rounded-2xl p-6 shadow-lg border border-gray-200">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              </div>
+              <h3 className="text-sm font-semibold text-gray-600">Total Bills</h3>
             </div>
-            <h3 className="text-sm font-semibold text-gray-600">Total Bills</h3>
+            <p className="text-3xl font-bold text-gray-900">{totalBills}</p>
           </div>
-          <p className="text-3xl font-bold text-gray-900">{totalBills}</p>
-        </div>
-        <div className="bg-white rounded-2xl p-6 shadow-lg border border-gray-200">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-              <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
+          <div className="bg-white rounded-2xl p-6 shadow-lg border border-gray-200">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+                <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <h3 className="text-sm font-semibold text-gray-600">Paid Bills</h3>
             </div>
-            <h3 className="text-sm font-semibold text-gray-600">Paid Bills</h3>
+            <p className="text-3xl font-bold text-green-600">
+              {bills.filter(b => b.status === 'PAID').length}
+            </p>
           </div>
-          <p className="text-3xl font-bold text-green-600">
-            {bills.filter(b => b.status === 'PAID').length}
-          </p>
-        </div>
-        <div className="bg-white rounded-2xl p-6 shadow-lg border border-gray-200">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
-              <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
+          <div className="bg-white rounded-2xl p-6 shadow-lg border border-gray-200">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
+                <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <h3 className="text-sm font-semibold text-gray-600">Unpaid Bills</h3>
             </div>
-            <h3 className="text-sm font-semibold text-gray-600">Unpaid Bills</h3>
+            <p className="text-3xl font-bold text-red-600">
+              {bills.filter(b => b.status === 'UNPAID' || b.status === 'OVERDUE').length}
+            </p>
           </div>
-          <p className="text-3xl font-bold text-red-600">
-            {bills.filter(b => b.status === 'UNPAID' || b.status === 'OVERDUE').length}
-          </p>
-        </div>
-        <div className="bg-white rounded-2xl p-6 shadow-lg border border-gray-200">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
-              <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
+          <div className="bg-white rounded-2xl p-6 shadow-lg border border-gray-200">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
+                <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <h3 className="text-sm font-semibold text-gray-600">Total Amount</h3>
             </div>
-            <h3 className="text-sm font-semibold text-gray-600">Total Amount</h3>
+            <p className="text-3xl font-bold text-purple-600">
+              Ksh {bills.reduce((sum, b) => sum + b.grandTotal, 0).toLocaleString()}
+            </p>
           </div>
-          <p className="text-3xl font-bold text-purple-600">
-            Ksh {bills.reduce((sum, b) => sum + b.grandTotal, 0).toLocaleString()}
-          </p>
-        </div>
-      </motion.div>
+        </motion.div>
+      )}
 
       {/* Bills Table */}
       <motion.div variants={itemVariants} className="bg-white rounded-2xl shadow-lg border border-gray-200 overflow-hidden">
@@ -795,7 +992,18 @@ export default function TenantBillsPage() {
             Tenant Payment Policy: <span className="font-semibold">Monthly</span>
           </p>
         </div>
-        {billsLoading ? (
+        
+        {!canViewBills ? (
+          <div className="text-center py-12">
+            <svg className="w-16 h-16 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+            <p className="text-gray-600">You don't have permission to view bills.</p>
+            <Button onClick={() => router.back()} className="mt-4">
+              Go Back
+            </Button>
+          </div>
+        ) : billsLoading ? (
           <div className="flex justify-center py-12">
             <motion.div
               className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full"
@@ -809,20 +1017,23 @@ export default function TenantBillsPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
             <p className="text-gray-600">No bills found</p>
-            <Button onClick={() => setShowCreateDialog(true)} className="mt-4">
-              Create Your First Bill
-            </Button>
+            {(isAdmin || isManager || hasPermission(PermissionCode.CREATE_BILL)) && (
+              <Button onClick={() => setShowCreateDialog(true)} className="mt-4">
+                Create Your First Bill
+              </Button>
+            )}
           </div>
         ) : (
           <>
-            {/* Horizontal Scroll Container */}
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-300">
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Type</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Period</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Readings</th>
+                    {(canViewBillDetails || isAdmin || isManager) && (
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Readings</th>
+                    )}
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Units</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Rate</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Amount</th>
@@ -847,8 +1058,8 @@ export default function TenantBillsPage() {
                       balanceDisplay = bill.grandTotal.toFixed(2);
                     }
 
-                    const showPayButton = !isFullyPaid && !isCancelled;
-                    const showGenerateInvoiceButton = !isCancelled;
+                    const showPayButton = !isFullyPaid && !isCancelled && canPayBill;
+                    const showGenerateInvoiceButton = !isCancelled && canCreateBillInvoice;
 
                     return (
                       <tr key={bill.id}>
@@ -864,10 +1075,12 @@ export default function TenantBillsPage() {
                             year: 'numeric',
                           })}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm">
-                          <div className="text-gray-600">Prev: {bill.previousReading}</div>
-                          <div className="font-medium text-gray-900">Curr: {bill.currentReading}</div>
-                        </td>
+                        {(canViewBillDetails || isAdmin || isManager) && (
+                          <td className="px-6 py-4 whitespace-nowrap text-sm">
+                            <div className="text-gray-600">Prev: {bill.previousReading}</div>
+                            <div className="font-medium text-gray-900">Curr: {bill.currentReading}</div>
+                          </td>
+                        )}
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">{bill.units}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">Ksh {bill.chargePerUnit.toFixed(2)}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm">
@@ -925,21 +1138,25 @@ export default function TenantBillsPage() {
                                 Pay
                               </Button>
                             )}
-                            <Button
-                              onClick={() => openEditDialog(bill)}
-                              size="sm"
-                              variant="outline"
-                            >
-                              Edit
-                            </Button>
-                            <Button
-                              onClick={() => handleDeleteBill(bill.id)}
-                              size="sm"
-                              variant="outline"
-                              className="text-red-600 hover:bg-red-50"
-                            >
-                              Delete
-                            </Button>
+                            {canEditBill && (
+                              <Button
+                                onClick={() => openEditDialog(bill)}
+                                size="sm"
+                                variant="outline"
+                              >
+                                Edit
+                              </Button>
+                            )}
+                            {canDeleteBill && (
+                              <Button
+                                onClick={() => handleDeleteBill(bill.id)}
+                                size="sm"
+                                variant="outline"
+                                className="text-red-600 hover:bg-red-50"
+                              >
+                                Delete
+                              </Button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -948,7 +1165,6 @@ export default function TenantBillsPage() {
                 </tbody>
               </table>
             </div>
-            {/* Pagination */}
             {totalPages > 1 && (
               <div className="p-6 border-t border-gray-200 flex items-center justify-between">
                 <p className="text-sm text-gray-600">
@@ -979,446 +1195,449 @@ export default function TenantBillsPage() {
       </motion.div>
 
       {/* Create Bill Dialog */}
-      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-2xl font-bold text-gray-900">Create New Bill</DialogTitle>
-            <DialogDescription className="text-gray-700">
-              Generate a new utility bill for {tenant.fullName}
-            </DialogDescription>
-            <div className="mt-2">
-              <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getPaymentPolicyColor(tenant.paymentPolicy)}`}>
-                Payment Policy: MONTHLY
-              </span>
-            </div>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="type" className="text-gray-900">Bill Type *</Label>
-                <Select
-                  value={billForm.type}
-                  onValueChange={(value: BillType) => {
-                    setBillForm({ ...billForm, type: value });
-                    // Fetch last bill info when type changes
-                    fetchLastBillInfo(value);
-                  }}
-                >
-                  <SelectTrigger className="text-gray-900">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="WATER" className="text-gray-900">Water</SelectItem>
-                    <SelectItem value="ELECTRICITY" className="text-gray-900">Electricity</SelectItem>
-                  </SelectContent>
-                </Select>
+      {(isAdmin || isManager || hasPermission(PermissionCode.CREATE_BILL)) && (
+        <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+          <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="text-2xl font-bold text-gray-900">Create New Bill</DialogTitle>
+              <DialogDescription className="text-gray-700">
+                Generate a new utility bill for {tenant.fullName}
+              </DialogDescription>
+              <div className="mt-2">
+                <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getPaymentPolicyColor(tenant.paymentPolicy)}`}>
+                  Payment Policy: MONTHLY
+                </span>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="dueDate" className="text-gray-900">Due Date</Label>
-                <Input
-                  id="dueDate"
-                  type="date"
-                  value={billForm.dueDate}
-                  onChange={(e) => setBillForm({ ...billForm, dueDate: e.target.value })}
-                  min={new Date().toISOString().split('T')[0]}
-                  className="text-gray-900"
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="description" className="text-gray-900">Description</Label>
-              <Input
-                id="description"
-                placeholder="e.g., January 2024 Water Bill"
-                value={billForm.description}
-                onChange={(e) => setBillForm({ ...billForm, description: e.target.value })}
-                className="text-gray-900 placeholder:text-gray-500"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="previousReading" className="text-gray-900">
-                    Previous Reading *
-                  </Label>
-                  {previousReadingAutoFilled && (
-                    <span className="text-xs text-green-600 font-medium flex items-center">
-                      <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                      Auto-filled
-                    </span>
-                  )}
-                  {loadingLastBill && (
-                    <span className="text-xs text-blue-600 flex items-center">
-                      <motion.div
-                        className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full mr-1"
-                        animate={{ rotate: 360 }}
-                        transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                      />
-                      Fetching...
-                    </span>
-                  )}
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="type" className="text-gray-900">Bill Type *</Label>
+                  <Select
+                    value={billForm.type}
+                    onValueChange={(value: BillType) => {
+                      setBillForm({ ...billForm, type: value });
+                      if (canViewBillDetails || canRecordMeterReadings) {
+                        fetchLastBillInfo(value);
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="text-gray-900">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="WATER" className="text-gray-900">Water</SelectItem>
+                      <SelectItem value="ELECTRICITY" className="text-gray-900">Electricity</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="dueDate" className="text-gray-900">Due Date</Label>
+                  <Input
+                    id="dueDate"
+                    type="date"
+                    value={billForm.dueDate}
+                    onChange={(e) => setBillForm({ ...billForm, dueDate: e.target.value })}
+                    min={new Date().toISOString().split('T')[0]}
+                    className="text-gray-900"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="description" className="text-gray-900">Description</Label>
                 <Input
-                  id="previousReading"
-                  type="number"
-                  step="0.01"
-                  placeholder="0.00"
-                  value={billForm.previousReading}
-                  onChange={(e) => {
-                    setBillForm({ ...billForm, previousReading: e.target.value });
-                    setPreviousReadingAutoFilled(false); // User manually editing
-                  }}
-                  required
+                  id="description"
+                  placeholder="e.g., January 2024 Water Bill"
+                  value={billForm.description}
+                  onChange={(e) => setBillForm({ ...billForm, description: e.target.value })}
                   className="text-gray-900 placeholder:text-gray-500"
                 />
-                
-                {/* Display last bill info if available */}
-                {lastBillInfo && (
-                  <div className="mt-2 p-3 bg-blue-50 rounded-lg border border-blue-100">
-                    <p className="text-xs text-blue-800 font-medium mb-1">Last {billForm.type} Bill Information</p>
-                    <div className="grid grid-cols-2 gap-2 text-xs text-blue-700">
-                      <div>
-                        <span className="text-blue-500">Last Reading:</span>{' '}
-                        <span className="font-semibold">{lastBillInfo.lastBill.currentReading}</span>
-                      </div>
-                      <div>
-                        <span className="text-blue-500">Date:</span>{' '}
-                        <span>{new Date(lastBillInfo.lastBill.issuedAt).toLocaleDateString()}</span>
-                      </div>
-                      <div>
-                        <span className="text-blue-500">Units Used:</span>{' '}
-                        <span className="font-semibold">{lastBillInfo.lastBill.units}</span>
-                      </div>
-                      <div>
-                        <span className="text-blue-500">Days Ago:</span>{' '}
-                        <span>{lastBillInfo.daysSinceLastBill}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="previousReading" className="text-gray-900">
+                      Previous Reading *
+                    </Label>
+                    {previousReadingAutoFilled && (
+                      <span className="text-xs text-green-600 font-medium flex items-center">
+                        <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        Auto-filled
+                      </span>
+                    )}
+                    {loadingLastBill && (
+                      <span className="text-xs text-blue-600 flex items-center">
+                        <motion.div
+                          className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full mr-1"
+                          animate={{ rotate: 360 }}
+                          transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                        />
+                        Fetching...
+                      </span>
+                    )}
+                  </div>
+                  <Input
+                    id="previousReading"
+                    type="number"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={billForm.previousReading}
+                    onChange={(e) => {
+                      setBillForm({ ...billForm, previousReading: e.target.value });
+                      setPreviousReadingAutoFilled(false);
+                    }}
+                    required
+                    className="text-gray-900 placeholder:text-gray-500"
+                  />
+                  
+                  {lastBillInfo && (canViewBillDetails || canRecordMeterReadings) && (
+                    <div className="mt-2 p-3 bg-blue-50 rounded-lg border border-blue-100">
+                      <p className="text-xs text-blue-800 font-medium mb-1">Last {billForm.type} Bill Information</p>
+                      <div className="grid grid-cols-2 gap-2 text-xs text-blue-700">
+                        <div>
+                          <span className="text-blue-500">Last Reading:</span>{' '}
+                          <span className="font-semibold">{lastBillInfo.lastBill.currentReading}</span>
+                        </div>
+                        <div>
+                          <span className="text-blue-500">Date:</span>{' '}
+                          <span>{new Date(lastBillInfo.lastBill.issuedAt).toLocaleDateString()}</span>
+                        </div>
+                        <div>
+                          <span className="text-blue-500">Units Used:</span>{' '}
+                          <span className="font-semibold">{lastBillInfo.lastBill.units}</span>
+                        </div>
+                        <div>
+                          <span className="text-blue-500">Days Ago:</span>{' '}
+                          <span>{lastBillInfo.daysSinceLastBill}</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )}
-                
-                {/* Show message if no previous bill found */}
-                {!lastBillInfo && !loadingLastBill && billForm.previousReading === '' && (
-                  <p className="mt-2 text-xs text-amber-600 bg-amber-50 p-2 rounded border border-amber-100">
-                    <span className="font-medium">No previous {billForm.type} bill found.</span> Please enter the previous reading manually.
-                  </p>
-                )}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="currentReading" className="text-gray-900">Current Reading *</Label>
-                <Input
-                  id="currentReading"
-                  type="number"
-                  step="0.01"
-                  placeholder="0.00"
-                  value={billForm.currentReading}
-                  onChange={(e) => setBillForm({ ...billForm, currentReading: e.target.value })}
-                  required
-                  className="text-gray-900 placeholder:text-gray-500"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="chargePerUnit" className="text-gray-900">Charge per Unit (Ksh) *</Label>
-                <Input
-                  id="chargePerUnit"
-                  type="number"
-                  step="0.01"
-                  placeholder="0.00"
-                  value={billForm.chargePerUnit}
-                  onChange={(e) => setBillForm({ ...billForm, chargePerUnit: e.target.value })}
-                  required
-                  className="text-gray-900 placeholder:text-gray-500"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="vatRate" className="text-gray-900">VAT Rate (%)</Label>
-                <Input
-                  id="vatRate"
-                  type="number"
-                  step="0.01"
-                  placeholder="16"
-                  value={billForm.vatRate}
-                  onChange={(e) => setBillForm({ ...billForm, vatRate: e.target.value })}
-                  className="text-gray-900 placeholder:text-gray-500"
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="notes" className="text-gray-900">Notes</Label>
-              <Textarea
-                id="notes"
-                placeholder="Add any additional notes..."
-                value={billForm.notes}
-                onChange={(e) => setBillForm({ ...billForm, notes: e.target.value })}
-                rows={3}
-                className="text-gray-900 placeholder:text-gray-500"
-              />
-            </div>
-            {billForm.previousReading && billForm.currentReading && billForm.chargePerUnit && (
-              <div className="bg-gray-50 rounded-lg p-4 space-y-2">
-                <h4 className="font-semibold text-sm text-gray-900">Calculation Preview</h4>
-                <div className="text-sm space-y-1">
-                  {(() => {
-                    const prev = parseFloat(billForm.previousReading) || 0;
-                    const curr = parseFloat(billForm.currentReading) || 0;
-                    const rate = parseFloat(billForm.chargePerUnit) || 0;
-                    const vatRate = parseFloat(billForm.vatRate) || 0;
-                    const units = Math.max(0, curr - prev);
-                    const totalAmount = units * rate;
-                    const vatAmount = (totalAmount * vatRate) / 100;
-                    const grandTotal = totalAmount + vatAmount;
-                    return (
-                      <>
-                        <div className="flex justify-between">
-                          <span className="text-gray-900">Units Consumed:</span>
-                          <span className="font-medium text-gray-900">{units.toFixed(2)}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-900">Total Amount:</span>
-                          <span className="font-medium text-gray-900">Ksh {totalAmount.toLocaleString()}</span>
-                        </div>
-                        {vatAmount > 0 && (
-                          <div className="flex justify-between">
-                            <span className="text-gray-900">VAT ({vatRate}%):</span>
-                            <span className="font-medium text-gray-900">Ksh {vatAmount.toLocaleString()}</span>
-                          </div>
-                        )}
-                        <div className="flex justify-between pt-2 border-t border-gray-200">
-                          <span className="font-semibold text-gray-900">Grand Total:</span>
-                          <span className="font-bold text-primary">Ksh {grandTotal.toLocaleString()}</span>
-                        </div>
-                      </>
-                    );
-                  })()}
+                  )}
+                  
+                  {!lastBillInfo && !loadingLastBill && billForm.previousReading === '' && (
+                    <p className="mt-2 text-xs text-amber-600 bg-amber-50 p-2 rounded border border-amber-100">
+                      <span className="font-medium">No previous {billForm.type} bill found.</span> Please enter the previous reading manually.
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="currentReading" className="text-gray-900">Current Reading *</Label>
+                  <Input
+                    id="currentReading"
+                    type="number"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={billForm.currentReading}
+                    onChange={(e) => setBillForm({ ...billForm, currentReading: e.target.value })}
+                    required
+                    className="text-gray-900 placeholder:text-gray-500"
+                  />
                 </div>
               </div>
-            )}
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setShowCreateDialog(false);
-                resetBillForm();
-                setLastBillInfo(null);
-                setPreviousReadingAutoFilled(false);
-              }}
-              disabled={creating}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleCreateBill}
-              disabled={creating}
-              className="bg-primary hover:bg-primary/90"
-            >
-              {creating ? (
-                <>
-                  <motion.div
-                    className="w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2"
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="chargePerUnit" className="text-gray-900">Charge per Unit (Ksh) *</Label>
+                  <Input
+                    id="chargePerUnit"
+                    type="number"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={billForm.chargePerUnit}
+                    onChange={(e) => setBillForm({ ...billForm, chargePerUnit: e.target.value })}
+                    required
+                    className="text-gray-900 placeholder:text-gray-500"
                   />
-                  Creating...
-                </>
-              ) : (
-                'Create Bill'
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="vatRate" className="text-gray-900">VAT Rate (%)</Label>
+                  <Input
+                    id="vatRate"
+                    type="number"
+                    step="0.01"
+                    placeholder="16"
+                    value={billForm.vatRate}
+                    onChange={(e) => setBillForm({ ...billForm, vatRate: e.target.value })}
+                    className="text-gray-900 placeholder:text-gray-500"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="notes" className="text-gray-900">Notes</Label>
+                <Textarea
+                  id="notes"
+                  placeholder="Add any additional notes..."
+                  value={billForm.notes}
+                  onChange={(e) => setBillForm({ ...billForm, notes: e.target.value })}
+                  rows={3}
+                  className="text-gray-900 placeholder:text-gray-500"
+                />
+              </div>
+              {billForm.previousReading && billForm.currentReading && billForm.chargePerUnit && (
+                <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+                  <h4 className="font-semibold text-sm text-gray-900">Calculation Preview</h4>
+                  <div className="text-sm space-y-1">
+                    {(() => {
+                      const prev = parseFloat(billForm.previousReading) || 0;
+                      const curr = parseFloat(billForm.currentReading) || 0;
+                      const rate = parseFloat(billForm.chargePerUnit) || 0;
+                      const vatRate = parseFloat(billForm.vatRate) || 0;
+                      const units = Math.max(0, curr - prev);
+                      const totalAmount = units * rate;
+                      const vatAmount = (totalAmount * vatRate) / 100;
+                      const grandTotal = totalAmount + vatAmount;
+                      return (
+                        <>
+                          <div className="flex justify-between">
+                            <span className="text-gray-900">Units Consumed:</span>
+                            <span className="font-medium text-gray-900">{units.toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-900">Total Amount:</span>
+                            <span className="font-medium text-gray-900">Ksh {totalAmount.toLocaleString()}</span>
+                          </div>
+                          {vatAmount > 0 && (
+                            <div className="flex justify-between">
+                              <span className="text-gray-900">VAT ({vatRate}%):</span>
+                              <span className="font-medium text-gray-900">Ksh {vatAmount.toLocaleString()}</span>
+                            </div>
+                          )}
+                          <div className="flex justify-between pt-2 border-t border-gray-200">
+                            <span className="font-semibold text-gray-900">Grand Total:</span>
+                            <span className="font-bold text-primary">Ksh {grandTotal.toLocaleString()}</span>
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </div>
+                </div>
               )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowCreateDialog(false);
+                  resetBillForm();
+                  setLastBillInfo(null);
+                  setPreviousReadingAutoFilled(false);
+                }}
+                disabled={creating}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleCreateBill}
+                disabled={creating}
+                className="bg-primary hover:bg-primary/90"
+              >
+                {creating ? (
+                  <>
+                    <motion.div
+                      className="w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2"
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                    />
+                    Creating...
+                  </>
+                ) : (
+                  'Create Bill'
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* Edit Bill Dialog */}
-      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
-        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-2xl font-bold text-gray-900">Edit Bill</DialogTitle>
-            <DialogDescription className="text-gray-700">
-              Update bill details for {tenant.fullName}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="edit-type" className="text-gray-900">Bill Type *</Label>
-                <Select
-                  value={billForm.type}
-                  onValueChange={(value: BillType) => setBillForm({ ...billForm, type: value })}
-                >
-                  <SelectTrigger className="text-gray-900">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="WATER" className="text-gray-900">Water</SelectItem>
-                    <SelectItem value="ELECTRICITY" className="text-gray-900">Electricity</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-dueDate" className="text-gray-900">Due Date</Label>
-                <Input
-                  id="edit-dueDate"
-                  type="date"
-                  value={billForm.dueDate}
-                  onChange={(e) => setBillForm({ ...billForm, dueDate: e.target.value })}
-                  className="text-gray-900"
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit-description" className="text-gray-900">Description</Label>
-              <Input
-                id="edit-description"
-                placeholder="e.g., January 2024 Water Bill"
-                value={billForm.description}
-                onChange={(e) => setBillForm({ ...billForm, description: e.target.value })}
-                className="text-gray-900 placeholder:text-gray-500"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="edit-previousReading" className="text-gray-900">Previous Reading *</Label>
-                <Input
-                  id="edit-previousReading"
-                  type="number"
-                  step="0.01"
-                  placeholder="0.00"
-                  value={billForm.previousReading}
-                  onChange={(e) => setBillForm({ ...billForm, previousReading: e.target.value })}
-                  required
-                  className="text-gray-900 placeholder:text-gray-500"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-currentReading" className="text-gray-900">Current Reading *</Label>
-                <Input
-                  id="edit-currentReading"
-                  type="number"
-                  step="0.01"
-                  placeholder="0.00"
-                  value={billForm.currentReading}
-                  onChange={(e) => setBillForm({ ...billForm, currentReading: e.target.value })}
-                  required
-                  className="text-gray-900 placeholder:text-gray-500"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="edit-chargePerUnit" className="text-gray-900">Charge per Unit (Ksh) *</Label>
-                <Input
-                  id="edit-chargePerUnit"
-                  type="number"
-                  step="0.01"
-                  placeholder="0.00"
-                  value={billForm.chargePerUnit}
-                  onChange={(e) => setBillForm({ ...billForm, chargePerUnit: e.target.value })}
-                  required
-                  className="text-gray-900 placeholder:text-gray-500"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-vatRate" className="text-gray-900">VAT Rate (%)</Label>
-                <Input
-                  id="edit-vatRate"
-                  type="number"
-                  step="0.01"
-                  placeholder="16"
-                  value={billForm.vatRate}
-                  onChange={(e) => setBillForm({ ...billForm, vatRate: e.target.value })}
-                  className="text-gray-900 placeholder:text-gray-500"
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit-notes" className="text-gray-900">Notes</Label>
-              <Textarea
-                id="edit-notes"
-                placeholder="Add any additional notes..."
-                value={billForm.notes}
-                onChange={(e) => setBillForm({ ...billForm, notes: e.target.value })}
-                rows={3}
-                className="text-gray-900 placeholder:text-gray-500"
-              />
-            </div>
-            {billForm.previousReading && billForm.currentReading && billForm.chargePerUnit && (
-              <div className="bg-gray-50 rounded-lg p-4 space-y-2">
-                <h4 className="font-semibold text-sm text-gray-900">Calculation Preview</h4>
-                <div className="text-sm space-y-1">
-                  {(() => {
-                    const prev = parseFloat(billForm.previousReading) || 0;
-                    const curr = parseFloat(billForm.currentReading) || 0;
-                    const rate = parseFloat(billForm.chargePerUnit) || 0;
-                    const vatRate = parseFloat(billForm.vatRate) || 0;
-                    const units = Math.max(0, curr - prev);
-                    const totalAmount = units * rate;
-                    const vatAmount = (totalAmount * vatRate) / 100;
-                    const grandTotal = totalAmount + vatAmount;
-                    return (
-                      <>
-                        <div className="flex justify-between">
-                          <span className="text-gray-900">Units Consumed:</span>
-                          <span className="font-medium text-gray-900">{units.toFixed(2)}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-900">Total Amount:</span>
-                          <span className="font-medium text-gray-900">Ksh {totalAmount.toLocaleString()}</span>
-                        </div>
-                        {vatAmount > 0 && (
-                          <div className="flex justify-between">
-                            <span className="text-gray-900">VAT ({vatRate}%):</span>
-                            <span className="font-medium text-gray-900">Ksh {vatAmount.toLocaleString()}</span>
-                          </div>
-                        )}
-                        <div className="flex justify-between pt-2 border-t border-gray-200">
-                          <span className="font-semibold text-gray-900">Grand Total:</span>
-                          <span className="font-bold text-primary">Ksh {grandTotal.toLocaleString()}</span>
-                        </div>
-                      </>
-                    );
-                  })()}
+      {(isAdmin || isManager || hasPermission(PermissionCode.EDIT_BILL)) && (
+        <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+          <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="text-2xl font-bold text-gray-900">Edit Bill</DialogTitle>
+              <DialogDescription className="text-gray-700">
+                Update bill details for {tenant.fullName}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-type" className="text-gray-900">Bill Type *</Label>
+                  <Select
+                    value={billForm.type}
+                    onValueChange={(value: BillType) => setBillForm({ ...billForm, type: value })}
+                  >
+                    <SelectTrigger className="text-gray-900">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="WATER" className="text-gray-900">Water</SelectItem>
+                      <SelectItem value="ELECTRICITY" className="text-gray-900">Electricity</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-dueDate" className="text-gray-900">Due Date</Label>
+                  <Input
+                    id="edit-dueDate"
+                    type="date"
+                    value={billForm.dueDate}
+                    onChange={(e) => setBillForm({ ...billForm, dueDate: e.target.value })}
+                    className="text-gray-900"
+                  />
                 </div>
               </div>
-            )}
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setShowEditDialog(false);
-                setSelectedBill(null);
-                resetBillForm();
-              }}
-              disabled={updating}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleUpdateBill}
-              disabled={updating}
-              className="bg-primary hover:bg-primary/90"
-            >
-              {updating ? (
-                <>
-                  <motion.div
-                    className="w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2"
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+              <div className="space-y-2">
+                <Label htmlFor="edit-description" className="text-gray-900">Description</Label>
+                <Input
+                  id="edit-description"
+                  placeholder="e.g., January 2024 Water Bill"
+                  value={billForm.description}
+                  onChange={(e) => setBillForm({ ...billForm, description: e.target.value })}
+                  className="text-gray-900 placeholder:text-gray-500"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-previousReading" className="text-gray-900">Previous Reading *</Label>
+                  <Input
+                    id="edit-previousReading"
+                    type="number"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={billForm.previousReading}
+                    onChange={(e) => setBillForm({ ...billForm, previousReading: e.target.value })}
+                    required
+                    className="text-gray-900 placeholder:text-gray-500"
                   />
-                  Updating...
-                </>
-              ) : (
-                'Update Bill'
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-currentReading" className="text-gray-900">Current Reading *</Label>
+                  <Input
+                    id="edit-currentReading"
+                    type="number"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={billForm.currentReading}
+                    onChange={(e) => setBillForm({ ...billForm, currentReading: e.target.value })}
+                    required
+                    className="text-gray-900 placeholder:text-gray-500"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-chargePerUnit" className="text-gray-900">Charge per Unit (Ksh) *</Label>
+                  <Input
+                    id="edit-chargePerUnit"
+                    type="number"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={billForm.chargePerUnit}
+                    onChange={(e) => setBillForm({ ...billForm, chargePerUnit: e.target.value })}
+                    required
+                    className="text-gray-900 placeholder:text-gray-500"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-vatRate" className="text-gray-900">VAT Rate (%)</Label>
+                  <Input
+                    id="edit-vatRate"
+                    type="number"
+                    step="0.01"
+                    placeholder="16"
+                    value={billForm.vatRate}
+                    onChange={(e) => setBillForm({ ...billForm, vatRate: e.target.value })}
+                    className="text-gray-900 placeholder:text-gray-500"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-notes" className="text-gray-900">Notes</Label>
+                <Textarea
+                  id="edit-notes"
+                  placeholder="Add any additional notes..."
+                  value={billForm.notes}
+                  onChange={(e) => setBillForm({ ...billForm, notes: e.target.value })}
+                  rows={3}
+                  className="text-gray-900 placeholder:text-gray-500"
+                />
+              </div>
+              {billForm.previousReading && billForm.currentReading && billForm.chargePerUnit && (
+                <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+                  <h4 className="font-semibold text-sm text-gray-900">Calculation Preview</h4>
+                  <div className="text-sm space-y-1">
+                    {(() => {
+                      const prev = parseFloat(billForm.previousReading) || 0;
+                      const curr = parseFloat(billForm.currentReading) || 0;
+                      const rate = parseFloat(billForm.chargePerUnit) || 0;
+                      const vatRate = parseFloat(billForm.vatRate) || 0;
+                      const units = Math.max(0, curr - prev);
+                      const totalAmount = units * rate;
+                      const vatAmount = (totalAmount * vatRate) / 100;
+                      const grandTotal = totalAmount + vatAmount;
+                      return (
+                        <>
+                          <div className="flex justify-between">
+                            <span className="text-gray-900">Units Consumed:</span>
+                            <span className="font-medium text-gray-900">{units.toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-900">Total Amount:</span>
+                            <span className="font-medium text-gray-900">Ksh {totalAmount.toLocaleString()}</span>
+                          </div>
+                          {vatAmount > 0 && (
+                            <div className="flex justify-between">
+                              <span className="text-gray-900">VAT ({vatRate}%):</span>
+                              <span className="font-medium text-gray-900">Ksh {vatAmount.toLocaleString()}</span>
+                            </div>
+                          )}
+                          <div className="flex justify-between pt-2 border-t border-gray-200">
+                            <span className="font-semibold text-gray-900">Grand Total:</span>
+                            <span className="font-bold text-primary">Ksh {grandTotal.toLocaleString()}</span>
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </div>
+                </div>
               )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowEditDialog(false);
+                  setSelectedBill(null);
+                  resetBillForm();
+                }}
+                disabled={updating}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleUpdateBill}
+                disabled={updating}
+                className="bg-primary hover:bg-primary/90"
+              >
+                {updating ? (
+                  <>
+                    <motion.div
+                      className="w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2"
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                    />
+                    Updating...
+                  </>
+                ) : (
+                  'Update Bill'
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* Pay Bill Dialog */}
       <Dialog open={showPayDialog} onOpenChange={setShowPayDialog}>
@@ -1553,58 +1772,59 @@ export default function TenantBillsPage() {
       </Dialog>
 
       {/* Generate Bill Invoice Dialog */}
-      <Dialog open={showGenerateInvoiceDialog} onOpenChange={setShowGenerateInvoiceDialog}>
-        <DialogContent className="sm:max-w-[500px]">
+      {(isAdmin || isManager || hasPermission(PermissionCode.CREATE_BILL_INVOICE)) && (
+        <Dialog open={showGenerateInvoiceDialog} onOpenChange={setShowGenerateInvoiceDialog}>
+          <DialogContent className="sm:max-w-[500px]">
             <DialogHeader>
-            <DialogTitle className="text-2xl font-bold text-gray-900">Generate Bill Invoice</DialogTitle>
-            <DialogDescription className="text-gray-700">
+              <DialogTitle className="text-2xl font-bold text-gray-900">Generate Bill Invoice</DialogTitle>
+              <DialogDescription className="text-gray-700">
                 Create an invoice for {selectedBill?.type} bill
-            </DialogDescription>
-            <div className="mt-2">
-              <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getPaymentPolicyColor(tenant.paymentPolicy)}`}>
-                Payment Policy: MONTHLY
-              </span>
-            </div>
+              </DialogDescription>
+              <div className="mt-2">
+                <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getPaymentPolicyColor(tenant.paymentPolicy)}`}>
+                  Payment Policy: MONTHLY
+                </span>
+              </div>
             </DialogHeader>
             {selectedBill && (
-            <div className="space-y-4 py-4">
+              <div className="space-y-4 py-4">
                 <div className="bg-gray-50 rounded-lg p-4 space-y-2">
-                <div className="flex justify-between text-sm">
+                  <div className="flex justify-between text-sm">
                     <span className="text-gray-900">Bill Type:</span>
                     <span className="font-medium text-gray-900">{selectedBill.type}</span>
-                </div>
-                <div className="flex justify-between text-sm">
+                  </div>
+                  <div className="flex justify-between text-sm">
                     <span className="text-gray-900">Units:</span>
                     <span className="font-medium text-gray-900">{selectedBill.units}</span>
-                </div>
-                <div className="flex justify-between text-sm">
+                  </div>
+                  <div className="flex justify-between text-sm">
                     <span className="text-gray-900">Original Total:</span>
                     <span className="font-medium text-gray-900">Ksh {selectedBill.grandTotal.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between text-sm">
+                  </div>
+                  <div className="flex justify-between text-sm">
                     <span className="text-gray-900">Amount Paid:</span>
                     <span className="font-medium text-green-600">Ksh {(selectedBill.amountPaid || 0).toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between text-sm font-medium border-t pt-2">
+                  </div>
+                  <div className="flex justify-between text-sm font-medium border-t pt-2">
                     <span className="text-gray-900">Remaining Balance:</span>
                     <span className="font-bold text-blue-600">
-                    Ksh {(selectedBill.grandTotal - (selectedBill.amountPaid || 0)).toLocaleString()}
+                      Ksh {(selectedBill.grandTotal - (selectedBill.amountPaid || 0)).toLocaleString()}
                     </span>
-                </div>
-                {(selectedBill.amountPaid || 0) > 0 && (
+                  </div>
+                  {(selectedBill.amountPaid || 0) > 0 && (
                     <div className="bg-yellow-50 border border-yellow-200 rounded p-3 mt-2">
-                    <div className="flex items-center text-sm text-yellow-800">
+                      <div className="flex items-center text-sm text-yellow-800">
                         <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
                         </svg>
                         This invoice will be generated for the remaining balance only
+                      </div>
                     </div>
-                    </div>
-                )}
+                  )}
                 </div>
                 <div className="space-y-2">
-                <Label htmlFor="invoiceDueDate" className="text-gray-900">Due Date *</Label>
-                <Input
+                  <Label htmlFor="invoiceDueDate" className="text-gray-900">Due Date *</Label>
+                  <Input
                     id="invoiceDueDate"
                     type="date"
                     value={billInvoiceForm.dueDate}
@@ -1612,160 +1832,164 @@ export default function TenantBillsPage() {
                     min={new Date().toISOString().split('T')[0]}
                     required
                     className="text-gray-900"
-                />
+                  />
                 </div>
                 <div className="space-y-2">
-                <Label htmlFor="invoiceNotes" className="text-gray-900">Notes (Optional)</Label>
-                <Textarea
+                  <Label htmlFor="invoiceNotes" className="text-gray-900">Notes (Optional)</Label>
+                  <Textarea
                     id="invoiceNotes"
                     placeholder="Add any additional notes for this invoice..."
                     value={billInvoiceForm.notes}
                     onChange={(e) => setBillInvoiceForm({ ...billInvoiceForm, notes: e.target.value })}
                     rows={3}
                     className="text-gray-900 placeholder:text-gray-600"
-                />
+                  />
                 </div>
-            </div>
+              </div>
             )}
             <DialogFooter>
-            <Button
+              <Button
                 variant="outline"
                 onClick={() => {
-                setShowGenerateInvoiceDialog(false);
-                setSelectedBill(null);
-                resetBillInvoiceForm();
+                  setShowGenerateInvoiceDialog(false);
+                  setSelectedBill(null);
+                  resetBillInvoiceForm();
                 }}
                 disabled={generatingInvoice}
-            >
+              >
                 Cancel
-            </Button>
-            <Button
+              </Button>
+              <Button
                 onClick={handleGenerateBillInvoice}
                 disabled={generatingInvoice || !billInvoiceForm.dueDate}
                 className="bg-purple-600 hover:bg-purple-700"
-            >
+              >
                 {generatingInvoice ? (
-                <>
+                  <>
                     <motion.div
-                    className="w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2"
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                      className="w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2"
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
                     />
                     Generating...
-                </>
+                  </>
                 ) : (
-                'Generate Invoice'
+                  'Generate Invoice'
                 )}
-            </Button>
+              </Button>
             </DialogFooter>
-        </DialogContent>
-       </Dialog>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* Bill Invoices Dialog */}
-      <Dialog open={showBillInvoicesDialog} onOpenChange={setShowBillInvoicesDialog}>
-        <DialogContent className="sm:max-w-[800px] max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-2xl font-bold text-gray-900">Bill Invoices</DialogTitle>
-            <DialogDescription className="text-gray-700">
-              Bill invoice history for {tenant.fullName}
-            </DialogDescription>
-            <div className="mt-2">
-              <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getPaymentPolicyColor(tenant.paymentPolicy)}`}>
-                Payment Policy: MONTHLY
-              </span>
+      {(isAdmin || isManager || hasPermission(PermissionCode.VIEW_BILL_INVOICES)) && (
+        <Dialog open={showBillInvoicesDialog} onOpenChange={setShowBillInvoicesDialog}>
+          <DialogContent className="sm:max-w-[800px] max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="text-2xl font-bold text-gray-900">Bill Invoices</DialogTitle>
+              <DialogDescription className="text-gray-700">
+                Bill invoice history for {tenant.fullName}
+              </DialogDescription>
+              <div className="mt-2">
+                <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getPaymentPolicyColor(tenant.paymentPolicy)}`}>
+                  Payment Policy: MONTHLY
+                </span>
+              </div>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="space-y-3">
+                {billInvoicesLoading ? (
+                  <div className="flex justify-center py-8">
+                    <motion.div
+                      className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full"
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                    />
+                  </div>
+                ) : billInvoices.length === 0 ? (
+                  <div className="text-center py-8">
+                    <svg className="w-16 h-16 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <p className="text-gray-700">No bill invoices generated yet</p>
+                  </div>
+                ) : (
+                  billInvoices.map((invoice) => (
+                    <motion.div
+                      key={invoice.id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
+                    >
+                      <div className="flex items-start justify-between mb-3">
+                        <div>
+                          <h4 className="font-semibold text-lg text-gray-900">{invoice.invoiceNumber}</h4>
+                          <p className="text-sm text-gray-700">
+                            {invoice.billType} - {new Date(invoice.issueDate).toLocaleDateString()}
+                          </p>
+                        </div>
+                        <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getStatusColor(invoice.status)}`}>
+                          {invoice.status}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm mb-3">
+                        <div className="bg-gray-50 p-3 rounded">
+                          <p className="text-gray-700 text-xs mb-1">Units</p>
+                          <p className="font-semibold text-gray-900">{invoice.units.toFixed(2)}</p>
+                        </div>
+                        <div className="bg-gray-50 p-3 rounded">
+                          <p className="text-gray-700 text-xs mb-1">Rate</p>
+                          <p className="font-semibold text-gray-900">Ksh {invoice.chargePerUnit.toFixed(2)}</p>
+                        </div>
+                        <div className="bg-blue-50 p-3 rounded">
+                          <p className="text-gray-700 text-xs mb-1">Total Amount</p>
+                          <p className="font-semibold text-blue-700">Ksh {invoice.totalAmount.toLocaleString()}</p>
+                        </div>
+                        <div className="bg-green-50 p-3 rounded">
+                          <p className="text-gray-700 text-xs mb-1">Amount Paid</p>
+                          <p className="font-semibold text-green-700">Ksh {invoice.amountPaid.toLocaleString()}</p>
+                        </div>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <p className="text-sm text-gray-700">Due Date: {new Date(invoice.dueDate).toLocaleDateString()}</p>
+                          <p className={`text-sm font-semibold ${invoice.balance > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                            Balance: Ksh {invoice.balance.toLocaleString()}
+                          </p>
+                        </div>
+                        <div className="flex gap-2">
+                          {invoice.balance > 0 && canRecordBillInvoicePayment && (
+                            <Button
+                              onClick={() => openPayBillInvoiceDialog(invoice)}
+                              size="sm"
+                              className="bg-green-600 hover:bg-green-700 text-white"
+                            >
+                              Pay
+                            </Button>
+                          )}
+                          {canDownloadBillInvoice && (
+                            <Button
+                              onClick={() => handleDownloadBillInvoice(invoice.id, invoice.invoiceNumber)}
+                              variant="outline"
+                              size="sm"
+                            >
+                              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                              </svg>
+                              Download PDF
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))
+                )}
+              </div>
             </div>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-3">
-              {billInvoicesLoading ? (
-                <div className="flex justify-center py-8">
-                  <motion.div
-                    className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full"
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                  />
-                </div>
-              ) : billInvoices.length === 0 ? (
-                <div className="text-center py-8">
-                  <svg className="w-16 h-16 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                  <p className="text-gray-700">No bill invoices generated yet</p>
-                </div>
-              ) : (
-                billInvoices.map((invoice) => (
-                  <motion.div
-                    key={invoice.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
-                  >
-                    <div className="flex items-start justify-between mb-3">
-                      <div>
-                        <h4 className="font-semibold text-lg text-gray-900">{invoice.invoiceNumber}</h4>
-                        <p className="text-sm text-gray-700">
-                          {invoice.billType} - {new Date(invoice.issueDate).toLocaleDateString()}
-                        </p>
-                        
-                      </div>
-                      <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getStatusColor(invoice.status)}`}>
-                        {invoice.status}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm mb-3">
-                      <div className="bg-gray-50 p-3 rounded">
-                        <p className="text-gray-700 text-xs mb-1">Units</p>
-                        <p className="font-semibold text-gray-900">{invoice.units.toFixed(2)}</p>
-                      </div>
-                      <div className="bg-gray-50 p-3 rounded">
-                        <p className="text-gray-700 text-xs mb-1">Rate</p>
-                        <p className="font-semibold text-gray-900">Ksh {invoice.chargePerUnit.toFixed(2)}</p>
-                      </div>
-                      <div className="bg-blue-50 p-3 rounded">
-                        <p className="text-gray-700 text-xs mb-1">Total Amount</p>
-                        <p className="font-semibold text-blue-700">Ksh {invoice.totalAmount.toLocaleString()}</p>
-                      </div>
-                      <div className="bg-green-50 p-3 rounded">
-                        <p className="text-gray-700 text-xs mb-1">Amount Paid</p>
-                        <p className="font-semibold text-green-700">Ksh {invoice.amountPaid.toLocaleString()}</p>
-                      </div>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <div>
-                        <p className="text-sm text-gray-700">Due Date: {new Date(invoice.dueDate).toLocaleDateString()}</p>
-                        <p className={`text-sm font-semibold ${invoice.balance > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                          Balance: Ksh {invoice.balance.toLocaleString()}
-                        </p>
-                      </div>
-                      <div className="flex gap-2">
-                        {invoice.balance > 0 && (
-                          <Button
-                            onClick={() => openPayBillInvoiceDialog(invoice)}
-                            size="sm"
-                            className="bg-green-600 hover:bg-green-700 text-white"
-                          >
-                            Pay
-                          </Button>
-                        )}
-                        <Button
-                          onClick={() => handleDownloadBillInvoice(invoice.id, invoice.invoiceNumber)}
-                          variant="outline"
-                          size="sm"
-                        >
-                          <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                          </svg>
-                          Download PDF
-                        </Button>
-                      </div>
-                    </div>
-                  </motion.div>
-                ))
-              )}
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+          </DialogContent>
+        </Dialog>
+      )}
     </motion.div>
   );
 }

@@ -11,7 +11,7 @@
   --color-blue-gray: #58595B;
 
   /* Light Mode */
-  --background: #ffffff;
+  --background: #70d1e9;
   --foreground: var(--color-black);
   --heading-color: var(--color-dark-aqua);
   --text-color: var(--color-blue-gray);

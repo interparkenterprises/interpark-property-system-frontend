@@ -2,8 +2,7 @@ export interface User {
   id: string;
   name: string;
   email: string;
-
-  role: 'ADMIN' | 'MANAGER';
+  role: 'ADMIN' | 'MANAGER' | 'USER';
   createdAt: string;
   updatedAt: string;
   properties?: Property[];
@@ -622,6 +621,7 @@ export interface News {
 }
 
 export interface AuthResponse {
+  user: User;
   id: string;
   name: string;
   email: string;
@@ -1614,4 +1614,402 @@ export interface BatchGenerateResponse {
     tenantId: string;
     reason: string;
   }>;
+}
+
+// ======================================================
+// RBAC TYPES
+// ======================================================
+
+// Matches backend Permission model: code, name, description, category, scope
+export interface Permission { 
+  id: string;
+  code: string;
+  name: string;
+  description?: string;
+  category: string;
+  scope: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Permission info nested inside access-details response
+export interface PermissionInfo {
+  code: string;
+  name: string;
+  category: string;
+}
+
+// Matches backend access-details properties array
+export interface PropertyAccess {
+  id: string;              // propertyId
+  name: string;            // propertyName
+  isActive: boolean;
+  canView: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
+  canExport: boolean;
+  grantedAt?: string;
+  expiresAt?: string | null;
+}
+
+// Matches backend GET /rbac/users/{id}/access-details response
+export interface UserAccessDetails {
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    canManagerLogin: boolean;
+  };
+  currentAccess: {
+    isEnabled: boolean;
+    role: {
+      id: string;
+      name: string;
+      description?: string;
+      permissions: PermissionInfo[];
+      defaultProperties?: Array<{ id: string; name: string }>;
+    } | null;
+    properties: PropertyAccess[];
+  };
+  auditHistory?: any[];
+}
+
+export interface CustomRole {
+  id: string;
+  name: string;
+  description?: string;
+  permissions: Permission[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreatePermissionRequest {
+  code: string;
+  name: string;
+  description?: string;
+  category: string;
+  scope?: string;
+}
+
+export interface CreateCustomRoleRequest {
+  name: string;
+  description?: string;
+  permissionIds: string[];
+}
+
+export interface UpdateCustomRoleRequest {
+  name?: string;
+  description?: string;
+  permissionIds?: string[];
+}
+
+export interface ManagedUser {
+  canManagerLogin: boolean;
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  isActive: boolean;
+  customRole?: CustomRole;
+  propertyAccess: PropertyAccess[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpdateManagedUserAccessRequest {
+  roleId?: string;  // Add this for role switching
+  role?: string;
+  customRoleId?: string;
+  propertyAccess?: {
+    propertyId: string;
+    permissions: string[];
+  }[];
+}
+
+export interface CreateManagedUserRequest {
+  name: string;
+  email: string;
+  password: string;
+  role: string;
+  customRoleId?: string;
+  propertyAccess?: {
+    propertyId: string;
+    permissions: string[];
+  }[];
+}
+
+export interface UpdateManagedUserAccessRequest {
+  role?: string;
+  customRoleId?: string;
+  propertyAccess?: {
+    propertyId: string;
+    permissions: string[];
+  }[];
+}
+
+export interface GrantPropertyAccessRequest {
+  propertyId: string;
+  permissions: string[];
+}
+
+export interface UpdatePropertyPermissionsRequest {
+  permissions: string[];
+}
+
+export interface BulkUpdateAccessRequest {
+  userIds: string[];
+  action: 'GRANT' | 'REVOKE' | 'UPDATE';
+  propertyId?: string;
+  permissions?: string[];
+  role?: string;
+  customRoleId?: string;
+}
+
+export interface AuditLog {
+  id: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  userRole: string;
+  action: string;
+  resource: string;
+  resourceId?: string;
+  details?: any;
+  ipAddress?: string;
+  userAgent?: string;
+  timestamp: string;
+}
+
+export interface AuditLogQueryParams {
+  userId?: string;
+  action?: string;
+  resource?: string;
+  startDate?: string;
+  endDate?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface CacheStats {
+  hits: number;
+  misses: number;
+  keys: number;
+  hitRate: number;
+  memoryUsage?: number;
+}
+
+// ======================================================
+// EXTENDED USER WITH RBAC
+// ======================================================
+
+export interface UserWithAccess extends User {
+  requiresPasswordChange: any;
+  managedBy: any;
+  permissions?: string[];
+  propertyAccess?: PropertyAccess[];
+  isEnabled?: boolean;
+  roleName?: string | null;
+  isManagedUser?: boolean;
+  canManagerLogin?: boolean;
+}
+
+
+// Permission codes from your backend
+export enum PermissionCode {
+  // ==============================================
+  // ACTIVATION PERMISSIONS
+  // ==============================================
+  VIEW_ACTIVATION_REQUESTS = 'VIEW_ACTIVATION_REQUESTS',
+  CREATE_ACTIVATION_REQUEST = 'CREATE_ACTIVATION_REQUEST',
+  EDIT_ACTIVATION_REQUEST = 'EDIT_ACTIVATION_REQUEST',
+  DELETE_ACTIVATION_REQUEST = 'DELETE_ACTIVATION_REQUEST',
+  APPROVE_ACTIVATION_REQUEST = 'APPROVE_ACTIVATION_REQUEST',
+  
+  // ==============================================
+  // BILL PERMISSIONS (UTILITY)
+  // ==============================================
+  VIEW_BILLS = 'VIEW_BILLS',
+  VIEW_BILL_DETAILS = 'VIEW_BILL_DETAILS',
+  VIEW_LAST_BILL_INFO = 'VIEW_LAST_BILL_INFO',
+  CREATE_BILL = 'CREATE_BILL',
+  EDIT_BILL = 'EDIT_BILL',
+  DELETE_BILL = 'DELETE_BILL',
+  PAY_BILL = 'PAY_BILL',
+  RECORD_METER_READINGS = 'RECORD_METER_READINGS', // Keep existing
+  
+  // ==============================================
+  // BILL INVOICE PERMISSIONS
+  // ==============================================
+  VIEW_BILL_INVOICES = 'VIEW_BILL_INVOICES',
+  VIEW_BILL_INVOICE_DETAILS = 'VIEW_BILL_INVOICE_DETAILS',
+  CREATE_BILL_INVOICE = 'CREATE_BILL_INVOICE',
+  EDIT_BILL_INVOICE_PAYMENT = 'EDIT_BILL_INVOICE_PAYMENT',
+  RECORD_BILL_INVOICE_PAYMENT = 'RECORD_BILL_INVOICE_PAYMENT',
+  DELETE_BILL_INVOICE = 'DELETE_BILL_INVOICE',
+  DELETE_BILL_INVOICE_PDF = 'DELETE_BILL_INVOICE_PDF',
+  DOWNLOAD_BILL_INVOICE = 'DOWNLOAD_BILL_INVOICE',
+  
+  // ==============================================
+  // COMMISSION PERMISSIONS
+  // ==============================================
+  VIEW_COMMISSIONS = 'VIEW_COMMISSIONS',
+  PROCESS_COMMISSIONS = 'PROCESS_COMMISSIONS',
+  APPROVE_COMMISSIONS = 'APPROVE_COMMISSIONS',
+  GENERATE_COMMISSION_INVOICES = 'GENERATE_COMMISSION_INVOICES',
+  
+  // ==============================================
+  // DEMAND LETTER PERMISSIONS
+  // ==============================================
+  VIEW_DEMAND_LETTERS = 'VIEW_DEMAND_LETTERS',
+  VIEW_DEMAND_LETTER_DETAILS = 'VIEW_DEMAND_LETTER_DETAILS',
+  CREATE_DEMAND_LETTER = 'CREATE_DEMAND_LETTER',
+  AUTO_GENERATE_DEMAND_LETTER = 'AUTO_GENERATE_DEMAND_LETTER',
+  BATCH_GENERATE_DEMAND_LETTERS = 'BATCH_GENERATE_DEMAND_LETTERS',
+  EDIT_DEMAND_LETTER_STATUS = 'EDIT_DEMAND_LETTER_STATUS',
+  DELETE_DEMAND_LETTER = 'DELETE_DEMAND_LETTER',
+  DOWNLOAD_DEMAND_LETTER = 'DOWNLOAD_DEMAND_LETTER',
+  VIEW_OVERDUE_INVOICES = 'VIEW_OVERDUE_INVOICES',
+  SEND_DEMAND_LETTERS = 'SEND_DEMAND_LETTERS', // Keep existing
+  
+  // ==============================================
+  // INVOICE PERMISSIONS (FINANCIAL)
+  // ==============================================
+  VIEW_INVOICES = 'VIEW_INVOICES',
+  VIEW_INVOICE_DETAILS = 'VIEW_INVOICE_DETAILS',
+  CREATE_INVOICE = 'CREATE_INVOICE',
+  CREATE_BALANCE_INVOICE = 'CREATE_BALANCE_INVOICE',
+  EDIT_INVOICE_STATUS = 'EDIT_INVOICE_STATUS',
+  EDIT_INVOICE_PAYMENT_POLICY = 'EDIT_INVOICE_PAYMENT_POLICY',
+  DELETE_INVOICE = 'DELETE_INVOICE',
+  DELETE_INVOICE_PDF = 'DELETE_INVOICE_PDF',
+  DOWNLOAD_INVOICE = 'DOWNLOAD_INVOICE',
+  VIEW_PARTIAL_PAYMENTS = 'VIEW_PARTIAL_PAYMENTS',
+  RECORD_PAYMENTS = 'RECORD_PAYMENTS', // Keep existing
+  PROCESS_REFUNDS = 'PROCESS_REFUNDS', // Keep existing
+  WAIVE_LATE_FEES = 'WAIVE_LATE_FEES', // Keep existing
+  
+  // ==============================================
+  // INCOME PERMISSIONS
+  // ==============================================
+  VIEW_INCOMES = 'VIEW_INCOMES',
+  VIEW_INCOME_DETAILS = 'VIEW_INCOME_DETAILS',
+  CREATE_INCOME = 'CREATE_INCOME',
+  EDIT_INCOME = 'EDIT_INCOME',
+  DELETE_INCOME = 'DELETE_INCOME',
+  
+  // ==============================================
+  // LANDLORD PERMISSIONS
+  // ==============================================
+  VIEW_LANDLORDS = 'VIEW_LANDLORDS',
+  CREATE_LANDLORD = 'CREATE_LANDLORD',
+  EDIT_LANDLORD = 'EDIT_LANDLORD',
+  DELETE_LANDLORD = 'DELETE_LANDLORD',
+  
+  // ==============================================
+  // LEAD PERMISSIONS
+  // ==============================================
+  VIEW_LEADS = 'VIEW_LEADS',
+  CREATE_LEAD = 'CREATE_LEAD',
+  EDIT_LEAD = 'EDIT_LEAD',
+  DELETE_LEAD = 'DELETE_LEAD',
+  
+  // ==============================================
+  // MAINTENANCE PERMISSIONS
+  // ==============================================
+  VIEW_MAINTENANCE_REQUESTS = 'VIEW_MAINTENANCE_REQUESTS',
+  CREATE_MAINTENANCE_REQUESTS = 'CREATE_MAINTENANCE_REQUESTS',
+  UPDATE_MAINTENANCE_REQUESTS = 'UPDATE_MAINTENANCE_REQUESTS',
+  DELETE_MAINTENANCE_REQUESTS = 'DELETE_MAINTENANCE_REQUESTS',
+  ASSIGN_MAINTENANCE_TASKS = 'ASSIGN_MAINTENANCE_TASKS',
+  
+  // ==============================================
+  // OFFER LETTER PERMISSIONS
+  // ==============================================
+  VIEW_OFFER_LETTERS = 'VIEW_OFFER_LETTERS',
+  VIEW_OFFER_LETTER_DETAILS = 'VIEW_OFFER_LETTER_DETAILS',
+  VIEW_OFFER_LETTER_BY_USER = 'VIEW_OFFER_LETTER_BY_USER',
+  CREATE_OFFER_LETTER = 'CREATE_OFFER_LETTER',
+  CREATE_MIXED_USE_OFFER_LETTER = 'CREATE_MIXED_USE_OFFER_LETTER',
+  EDIT_OFFER_LETTER = 'EDIT_OFFER_LETTER',
+  EDIT_OFFER_LETTER_STATUS = 'EDIT_OFFER_LETTER_STATUS',
+  DELETE_OFFER_LETTER = 'DELETE_OFFER_LETTER',
+  GENERATE_OFFER_LETTER_PDF = 'GENERATE_OFFER_LETTER_PDF',
+  DOWNLOAD_OFFER_LETTER = 'DOWNLOAD_OFFER_LETTER',
+  
+  // ==============================================
+  // PAYMENT REPORT PERMISSIONS
+  // ==============================================
+  VIEW_PAYMENT_REPORTS = 'VIEW_PAYMENT_REPORTS',
+  VIEW_PAYMENTS_BY_TENANT = 'VIEW_PAYMENTS_BY_TENANT',
+  VIEW_OUTSTANDING_INVOICES = 'VIEW_OUTSTANDING_INVOICES',
+  VIEW_PAYMENT_PREVIEW = 'VIEW_PAYMENT_PREVIEW',
+  VIEW_PROPERTY_ARREARS = 'VIEW_PROPERTY_ARREARS',
+  VIEW_INCOME_REPORTS = 'VIEW_INCOME_REPORTS',
+  CREATE_PAYMENT_REPORT = 'CREATE_PAYMENT_REPORT',
+  CREATE_INCOME_RECORD = 'CREATE_INCOME_RECORD',
+  EDIT_PAYMENT_REPORT = 'EDIT_PAYMENT_REPORT',
+  DELETE_PAYMENT_REPORT = 'DELETE_PAYMENT_REPORT',
+  DOWNLOAD_PAYMENT_RECEIPT = 'DOWNLOAD_PAYMENT_RECEIPT',
+  
+  // ==============================================
+  // PROPERTY PERMISSIONS
+  // ==============================================
+  VIEW_PROPERTIES = 'VIEW_PROPERTIES',
+  CREATE_PROPERTY = 'CREATE_PROPERTY',
+  EDIT_PROPERTY = 'EDIT_PROPERTY',
+  DELETE_PROPERTY = 'DELETE_PROPERTY',
+  ASSIGN_MANAGER_TO_PROPERTY = 'ASSIGN_MANAGER_TO_PROPERTY',
+  
+  // ==============================================
+  // REPORT PERMISSIONS
+  // ==============================================
+  VIEW_DAILY_REPORTS = 'VIEW_DAILY_REPORTS',
+  CREATE_DAILY_REPORTS = 'CREATE_DAILY_REPORTS',
+  EDIT_DAILY_REPORTS = 'EDIT_DAILY_REPORTS',
+  DELETE_DAILY_REPORTS = 'DELETE_DAILY_REPORTS',
+  SUBMIT_DAILY_REPORTS = 'SUBMIT_DAILY_REPORTS',
+  APPROVE_DAILY_REPORTS = 'APPROVE_DAILY_REPORTS',
+  
+  // ==============================================
+  // SERVICE PROVIDER PERMISSIONS
+  // ==============================================
+  VIEW_SERVICE_PROVIDERS = 'VIEW_SERVICE_PROVIDERS',
+  CREATE_SERVICE_PROVIDER = 'CREATE_SERVICE_PROVIDER',
+  EDIT_SERVICE_PROVIDER = 'EDIT_SERVICE_PROVIDER',
+  DELETE_SERVICE_PROVIDER = 'DELETE_SERVICE_PROVIDER',
+  
+  // ==============================================
+  // TENANT PERMISSIONS
+  // ==============================================
+  VIEW_TENANTS = 'VIEW_TENANTS',
+  CREATE_TENANT = 'CREATE_TENANT',
+  EDIT_TENANT = 'EDIT_TENANT',
+  DELETE_TENANT = 'DELETE_TENANT',
+  VIEW_TENANT_FINANCIALS = 'VIEW_TENANT_FINANCIALS',
+  
+  // ==============================================
+  // UNIT PERMISSIONS
+  // ==============================================
+  VIEW_UNITS = 'VIEW_UNITS',
+  CREATE_UNIT = 'CREATE_UNIT',
+  EDIT_UNIT = 'EDIT_UNIT',
+  DELETE_UNIT = 'DELETE_UNIT',
+  UPDATE_UNIT_STATUS = 'UPDATE_UNIT_STATUS',
+  
+  // ==============================================
+  // USER MANAGEMENT PERMISSIONS
+  // ==============================================
+  VIEW_ALL_USERS = 'VIEW_ALL_USERS',
+  CREATE_USER = 'CREATE_USER',
+  EDIT_USER_ROLE = 'EDIT_USER_ROLE',
+  DELETE_USER = 'DELETE_USER',
+  APPROVE_MANAGER = 'APPROVE_MANAGER',
+  VIEW_AUDIT_LOGS = 'VIEW_AUDIT_LOGS',
+  
+  // ==============================================
+  // LEGACY/UTILITY PERMISSIONS (Keep for compatibility)
+  // ==============================================
+  MANAGE_USERS = 'MANAGE_USERS',
+  MANAGE_ROLES = 'MANAGE_ROLES',
+  MANAGE_CACHE = 'MANAGE_CACHE',
 }
