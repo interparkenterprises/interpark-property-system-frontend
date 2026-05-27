@@ -27,10 +27,11 @@ interface ModulePermissions {
   news: ActionPermissions;
   serviceProviders: ActionPermissions;
   activations: ActionPermissions;
-  bills: ActionPermissions;           // ADDED
-  billInvoices: ActionPermissions;   // ADDED
-  demandLetters: ActionPermissions;  // ADDED
-  income: ActionPermissions;         // ADDED
+  bills: ActionPermissions;
+  billInvoices: ActionPermissions;
+  demandLetters: ActionPermissions;
+  income: ActionPermissions;
+  employees: ActionPermissions;
 }
 
 export function usePermissions() {
@@ -41,21 +42,6 @@ export function usePermissions() {
     () => auth?.getAccessiblePropertyIds() ?? [],
     [auth?.getAccessiblePropertyIds]
   );
-
-  // Helper function for creating action permissions
-  const createActionPermissions = useCallback((
-    viewCode: PermissionCode | string,
-    createCode: PermissionCode | string,
-    editCode: PermissionCode | string,
-    deleteCode: PermissionCode | string,
-    exportCode: PermissionCode | string
-  ): ActionPermissions => ({
-    canView: auth?.hasPermission(viewCode) ?? false,
-    canCreate: auth?.hasPermission(createCode) ?? false,
-    canEdit: auth?.hasPermission(editCode) ?? false,
-    canDelete: auth?.hasPermission(deleteCode) ?? false,
-    canExport: auth?.hasPermission(exportCode) ?? false,
-  }), [auth]);
 
   // Build permissions with useMemo
   const permissions = useMemo((): ModulePermissions => {
@@ -82,6 +68,7 @@ export function usePermissions() {
         billInvoices: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
         demandLetters: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
         income: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
+        employees: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
       };
     }
 
@@ -170,7 +157,7 @@ export function usePermissions() {
         PermissionCode.VIEW_COMMISSIONS,
         PermissionCode.PROCESS_COMMISSIONS,
         PermissionCode.PROCESS_COMMISSIONS,
-        'DELETE_COMMISSION', // Keeping as string since not in enum yet
+        'DELETE_COMMISSION',
         PermissionCode.VIEW_COMMISSIONS
       ),
       users: {
@@ -208,7 +195,6 @@ export function usePermissions() {
         canDelete: hasPermission('MANAGE_NEWS'),
         canExport: false,
       },
-      // Service Providers module permissions
       serviceProviders: makePerms(
         PermissionCode.VIEW_SERVICE_PROVIDERS,
         PermissionCode.CREATE_SERVICE_PROVIDER,
@@ -216,7 +202,6 @@ export function usePermissions() {
         PermissionCode.DELETE_SERVICE_PROVIDER,
         PermissionCode.VIEW_SERVICE_PROVIDERS
       ),
-      // Activations module permissions
       activations: makePerms(
         PermissionCode.VIEW_ACTIVATION_REQUESTS,
         PermissionCode.CREATE_ACTIVATION_REQUEST,
@@ -224,7 +209,6 @@ export function usePermissions() {
         PermissionCode.DELETE_ACTIVATION_REQUEST,
         PermissionCode.VIEW_ACTIVATION_REQUESTS
       ),
-      // Bills (Utility) module permissions
       bills: makePerms(
         PermissionCode.VIEW_BILLS,
         PermissionCode.CREATE_BILL,
@@ -232,7 +216,6 @@ export function usePermissions() {
         PermissionCode.DELETE_BILL,
         PermissionCode.VIEW_BILLS
       ),
-      // Bill Invoices module permissions
       billInvoices: makePerms(
         PermissionCode.VIEW_BILL_INVOICES,
         PermissionCode.CREATE_BILL_INVOICE,
@@ -240,7 +223,6 @@ export function usePermissions() {
         PermissionCode.DELETE_BILL_INVOICE,
         PermissionCode.DOWNLOAD_BILL_INVOICE
       ),
-      // Demand Letters module permissions
       demandLetters: makePerms(
         PermissionCode.VIEW_DEMAND_LETTERS,
         PermissionCode.CREATE_DEMAND_LETTER,
@@ -248,13 +230,19 @@ export function usePermissions() {
         PermissionCode.DELETE_DEMAND_LETTER,
         PermissionCode.DOWNLOAD_DEMAND_LETTER
       ),
-      // Income module permissions
       income: makePerms(
         PermissionCode.VIEW_INCOMES,
         PermissionCode.CREATE_INCOME,
         PermissionCode.EDIT_INCOME,
         PermissionCode.DELETE_INCOME,
         PermissionCode.VIEW_INCOMES
+      ),
+      employees: makePerms(
+        PermissionCode.VIEW_EMPLOYEES || 'VIEW_EMPLOYEES',
+        PermissionCode.CREATE_EMPLOYEE || 'CREATE_EMPLOYEE',
+        PermissionCode.EDIT_EMPLOYEE || 'EDIT_EMPLOYEE',
+        PermissionCode.DELETE_EMPLOYEE || 'DELETE_EMPLOYEE',
+        PermissionCode.VIEW_EMPLOYEES || 'VIEW_EMPLOYEES'
       ),
     };
   }, [auth, accessiblePropertyIds]);
@@ -278,6 +266,9 @@ export function usePermissions() {
     }
     if (permissions.offers.canView) {
       navigation.push({ name: 'Offers', href: '/offers', icon: '📄' });
+    }
+    if (permissions.employees.canView && (auth?.isAdmin || auth?.isManager)) {
+      navigation.push({ name: 'Employees Info', href: '/employees', icon: '👥' });
     }
     if (permissions.bills.canView) {
       navigation.push({ name: 'Utility Bills', href: '/bills', icon: '💡' });
@@ -349,7 +340,6 @@ export function usePermissions() {
       canCreateActivation: false,
       canEditActivation: false,
       canDeleteActivation: false,
-      // New module flags
       canViewBills: false,
       canCreateBill: false,
       canEditBill: false,
@@ -366,6 +356,10 @@ export function usePermissions() {
       canCreateIncomeRecord: false,
       canEditIncomeRecord: false,
       canDeleteIncomeRecord: false,
+      canViewEmployees: false,
+      canCreateEmployee: false,
+      canEditEmployee: false,
+      canDeleteEmployee: false,
     };
   }
 
@@ -443,8 +437,8 @@ export function usePermissions() {
     canEditOffer: permissions.offers.canEdit,
     canDeleteOffer: permissions.offers.canDelete,
     canViewIncome: (isAdmin || isManager) && permissions.commissions.canView,
-    canManageUsers: isAdmin || isManager || permissions.users.canView, // FIXED: Now includes isAdmin and isManager
-    canManageRoles: isAdmin || permissions.roles.canView, // FIXED: Only ADMINS can manage roles
+    canManageUsers: isAdmin || isManager || permissions.users.canView,
+    canManageRoles: isAdmin || permissions.roles.canView,
     // Service Providers
     canViewServiceProviders: permissions.serviceProviders.canView,
     canCreateServiceProvider: permissions.serviceProviders.canCreate,
@@ -475,5 +469,10 @@ export function usePermissions() {
     canCreateIncomeRecord: permissions.income.canCreate,
     canEditIncomeRecord: permissions.income.canEdit,
     canDeleteIncomeRecord: permissions.income.canDelete,
+    // Employee permissions
+    canViewEmployees: permissions.employees.canView,
+    canCreateEmployee: permissions.employees.canCreate,
+    canEditEmployee: permissions.employees.canEdit,
+    canDeleteEmployee: permissions.employees.canDelete,
   };
 }

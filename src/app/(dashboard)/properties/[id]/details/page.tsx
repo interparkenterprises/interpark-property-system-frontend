@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -10,13 +10,16 @@ import {
   Income,
   Tenant,
   OverdueTenantsResponse,
+  NextPaymentsResponse,
+  NextPaymentItem
 } from '@/types';
 import { propertiesAPI, paymentsAPI, tenantsAPI } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { exportArrearsToPDF } from '@/lib/arrearsPdfGenerator';
 import { exportPropertyToExcel, ExportSection } from '@/lib/excelGenerator';
+import { exportOverduesToPDF } from '@/lib/overduesPdfGenerator';
 
-type TabType = 'income' | 'commissions' | 'payments' | 'arrears' | 'overdues';
+type TabType = 'income' | 'commissions' | 'payments' | 'arrears' | 'overdues' | 'UpcomingPayments';
 
 // Define proper types for Framer Motion variants
 const containerVariants = {
@@ -109,7 +112,10 @@ export default function PropertyDetailInfoPage() {
   const [activeTab, setActiveTab] = useState<TabType>('income');
   const [exporting, setExporting] = useState(false);
   const [exportingArrearsPdf, setExportingArrearsPdf] = useState(false);
+  const [exportingOverduesPdf, setExportingOverduesPdf] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [overdueFilter, setOverdueFilter] = useState<string>('all');
+  const [overdueCustomDays, setOverdueCustomDays] = useState<number>(30);
   
   // State for expanded tenant tabs
   const [expandedIncomeTenant, setExpandedIncomeTenant] = useState<string | null>(null);
@@ -124,6 +130,9 @@ export default function PropertyDetailInfoPage() {
     { id: 'commissionRecords', label: 'Commission Records', selected: true },
     { id: 'serviceProviders', label: 'Service Providers', selected: true },
   ]);
+  const [nextPaymentsData, setNextPaymentsData] = useState<NextPaymentsResponse | null>(null);
+  const [nextPaymentsLoading, setNextPaymentsLoading] = useState(false);
+  const [expandedPaymentTenant, setExpandedPaymentTenant] = useState<string | null>(null);
 
   const propertyId = params.id as string;
 
@@ -135,11 +144,19 @@ export default function PropertyDetailInfoPage() {
     if (activeTab === 'arrears' && !arrearsData) {
       fetchArrearsData();
     }
+  }, [activeTab, arrearsData]);
 
-    if (activeTab === 'overdues' && !overdueData) {
+  useEffect(() => {
+    if (activeTab === 'overdues' && propertyId) {
       fetchOverduesData();
     }
-  }, [activeTab, arrearsData, overdueData]);
+  }, [activeTab, propertyId, overdueFilter, overdueCustomDays]);
+
+  useEffect(() => {
+    if (activeTab === 'UpcomingPayments' && propertyId) {
+      fetchNextPaymentsData();
+    }
+  }, [activeTab, propertyId]);
 
   const fetchPropertyDetails = async () => {
     try {
@@ -149,6 +166,18 @@ export default function PropertyDetailInfoPage() {
       console.error('Error fetching property details:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchNextPaymentsData = async () => {
+    setNextPaymentsLoading(true);
+    try {
+      const data = await tenantsAPI.getNextPaymentsByProperty(propertyId);
+      setNextPaymentsData(data);
+    } catch (error) {
+      console.error('Error fetching next payments:', error);
+    } finally {
+      setNextPaymentsLoading(false);
     }
   };
 
@@ -167,7 +196,16 @@ export default function PropertyDetailInfoPage() {
   const fetchOverduesData = async () => {
     setOverduesLoading(true);
     try {
-      const data = await tenantsAPI.getOverdue(propertyId);
+      let data;
+      if (overdueFilter === 'all') {
+        data = await tenantsAPI.getOverdue(propertyId);
+      } else if (overdueFilter === 'custom' && overdueCustomDays) {
+        data = await tenantsAPI.getOverdue(propertyId, 'custom', overdueCustomDays);
+      } else if (overdueFilter !== 'all' && overdueFilter !== 'custom') {
+        data = await tenantsAPI.getOverdue(propertyId, parseInt(overdueFilter));
+      } else {
+        data = await tenantsAPI.getOverdue(propertyId);
+      }
       setOverdueData(data);
     } catch (error) {
       console.error('Error fetching overdue tenants:', error);
@@ -178,6 +216,17 @@ export default function PropertyDetailInfoPage() {
 
   const handleBack = () => {
     router.push(`/properties/${propertyId}`);
+  };
+
+  // Helper function to get overdue period text
+  const getOverduePeriodText = (days: number) => {
+    if (days <= 0) return 'Not overdue';
+    if (days <= 7) return `${days} day${days !== 1 ? 's' : ''} (1 week)`;
+    if (days <= 14) return `${days} days (2 weeks)`;
+    if (days <= 30) return `${days} days (1 month)`;
+    if (days <= 60) return `${days} days (2 months)`;
+    if (days <= 90) return `${days} days (3 months)`;
+    return `${days} days (Over 3 months)`;
   };
 
   // Calculate totals
@@ -265,6 +314,21 @@ export default function PropertyDetailInfoPage() {
     return grouped.sort((a, b) => b.totalArrears - a.totalArrears);
   };
 
+  // Filter overdue tenants based on selected filter
+  const overdueTenants = overdueData?.tenants || [];
+  const filteredOverdueTenants = useMemo(() => {
+    if (!overdueTenants.length) return [];
+    
+    if (overdueFilter === 'all') return overdueTenants;
+    
+    const days = overdueFilter === 'custom' ? overdueCustomDays : parseInt(overdueFilter);
+    return overdueTenants.filter((tenant: Tenant) => {
+      const overdueDays = (tenant as any).overdueDetails?.daysOverdue || 
+                         (tenant.paymentSummary?.nextPayment?.paymentsBehind || 0) * 30;
+      return overdueDays >= days;
+    });
+  }, [overdueTenants, overdueFilter, overdueCustomDays]);
+
   // Toggle individual section
   const toggleSection = (sectionId: string) => {
     setExportSections((prev) =>
@@ -312,6 +376,26 @@ export default function PropertyDetailInfoPage() {
       alert('Failed to export arrears report. Please try again.');
     } finally {
       setExportingArrearsPdf(false);
+    }
+  };
+
+  // Export Overdues to PDF
+  const handleExportOverduesToPDF = async () => {
+    if (!property || !overdueData) return;
+
+    setExportingOverduesPdf(true);
+
+    try {
+      const filterDays = overdueFilter !== 'all' 
+        ? (overdueFilter === 'custom' ? overdueCustomDays : parseInt(overdueFilter))
+        : null;
+      await exportOverduesToPDF(property, overdueData, filterDays, filteredOverdueTenants);
+      alert('Overdues report exported successfully!');
+    } catch (error) {
+      console.error('Error exporting overdues to PDF:', error);
+      alert('Failed to export overdues report. Please try again.');
+    } finally {
+      setExportingOverduesPdf(false);
     }
   };
 
@@ -409,7 +493,6 @@ export default function PropertyDetailInfoPage() {
 
   const groupedIncome = groupIncomeByTenant();
   const groupedArrears = groupArrearsByTenant();
-  const overdueTenants = overdueData?.tenants || [];
 
   return (
     <motion.div
@@ -834,6 +917,12 @@ export default function PropertyDetailInfoPage() {
               id: 'payments',
               label: 'Payment Report',
               icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
+            },
+
+            {
+              id: 'UpcomingPayments',
+              label: 'Upcoming Payments',
+              icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z',
             },
           ].map((tab) => (
             <motion.button
@@ -1518,36 +1607,221 @@ export default function PropertyDetailInfoPage() {
           </div>
         )}
 
-
+        {/* OVERDUES TAB - With Filters and PDF Export */}
         {activeTab === 'overdues' && (
           <div className="space-y-6">
             <motion.div
               variants={itemVariants}
               className="bg-white rounded-2xl p-8 shadow-lg border border-gray-200"
             >
-              <div className="flex items-center gap-3 mb-6">
-                <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center">
-                  <svg
-                    className="w-6 h-6 text-orange-600"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
+              <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center">
+                    <svg
+                      className="w-6 h-6 text-orange-600"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                      />
+                    </svg>
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold text-heading-color">Overdue Tenants</h2>
+                    <p className="text-sm text-gray-600 mt-1">
+                      {filteredOverdueTenants.length} tenant{filteredOverdueTenants.length !== 1 ? 's' : ''} overdue for this property
+                    </p>
+                  </div>
+                </div>
+                
+                {/* Export PDF Button */}
+                {(filteredOverdueTenants.length > 0 || overdueData) && (
+                  <Button
+                    onClick={handleExportOverduesToPDF}
+                    disabled={exportingOverduesPdf}
+                    className="px-6 py-2.5 bg-red-600 text-white hover:bg-red-700 transition-all duration-300 shadow-md rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
-                  </svg>
-                </div>
-                <div>
-                  <h2 className="text-2xl font-bold text-heading-color">Overdue Tenants</h2>
-                  <p className="text-sm text-gray-600 mt-1">
-                    {overdueTenants.length} tenant{overdueTenants.length !== 1 ? 's' : ''} overdue for this property
-                  </p>
-                </div>
+                    <span className="flex items-center gap-2">
+                      {exportingOverduesPdf ? (
+                        <>
+                          <motion.svg
+                            animate={{ rotate: 360 }}
+                            transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                            className="w-5 h-5"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                            />
+                          </motion.svg>
+                          Exporting...
+                        </>
+                      ) : (
+                        <>
+                          <svg
+                            className="w-5 h-5"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"
+                            />
+                          </svg>
+                          Export PDF
+                        </>
+                      )}
+                    </span>
+                  </Button>
+                )}
               </div>
+
+              {/* Filter Buttons */}
+              <div className="mb-6">
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => setOverdueFilter('all')}
+                    className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
+                      overdueFilter === 'all'
+                        ? 'bg-red-600 text-white shadow-md'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    All Overdues
+                  </button>
+                  <button
+                    onClick={() => setOverdueFilter('7')}
+                    className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
+                      overdueFilter === '7'
+                        ? 'bg-red-600 text-white shadow-md'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    7 Days (1 Week)
+                  </button>
+                  <button
+                    onClick={() => setOverdueFilter('14')}
+                    className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
+                      overdueFilter === '14'
+                        ? 'bg-red-600 text-white shadow-md'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    14 Days
+                  </button>
+                  <button
+                    onClick={() => setOverdueFilter('30')}
+                    className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
+                      overdueFilter === '30'
+                        ? 'bg-red-600 text-white shadow-md'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    30 Days (1 Month)
+                  </button>
+                  <button
+                    onClick={() => setOverdueFilter('60')}
+                    className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
+                      overdueFilter === '60'
+                        ? 'bg-red-600 text-white shadow-md'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    60 Days (2 Months)
+                  </button>
+                  <button
+                    onClick={() => setOverdueFilter('90')}
+                    className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
+                      overdueFilter === '90'
+                        ? 'bg-red-600 text-white shadow-md'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    90 Days (3 Months)
+                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setOverdueFilter('custom')}
+                      className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
+                        overdueFilter === 'custom'
+                          ? 'bg-red-600 text-white shadow-md'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      Custom Days
+                    </button>
+                    {overdueFilter === 'custom' && (
+                      <>
+                        <input
+                          type="number"
+                          value={overdueCustomDays}
+                          onChange={(e) => setOverdueCustomDays(parseInt(e.target.value) || 0)}
+                          placeholder="Enter days"
+                          min="1"
+                          className="w-32 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                        />
+                        <button
+                          onClick={() => overdueCustomDays > 0 && fetchOverduesData()}
+                          className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                        >
+                          Apply
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+                {overdueFilter !== 'all' && (
+                  <p className="text-sm text-gray-600 mt-3">
+                    Showing tenants overdue by {overdueFilter === 'custom' ? overdueCustomDays : overdueFilter} days or more
+                  </p>
+                )}
+              </div>
+
+              {/* Overdue Statistics */}
+              {overdueData?.summary.overdueCategories && (
+                <div className="mb-6">
+                  <h3 className="text-md font-semibold text-gray-900 mb-3">Overdue Distribution</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+                    <div className="bg-gray-50 rounded-lg p-3 text-center">
+                      <div className="text-xs text-gray-600">1 Week</div>
+                      <div className="text-xl font-bold text-orange-600">{overdueData.summary.overdueCategories.week1}</div>
+                    </div>
+                    <div className="bg-gray-50 rounded-lg p-3 text-center">
+                      <div className="text-xs text-gray-600">2 Weeks</div>
+                      <div className="text-xl font-bold text-orange-600">{overdueData.summary.overdueCategories.week2}</div>
+                    </div>
+                    <div className="bg-gray-50 rounded-lg p-3 text-center">
+                      <div className="text-xs text-gray-600">1 Month</div>
+                      <div className="text-xl font-bold text-red-600">{overdueData.summary.overdueCategories.month1}</div>
+                    </div>
+                    <div className="bg-gray-50 rounded-lg p-3 text-center">
+                      <div className="text-xs text-gray-600">2 Months</div>
+                      <div className="text-xl font-bold text-red-700">{overdueData.summary.overdueCategories.month2}</div>
+                    </div>
+                    <div className="bg-gray-50 rounded-lg p-3 text-center">
+                      <div className="text-xs text-gray-600">3 Months</div>
+                      <div className="text-xl font-bold text-red-800">{overdueData.summary.overdueCategories.month3}</div>
+                    </div>
+                    <div className="bg-gray-50 rounded-lg p-3 text-center">
+                      <div className="text-xs text-gray-600">Over 3 Months</div>
+                      <div className="text-xl font-bold text-red-900">{overdueData.summary.overdueCategories.more}</div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {overduesLoading ? (
                 <div className="flex items-center justify-center py-12">
@@ -1590,9 +1864,9 @@ export default function PropertyDetailInfoPage() {
                     </div>
                   </div>
 
-                  {overdueTenants.length > 0 ? (
+                  {filteredOverdueTenants.length > 0 ? (
                     <div className="space-y-4">
-                      {overdueTenants.map((tenant: Tenant, index) => {
+                      {filteredOverdueTenants.map((tenant: Tenant, index) => {
                         const outstandingBalance = tenant.paymentSummary?.paymentHistory?.outstandingBalance || 0;
                         const totalPaid = tenant.paymentSummary?.paymentHistory?.totalPaid || 0;
                         const nextDueDate =
@@ -1602,6 +1876,10 @@ export default function PropertyDetailInfoPage() {
                         const paymentsBehind = tenant.paymentSummary?.nextPayment?.paymentsBehind || 0;
                         const paymentPerPeriod = tenant.paymentSummary?.paymentAmountPerPeriod || 0;
                         const unitLabel = [tenant.unit?.type, tenant.unit?.unitNo].filter(Boolean).join(' ') || tenant.unit?.unitType || 'Unit';
+                        
+                        // Calculate overdue days (approximate)
+                        const overdueDays = (tenant as any).overdueDetails?.daysOverdue || 
+                                          (tenant.paymentSummary?.nextPayment?.paymentsBehind || 0) * 30;
 
                         return (
                           <motion.div
@@ -1637,6 +1915,12 @@ export default function PropertyDetailInfoPage() {
                                     </span>
                                     <span>•</span>
                                     <span>{tenant.contact || tenant.email || 'No contact'}</span>
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs">
+                                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                      </svg>
+                                      {(tenant as any).overdueDetails?.periodText || getOverduePeriodText(overdueDays)}
+                                    </span>
                                   </div>
                                 </div>
                               </div>
@@ -1756,7 +2040,9 @@ export default function PropertyDetailInfoPage() {
                       </div>
                       <p className="text-gray-900 font-medium text-lg">No Overdues Found</p>
                       <p className="text-gray-600 mt-2">
-                        All tenants in this property are up to date.
+                        {overdueFilter === 'all' 
+                          ? 'All tenants in this property are up to date.'
+                          : `No tenants are overdue by ${overdueFilter === 'custom' ? overdueCustomDays : overdueFilter} days or more.`}
                       </p>
                     </div>
                   )}
@@ -2033,6 +2319,361 @@ export default function PropertyDetailInfoPage() {
                   </div>
                 )}
               </div>
+            </motion.div>
+          </div>
+        )}
+        {/* UPCOMING PAYMENTS TAB - No Overdue Section */}
+        {activeTab === 'UpcomingPayments' && (
+          <div className="space-y-6">
+            <motion.div
+              variants={itemVariants}
+              className="bg-white rounded-2xl p-8 shadow-lg border border-gray-200"
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-linear-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center shadow-md">
+                    <svg
+                      className="w-5 h-5 text-white"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+                      />
+                    </svg>
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold text-heading-color">Upcoming Payments</h2>
+                    <p className="text-sm text-gray-600 mt-1">
+                      Track all upcoming tenant payment schedules and deadlines
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {nextPaymentsLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center">
+                    <div className="relative w-12 h-12 mx-auto mb-4">
+                      <motion.div
+                        className="absolute inset-0 border-4 border-blue-200 rounded-full"
+                        animate={{ scale: [1, 1.2, 1] }}
+                        transition={{ duration: 1.5, repeat: Infinity }}
+                      />
+                      <motion.div
+                        className="absolute inset-0 border-4 border-t-blue-500 border-r-transparent border-b-transparent border-l-transparent rounded-full"
+                        animate={{ rotate: 360 }}
+                        transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                      />
+                    </div>
+                    <p className="text-gray-600 font-medium">Loading payment schedules...</p>
+                  </motion.div>
+                </div>
+              ) : nextPaymentsData ? (
+                <>
+                  {/* Summary Cards */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+                    <motion.div
+                      whileHover={{ y: -2, scale: 1.02 }}
+                      className="bg-linear-to-br from-blue-50 to-blue-100 rounded-xl p-5 border border-blue-200 shadow-sm"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-sm font-medium text-blue-700">Total Tenants</div>
+                        <div className="w-8 h-8 bg-blue-200 rounded-lg flex items-center justify-center">
+                          <svg className="w-4 h-4 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                          </svg>
+                        </div>
+                      </div>
+                      <div className="text-2xl font-bold text-blue-900">{nextPaymentsData.summary.total}</div>
+                      <div className="text-xs text-blue-600 mt-1">
+                        <span className="text-green-600">{nextPaymentsData.summary.upcoming} upcoming payments</span>
+                      </div>
+                    </motion.div>
+
+                    <motion.div
+                      whileHover={{ y: -2, scale: 1.02 }}
+                      className="bg-linear-to-br from-green-50 to-green-100 rounded-xl p-5 border border-green-200 shadow-sm"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-sm font-medium text-green-700">Upcoming Amount</div>
+                        <div className="w-8 h-8 bg-green-200 rounded-lg flex items-center justify-center">
+                          <svg className="w-4 h-4 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                        </div>
+                      </div>
+                      <div className="text-2xl font-bold text-green-900">
+                        Ksh {nextPaymentsData.summary.amounts.upcoming.toLocaleString()}
+                      </div>
+                      <div className="text-xs text-green-600 mt-1">Expected in upcoming periods</div>
+                    </motion.div>
+
+                    <motion.div
+                      whileHover={{ y: -2, scale: 1.02 }}
+                      className="bg-linear-to-br from-purple-50 to-purple-100 rounded-xl p-5 border border-purple-200 shadow-sm"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-sm font-medium text-purple-700">Payment Policies</div>
+                        <div className="w-8 h-8 bg-purple-200 rounded-lg flex items-center justify-center">
+                          <svg className="w-4 h-4 text-purple-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                          </svg>
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-purple-800">Monthly:</span>
+                          <span className="font-semibold text-purple-900">{nextPaymentsData.summary.byPolicy.MONTHLY}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-purple-800">Quarterly:</span>
+                          <span className="font-semibold text-purple-900">{nextPaymentsData.summary.byPolicy.QUARTERLY}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-purple-800">Annual:</span>
+                          <span className="font-semibold text-purple-900">{nextPaymentsData.summary.byPolicy.ANNUAL}</span>
+                        </div>
+                      </div>
+                    </motion.div>
+                  </div>
+
+                  {/* Upcoming Payments Grid - Only future payments */}
+                  {nextPaymentsData.payments.filter(p => !p.payment.isOverdue).length > 0 ? (
+                    <div>
+                      <div className="flex items-center gap-2 mb-4">
+                        <div className="w-1 h-6 bg-green-500 rounded-full"></div>
+                        <h3 className="text-lg font-bold text-gray-900">Scheduled Payments</h3>
+                        <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-semibold">
+                          {nextPaymentsData.payments.filter(p => !p.payment.isOverdue).length} upcoming
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        {nextPaymentsData.payments
+                          .filter(p => !p.payment.isOverdue)
+                          .sort((a, b) => a.payment.daysUntilDue - b.payment.daysUntilDue)
+                          .map((payment, index) => (
+                            <motion.div
+                              key={payment.id}
+                              initial={{ opacity: 0, y: 20 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ delay: index * 0.05 }}
+                              className="group relative bg-white border-2 border-green-100 rounded-xl overflow-hidden hover:shadow-lg transition-all duration-300 hover:border-green-300"
+                            >
+                              {/* Progress bar for days remaining */}
+                              <div className="absolute top-0 left-0 h-1 bg-linear-to-r from-green-400 to-green-500 transition-all duration-500"
+                                style={{ width: `${Math.min(100, Math.max(0, 100 - (payment.payment.daysUntilDue / 30) * 100))}%` }}
+                              />
+                              
+                              <div className="p-5">
+                                <div className="flex items-start justify-between mb-3">
+                                  <div className="flex items-center gap-3">
+                                    <div className="w-12 h-12 bg-linear-to-br from-green-100 to-green-200 rounded-full flex items-center justify-center">
+                                      <span className="text-lg font-bold text-green-700">
+                                        {payment.name.charAt(0).toUpperCase()}
+                                      </span>
+                                    </div>
+                                    <div>
+                                      <h4 className="font-bold text-gray-900 text-lg">{payment.name}</h4>
+                                      <div className="flex items-center gap-2 text-sm text-gray-600">
+                                        <span className="flex items-center gap-1">
+                                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                                          </svg>
+                                          {payment.unit.number}
+                                        </span>
+                                        <span>•</span>
+                                        <span className="capitalize">{payment.payment.policy}</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div className="text-right">
+                                    <div className="text-xs text-gray-500 mb-1">Due Date</div>
+                                    <div className="font-semibold text-gray-900">{payment.payment.dueDate}</div>
+                                  </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-3 mb-3">
+                                  <div className="bg-gray-50 rounded-lg p-2">
+                                    <div className="text-xs text-gray-500">Days Until Due</div>
+                                    <div className="text-lg font-bold text-green-600">
+                                      {payment.payment.daysUntilDue} days
+                                    </div>
+                                  </div>
+                                  <div className="bg-gray-50 rounded-lg p-2">
+                                    <div className="text-xs text-gray-500">Total Amount</div>
+                                    <div className="text-lg font-bold text-blue-600">
+                                      Ksh {payment.payment.amount.total.toLocaleString()}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* More Info Button */}
+                                <button
+                                  onClick={() => setExpandedPaymentTenant(
+                                    expandedPaymentTenant === payment.id ? null : payment.id
+                                  )}
+                                  className="w-full mt-2 flex items-center justify-center gap-2 text-sm text-blue-600 hover:text-blue-700 font-medium transition-colors"
+                                >
+                                  <span>{expandedPaymentTenant === payment.id ? 'Show Less' : 'View Details'}</span>
+                                  <motion.svg
+                                    animate={{ rotate: expandedPaymentTenant === payment.id ? 180 : 0 }}
+                                    className="w-4 h-4"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                  </motion.svg>
+                                </button>
+
+                                {/* Expandable Details */}
+                                <AnimatePresence>
+                                  {expandedPaymentTenant === payment.id && (
+                                    <motion.div
+                                      initial={{ height: 0, opacity: 0 }}
+                                      animate={{ height: 'auto', opacity: 1 }}
+                                      exit={{ height: 0, opacity: 0 }}
+                                      transition={{ duration: 0.3 }}
+                                      className="overflow-hidden mt-3"
+                                    >
+                                      <div className="border-t border-gray-200 pt-3 space-y-3">
+                                        <div className="grid grid-cols-2 gap-3">
+                                          <div>
+                                            <div className="text-xs text-gray-500 font-semibold mb-2">Payment Breakdown</div>
+                                            <div className="text-sm space-y-1">
+                                              <div className="flex justify-between">
+                                                <span className="text-gray-600">Rent:</span>
+                                                <span className="font-medium">Ksh {payment.payment.amount.rent.toLocaleString()}</span>
+                                              </div>
+                                              {payment.payment.amount.serviceCharge > 0 && (
+                                                <div className="flex justify-between">
+                                                  <span className="text-gray-600">Service Charge:</span>
+                                                  <span className="font-medium">Ksh {payment.payment.amount.serviceCharge.toLocaleString()}</span>
+                                                </div>
+                                              )}
+                                              {payment.payment.amount.vat > 0 && (
+                                                <div className="flex justify-between">
+                                                  <span className="text-gray-600">VAT:</span>
+                                                  <span className="font-medium">Ksh {payment.payment.amount.vat.toLocaleString()}</span>
+                                                </div>
+                                              )}
+                                            </div>
+                                          </div>
+                                          <div>
+                                            <div className="text-xs text-gray-500 font-semibold mb-2">Contact Information</div>
+                                            <div className="text-sm space-y-1">
+                                              <div className="flex items-center gap-1">
+                                                <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                                </svg>
+                                                <span className="text-gray-700 truncate">{payment.contact.email}</span>
+                                              </div>
+                                              <div className="flex items-center gap-1">
+                                                <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                                                </svg>
+                                                <span className="text-gray-700">{payment.contact.phone}</span>
+                                              </div>
+                                              <div className="flex items-center gap-1">
+                                                <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-4 0h4" />
+                                                </svg>
+                                                <span className="text-gray-700 text-xs">KRA: {payment.contact.kra}</span>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </div>
+                                        
+                                        {payment.rent.escalation && (
+                                          <div className="bg-yellow-50 rounded-lg p-2">
+                                            <div className="text-xs text-yellow-700 font-medium">Rent Escalation Schedule</div>
+                                            <div className="text-sm text-yellow-800">
+                                              {payment.rent.escalation.rate}% increase {payment.rent.escalation.frequency.toLowerCase()} • 
+                                              Next adjustment: {new Date(payment.rent.escalation.nextDate).toLocaleDateString()}
+                                            </div>
+                                          </div>
+                                        )}
+                                        
+                                        {payment.history && payment.history.paymentsMade > 0 && (
+                                          <div className="bg-gray-50 rounded-lg p-2">
+                                            <div className="text-xs text-gray-600 font-medium">Payment History</div>
+                                            <div className="text-sm text-gray-700">
+                                              Last payment on {payment.history.lastPayment} • 
+                                              {payment.history.paymentsMade} payment{payment.history.paymentsMade !== 1 ? 's' : ''} recorded
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        {/* Unit Details */}
+                                        <div className="bg-blue-50 rounded-lg p-2">
+                                          <div className="text-xs text-blue-700 font-medium">Unit Details</div>
+                                          <div className="text-sm text-blue-800">
+                                            {payment.unit.type} • {payment.unit.size} sq ft • Floor {payment.unit.floor}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </motion.div>
+                                  )}
+                                </AnimatePresence>
+                              </div>
+                            </motion.div>
+                          ))}
+                      </div>
+                    </div>
+                  ) : (
+                    /* No Upcoming Payments State */
+                    <div className="text-center py-12">
+                      <div className="w-20 h-20 mx-auto mb-4 bg-linear-to-br from-green-100 to-blue-100 rounded-full flex items-center justify-center">
+                        <svg
+                          className="w-10 h-10 text-green-600"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                          />
+                        </svg>
+                      </div>
+                      <p className="text-gray-900 font-medium text-lg">No Upcoming Payments</p>
+                      <p className="text-gray-600 mt-2">
+                        All tenants have no pending upcoming payments at this time.
+                      </p>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="text-center py-12">
+                  <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+                    <svg
+                      className="w-8 h-8 text-gray-400"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                      />
+                    </svg>
+                  </div>
+                  <p className="text-gray-900 font-medium">Failed to load payment schedules</p>
+                  <Button onClick={fetchNextPaymentsData} className="mt-4">
+                    Retry
+                  </Button>
+                </div>
+              )}
             </motion.div>
           </div>
         )}

@@ -51,6 +51,7 @@ import {
   UpdateCustomRoleRequest,
   ManagedUser,
   CreateManagedUserRequest,
+  CreateManagedUserResponse,
   UpdateManagedUserAccessRequest,
   GrantPropertyAccessRequest,
   UpdatePropertyPermissionsRequest,
@@ -59,6 +60,21 @@ import {
   AuditLog,
   AuditLogQueryParams,
   CacheStats,
+  NextPaymentsResponse,
+  CreateEmployeeRequest,
+  Employee,
+  EmployeesDueResponse,
+  EmployeesListResponse,
+  EmployeeStatus,
+  GetEmployeesParams,
+  PaymentHistoryResponse,
+  PaymentStatusSummaryResponse,
+  RecordSalaryPaymentRequest,
+  RemindersResponse,
+  SalaryPayment,
+  StatisticsResponse,
+  UpcomingPaymentsResponse,
+  UpdateEmployeeRequest,
 } from '@/types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.interparkpropertysystem.co.ke/api';
@@ -170,6 +186,66 @@ export const authAPI = {
       return handleApiError(error);
     }
   },
+
+  // NEW: Register Admin (First admin or by existing admin)
+  registerAdmin: async (name: string, email: string, password: string): Promise<AuthResponse> => {
+    try {
+      const response = await api.post('/auth/register-admin', { name, email, password });
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  // NEW: Change Password
+  changePassword: async (currentPassword: string, newPassword: string): Promise<{ message: string }> => {
+    try {
+      const response = await api.post('/auth/change-password', { currentPassword, newPassword });
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  // NEW: Get All Users (Admin only)
+  getAllUsers: async (): Promise<User[]> => {
+    try {
+      const response = await api.get('/auth/users');
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  // NEW: Get Pending Users (Admin only)
+  getPendingUsers: async (): Promise<User[]> => {
+    try {
+      const response = await api.get('/auth/users/pending');
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  // NEW: Update User Role (Admin only)
+  updateUserRole: async (userId: string, role: 'ADMIN' | 'MANAGER' | 'USER'): Promise<User> => {
+    try {
+      const response = await api.put(`/auth/users/${userId}/role`, { role });
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  // NEW: Approve/Reject User (Admin only)
+  approveUser: async (userId: string, isApproved: boolean): Promise<{ message: string; user: User }> => {
+    try {
+      const response = await api.put(`/auth/users/${userId}/approve`, { isApproved });
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
 };
 
 export const landlordsAPI = {
@@ -233,7 +309,7 @@ export const propertiesAPI = {
   },
   getManagerProperties: async (managerId: string): Promise<Property[]> => {
     try {
-      const response = await api.get(`/properties/manager/${managerId}`);
+      const response = await api.get(`/properties/manager/my-properties`);
       return response.data;
     } catch (error) {
       return handleApiError(error);
@@ -415,6 +491,17 @@ export const tenantsAPI = {
       return [];
     }
   },
+
+    // NEW: Get next payments by property ID
+  getNextPaymentsByProperty: async (propertyId: string): Promise<NextPaymentsResponse> => {
+    try {
+      const response = await api.get(`/tenants/property/${propertyId}/next-payments`);
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching next payments:', error);
+      return handleApiError(error);
+    }
+  },
   getById: async (id: string): Promise<Tenant> => {
     try {
       const response = await api.get(`/tenants/${id}`);
@@ -423,11 +510,28 @@ export const tenantsAPI = {
       return handleApiError(error);
     }
   },
-  // NEW: Get overdue tenants (optionally filtered by property)
-  getOverdue: async (propertyId?: string): Promise<OverdueTenantsResponse> => {
+  // Updated getOverdue method with days filtering support (optionally filtered by property)
+  getOverdue: async (
+    propertyId?: string, 
+    daysOverdue?: number | string, 
+    customDays?: number
+  ): Promise<OverdueTenantsResponse> => {
     try {
-      const params = propertyId ? { params: { propertyId } } : {};
-      const response = await api.get('/tenants/overdue', params);
+      const params: Record<string, string> = {};
+      
+      if (propertyId) {
+        params.propertyId = propertyId;
+      }
+      
+      if (daysOverdue) {
+        params.daysOverdue = daysOverdue.toString();
+      }
+      
+      if (customDays && daysOverdue === 'custom') {
+        params.customDays = customDays.toString();
+      }
+      
+      const response = await api.get('/tenants/overdue', { params });
       return response.data;
     } catch (error) {
       return handleApiError(error);
@@ -2698,7 +2802,7 @@ export const managedUsersAPI = {
     }
   },
 
-  create: async (userData: CreateManagedUserRequest): Promise<ManagedUser> => {
+  create: async (userData: CreateManagedUserRequest): Promise<CreateManagedUserResponse> => {
     try {
       const response = await api.post('/rbac/users', userData);
       return response.data;
@@ -2858,6 +2962,168 @@ export const cacheAPI = {
     } catch (error: any) {
       console.error('Failed to clear cache:', error);
       throw new Error(error?.response?.data?.message || error?.message || 'Failed to clear cache');
+    }
+  },
+};
+
+// ======================================================
+// EMPLOYEE API FUNCTIONS
+// ======================================================
+
+export const employeesAPI = {
+  // Create a new employee (ADMIN/MANAGER only)
+  create: async (data: CreateEmployeeRequest): Promise<Employee> => {
+    try {
+      const response = await api.post('/employees', data);
+      return response.data.data;
+    } catch (error: any) {
+      console.error('Failed to create employee:', error);
+      const message = error?.response?.data?.error || error?.message || 'Failed to create employee';
+      throw new Error(message);
+    }
+  },
+
+  // Get all employees with filters (ADMIN/MANAGER only)
+  getAll: async (params?: GetEmployeesParams): Promise<EmployeesListResponse> => {
+    try {
+      const response = await api.get('/employees', { params });
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to fetch employees:', error);
+      const message = error?.response?.data?.error || error?.message || 'Failed to fetch employees';
+      throw new Error(message);
+    }
+  },
+
+  // Get employee by ID (ADMIN/MANAGER only)
+  getById: async (id: string): Promise<Employee> => {
+    try {
+      const response = await api.get(`/employees/${id}`);
+      return response.data.data;
+    } catch (error: any) {
+      console.error('Failed to fetch employee:', error);
+      const message = error?.response?.data?.error || error?.message || 'Failed to fetch employee';
+      throw new Error(message);
+    }
+  },
+
+  // Update employee (ADMIN/MANAGER only)
+  update: async (id: string, data: UpdateEmployeeRequest): Promise<Employee> => {
+    try {
+      const response = await api.put(`/employees/${id}`, data);
+      return response.data.data;
+    } catch (error: any) {
+      console.error('Failed to update employee:', error);
+      const message = error?.response?.data?.error || error?.message || 'Failed to update employee';
+      throw new Error(message);
+    }
+  },
+
+  // Update employee status (ADMIN/MANAGER only)
+  updateStatus: async (id: string, status: EmployeeStatus): Promise<Employee> => {
+    try {
+      const response = await api.patch(`/employees/${id}/status`, { status });
+      return response.data.data;
+    } catch (error: any) {
+      console.error('Failed to update employee status:', error);
+      const message = error?.response?.data?.error || error?.message || 'Failed to update employee status';
+      throw new Error(message);
+    }
+  },
+
+  // Get employees due for payment (ADMIN/MANAGER only)
+  getDueForPayment: async (): Promise<EmployeesDueResponse> => {
+    try {
+      const response = await api.get('/employees/due');
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to fetch due employees:', error);
+      const message = error?.response?.data?.error || error?.message || 'Failed to fetch due employees';
+      throw new Error(message);
+    }
+  },
+
+  // Get upcoming payments (ADMIN/MANAGER only)
+  getUpcomingPayments: async (): Promise<UpcomingPaymentsResponse> => {
+    try {
+      const response = await api.get('/employees/upcoming');
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to fetch upcoming payments:', error);
+      const message = error?.response?.data?.error || error?.message || 'Failed to fetch upcoming payments';
+      throw new Error(message);
+    }
+  },
+
+  // Record salary payment (ADMIN/MANAGER only)
+  recordPayment: async (employeeId: string, data: RecordSalaryPaymentRequest): Promise<SalaryPayment> => {
+    try {
+      const response = await api.post(`/employees/${employeeId}/payments`, data);
+      return response.data.data;
+    } catch (error: any) {
+      console.error('Failed to record payment:', error);
+      const message = error?.response?.data?.error || error?.message || 'Failed to record payment';
+      throw new Error(message);
+    }
+  },
+
+  // Get payment history for an employee (ADMIN/MANAGER only)
+  getPaymentHistory: async (employeeId: string): Promise<PaymentHistoryResponse> => {
+    try {
+      const response = await api.get(`/employees/${employeeId}/payments`);
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to fetch payment history:', error);
+      const message = error?.response?.data?.error || error?.message || 'Failed to fetch payment history';
+      throw new Error(message);
+    }
+  },
+
+  // Get statistics (ADMIN/MANAGER only)
+  getStatistics: async (): Promise<StatisticsResponse> => {
+    try {
+      const response = await api.get('/employees/statistics');
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to fetch statistics:', error);
+      const message = error?.response?.data?.error || error?.message || 'Failed to fetch statistics';
+      throw new Error(message);
+    }
+  },
+
+  // Get reminders (ADMIN/MANAGER only)
+  getReminders: async (): Promise<RemindersResponse> => {
+    try {
+      const response = await api.get('/employees/reminders');
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to fetch reminders:', error);
+      const message = error?.response?.data?.error || error?.message || 'Failed to fetch reminders';
+      throw new Error(message);
+    }
+  },
+
+  // Send manual reminders (ADMIN only)
+  sendManualReminders: async (): Promise<{ success: boolean; message: string; data: any }> => {
+    try {
+      const response = await api.post('/employees/reminders/send');
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to send reminders:', error);
+      const message = error?.response?.data?.error || error?.message || 'Failed to send reminders';
+      throw new Error(message);
+    }
+  },
+
+  // Get payment status summary (ADMIN/MANAGER only)
+  getPaymentStatusSummary: async (): Promise<PaymentStatusSummaryResponse> => {
+    try {
+      const response = await api.get('/employees/payment-summary');
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to fetch payment summary:', error);
+      const message = error?.response?.data?.error || error?.message || 'Failed to fetch payment summary';
+      throw new Error(message);
     }
   },
 };

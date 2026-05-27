@@ -57,6 +57,18 @@ export default function Sidebar() {
         </svg>
       )
     },
+    // ADD EMPLOYEES MENU ITEM HERE
+    { 
+      name: 'Employees Info', 
+      href: '/employees',
+      requiredPermissions: ['VIEW_EMPLOYEES'],
+      requiredRole: ['ADMIN', 'MANAGER'],
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+        </svg>
+      )
+    },
     { 
       name: 'My Income', 
       href: '/myIncome',
@@ -73,8 +85,8 @@ export default function Sidebar() {
       name: 'Leads', 
       href: '/leads',
       requiredPermissions: ['VIEW_LEADS', 'MANAGE_LEADS'],
-      requiredRole: ['ADMIN', 'MANAGER'],
-      hideForManagedUser: true,
+      requiredRole: ['ADMIN', 'MANAGER', 'USER'],
+      // REMOVED hideForManagedUser: true - managed users can see if they have permissions
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
@@ -85,8 +97,8 @@ export default function Sidebar() {
       name: 'Landlords', 
       href: '/landlords',
       requiredPermissions: ['VIEW_LANDLORDS', 'MANAGE_LANDLORDS'],
-      requiredRole: ['ADMIN', 'MANAGER'],
-      hideForManagedUser: true,
+      requiredRole: ['ADMIN', 'MANAGER', 'USER'],
+      hideForManagedUser: true, // Keep hidden for managed users based on your business logic
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
@@ -173,9 +185,18 @@ export default function Sidebar() {
 
   // Check if a menu item should be shown using the global permissions
   const shouldShowItem = (item: MenuItem): boolean => {
-    // Check managed user restrictions
+    // First, check managed user restrictions
     if (isManagedUser && item.hideForManagedUser) {
       return false
+    }
+
+    // For ADMIN and MANAGER, they have full access to Leads, Landlords, and My Income
+    if (isAdmin || isManager) {
+      // These items are always visible to ADMIN and MANAGER regardless of specific permissions
+      const adminManagerAlwaysVisible = ['Leads', 'Landlords', 'My Income', 'Employees Info','User Management', 'Create Custom Role & User', 'Role Management']
+      if (adminManagerAlwaysVisible.includes(item.name)) {
+        return true
+      }
     }
 
     // Check role-based access
@@ -183,13 +204,13 @@ export default function Sidebar() {
       const hasRequiredRole = item.requiredRole.some(role => {
         if (role === 'ADMIN') return isAdmin
         if (role === 'MANAGER') return isManager
-        if (role === 'USER') return isManagedUser
+        if (role === 'USER') return isManagedUser || (!isAdmin && !isManager)
         return false
       })
       if (!hasRequiredRole) return false
     }
 
-    // Check permission-based access using the global permissions system
+    // Check permission-based access for all users
     if (item.requiredPermissions && item.requiredPermissions.length > 0) {
       // Map menu items to their corresponding permission checks
       const permissionMap: Record<string, boolean> = {
@@ -201,6 +222,7 @@ export default function Sidebar() {
         'VIEW_OFFER_LETTERS': canViewOffers,
         'VIEW_COMMISSIONS': canViewIncome,
         'VIEW_TENANT_FINANCIALS': canViewIncome,
+        'VIEW_EMPLOYEES': permissions?.employees?.canView || false, 
         'MANAGE_USERS': canManageUsers,
         'MANAGE_ROLES': canManageRoles,
       }
@@ -219,7 +241,7 @@ export default function Sidebar() {
   // Filter menu items based on access - memoized for performance
   const visibleMenuItems = useMemo(() => 
     allMenuItems.filter(shouldShowItem), 
-    [allMenuItems, isManagedUser, isAdmin, isManager, canViewProperties, canViewLeads, canViewLandlords, canViewOffers, canViewIncome]
+    [allMenuItems, isManagedUser, isAdmin, isManager, canViewProperties, canViewLeads, canViewLandlords, canViewOffers, canViewIncome, permissions?.employees?.canView]
   )
   
   const visibleAdminManagerItems = useMemo(() => 
@@ -294,12 +316,12 @@ export default function Sidebar() {
 
       {/* Sidebar */}
       <div
-        className={`bg-slate-900 text-white w-64 space-y-2 py-6 px-3 fixed inset-y-0 left-0 transform transition-transform duration-300 ease-in-out z-50 shadow-2xl overflow-y-auto border-r border-slate-700/50 ${
+        className={`bg-slate-900 text-white w-64 flex flex-col fixed inset-y-0 left-0 transform transition-transform duration-300 ease-in-out z-50 shadow-2xl border-r border-slate-700/50 ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
         } md:relative md:translate-x-0`}
       >
-        {/* Logo/Brand Area */}
-        <div className="px-4 py-4 border-b border-slate-700/80 mb-4">
+        {/* Logo/Brand Area - Fixed Header */}
+        <div className="shrink-0 px-4 py-4 border-b border-slate-700/80 bg-slate-900">
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 bg-linear-to-r from-[#005478] to-[#00a3d7] rounded-xl flex items-center justify-center shadow-lg">
               <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -318,87 +340,86 @@ export default function Sidebar() {
           )}
         </div>
 
-        {/* Navigation */}
-        <nav className="space-y-1 px-2">
-          {visibleMenuItems.map((item) => {
-            const isActive = pathname === item.href
-            return (
-              <Link
-                key={item.name}
-                href={item.href}
-                onClick={() => setIsOpen(false)}
-                className={`group flex items-center px-4 py-3 text-sm font-medium rounded-xl transition-all duration-200 ${
-                  isActive
-                    ? 'bg-linear-to-r from-[#005478] to-[#0078a3] text-white shadow-lg shadow-sky-900/40 border border-sky-500/30'
-                    : 'text-slate-200 hover:bg-slate-800 hover:text-white border border-transparent hover:border-slate-600/50'
-                }`}
-              >
-                <div
-                  className={`mr-3 transition-all duration-200 ${
-                    isActive ? 'text-white scale-110' : 'text-slate-400 group-hover:text-white group-hover:scale-110'
+        {/* Scrollable Navigation Area */}
+        <div className="flex-1 overflow-y-auto">
+          <nav className="space-y-1 px-2 py-4">
+            {visibleMenuItems.map((item) => {
+              const isActive = pathname === item.href
+              return (
+                <Link
+                  key={item.name}
+                  href={item.href}
+                  onClick={() => setIsOpen(false)}
+                  className={`group flex items-center px-4 py-3 text-sm font-medium rounded-xl transition-all duration-200 ${
+                    isActive
+                      ? 'bg-linear-to-r from-[#005478] to-[#0078a3] text-white shadow-lg shadow-sky-900/40 border border-sky-500/30'
+                      : 'text-slate-200 hover:bg-slate-800 hover:text-white border border-transparent hover:border-slate-600/50'
                   }`}
                 >
-                  {item.icon}
-                </div>
-                <span className="flex-1 font-semibold tracking-wide">{item.name}</span>
-
-                {/* Active indicator */}
-                {isActive && (
-                  <div className="w-2 h-2 bg-white rounded-full ml-2 animate-pulse shadow-sm" />
-                )}
-              </Link>
-            )
-          })}
-
-          {/* Admin/Manager Section - Only show if there are items and user has admin/manager role */}
-          {(isAdmin || isManager) && visibleAdminManagerItems.length > 0 && (
-            <>
-              <div className="relative my-6">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-slate-700/80"></div>
-                </div>
-                <div className="relative flex justify-center">
-                  <span className="px-3 bg-slate-900 text-xs font-bold text-slate-400 uppercase tracking-widest">
-                    Administration
-                  </span>
-                </div>
-              </div>
-              
-              {visibleAdminManagerItems.map((item) => {
-                const isActive = pathname === item.href
-                return (
-                  <Link
-                    key={item.name}
-                    href={item.href}
-                    onClick={() => setIsOpen(false)}
-                    className={`group flex items-center px-4 py-3 text-sm font-medium rounded-xl transition-all duration-200 ${
-                      isActive
-                        ? 'bg-linear-to-r from-[#005478] to-[#0078a3] text-white shadow-lg shadow-sky-900/40 border border-sky-500/30'
-                        : 'text-slate-200 hover:bg-slate-800 hover:text-white border border-transparent hover:border-slate-600/50'
+                  <div
+                    className={`mr-3 transition-all duration-200 ${
+                      isActive ? 'text-white scale-110' : 'text-slate-400 group-hover:text-white group-hover:scale-110'
                     }`}
                   >
-                    <div
-                      className={`mr-3 transition-all duration-200 ${
-                        isActive ? 'text-white scale-110' : 'text-slate-400 group-hover:text-white group-hover:scale-110'
+                    {item.icon}
+                  </div>
+                  <span className="flex-1 font-semibold tracking-wide">{item.name}</span>
+
+                  {/* Active indicator */}
+                  {isActive && (
+                    <div className="w-2 h-2 bg-white rounded-full ml-2 animate-pulse shadow-sm" />
+                  )}
+                </Link>
+              )
+            })}
+
+            {/* Admin/Manager Section - Only show if there are items and user has admin/manager role */}
+            {(isAdmin || isManager) && visibleAdminManagerItems.length > 0 && (
+              <>
+                <div className="relative my-6">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-slate-700/80"></div>
+                  </div>
+                  <div className="relative flex justify-center">
+                    <span className="px-3 bg-slate-900 text-xs font-bold text-slate-400 uppercase tracking-widest">
+                      Administration
+                    </span>
+                  </div>
+                </div>
+                
+                {visibleAdminManagerItems.map((item) => {
+                  const isActive = pathname === item.href
+                  return (
+                    <Link
+                      key={item.name}
+                      href={item.href}
+                      onClick={() => setIsOpen(false)}
+                      className={`group flex items-center px-4 py-3 text-sm font-medium rounded-xl transition-all duration-200 ${
+                        isActive
+                          ? 'bg-linear-to-r from-[#005478] to-[#0078a3] text-white shadow-lg shadow-sky-900/40 border border-sky-500/30'
+                          : 'text-slate-200 hover:bg-slate-800 hover:text-white border border-transparent hover:border-slate-600/50'
                       }`}
                     >
-                      {item.icon}
-                    </div>
-                    <span className="flex-1 font-semibold tracking-wide">{item.name}</span>
+                      <div
+                        className={`mr-3 transition-all duration-200 ${
+                          isActive ? 'text-white scale-110' : 'text-slate-400 group-hover:text-white group-hover:scale-110'
+                        }`}
+                      >
+                        {item.icon}
+                      </div>
+                      <span className="flex-1 font-semibold tracking-wide">{item.name}</span>
 
-                    {/* Active indicator */}
-                    {isActive && (
-                      <div className="w-2 h-2 bg-white rounded-full ml-2 animate-pulse shadow-sm" />
-                    )}
-                  </Link>
-                )
-              })}
-            </>
-          )}
-        </nav>
-
-        {/* Bottom spacer for mobile */}
-        <div className="md:hidden h-20" />
+                      {/* Active indicator */}
+                      {isActive && (
+                        <div className="w-2 h-2 bg-white rounded-full ml-2 animate-pulse shadow-sm" />
+                      )}
+                    </Link>
+                  )
+                })}
+              </>
+            )}
+          </nav>
+        </div>
       </div>
     </>
   )

@@ -232,6 +232,7 @@ export default function RolesPage() {
         name: editName.trim(),
         description: editDescription.trim() || undefined,
         permissionIds: selectedPermissionIds,
+        propertyIds: []
       })
 
       setSuccessMessage('Role updated successfully.')

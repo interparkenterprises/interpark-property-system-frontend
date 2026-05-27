@@ -17,6 +17,7 @@ interface AuthContextType {
   isAdmin: boolean;
   isManager: boolean;
   isManagedUser: boolean;
+  requiresPasswordChange: boolean;
   
   login: (email: string, password: string) => Promise<void>;
   register: (name: string, email: string, password: string, role?: string) => Promise<void>;
@@ -57,6 +58,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isEnabled, setIsEnabled] = useState(true);
   const [roleName, setRoleName] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [requiresPasswordChange, setRequiresPasswordChange] = useState(false);
   const initRef = useRef(false);
 
   // Helper to convert accessibleProperties from API response to PropertyAccess format
@@ -189,7 +191,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const extractedRoleName = extractRoleName(profile);
     const isManagedUserFlag = profile.isManagedUser === true || profile.currentAccess?.isManagedUser === true;
     const managedBy = profile.managedBy || profile.currentAccess?.managedBy || null;
-    const requiresPasswordChange = profile.requiresPasswordChange || false;
+    
+    // FIX: Extract requiresPasswordChange from both direct property or nested in currentAccess
+    const requiresPasswordChangeFlag = profile.requiresPasswordChange === true || 
+                                      profile.currentAccess?.requiresPasswordChange === true || 
+                                      false;
     
     // Determine user role - handle both login and getProfile response formats
     let userRole: 'ADMIN' | 'MANAGER' | 'USER' = 'USER';
@@ -224,7 +230,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       roleName: extractedRoleName,
       isManagedUser: isManagedUserFlag,
       managedBy: managedBy?.id || managedBy,
-      requiresPasswordChange: requiresPasswordChange,
+      requiresPasswordChange: requiresPasswordChangeFlag,
       updatedAt: ''
     };
 
@@ -235,6 +241,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       baseUser.roleName = 'Administrator';
       baseUser.isManagedUser = false;
       baseUser.propertyAccess = [];
+      baseUser.requiresPasswordChange = false;
       return baseUser;
     }
 
@@ -256,7 +263,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         PermissionCode.VIEW_TENANT_FINANCIALS,
         PermissionCode.VIEW_INVOICES,
         PermissionCode.CREATE_INVOICE,
-        //PermissionCode.EDIT_INVOICE,
         PermissionCode.VIEW_PAYMENT_REPORTS,
         PermissionCode.RECORD_PAYMENTS,
         PermissionCode.VIEW_COMMISSIONS,
@@ -267,12 +273,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         PermissionCode.CREATE_DAILY_REPORTS,
         PermissionCode.VIEW_ACTIVATION_REQUESTS,
         PermissionCode.CREATE_ACTIVATION_REQUEST,
+        PermissionCode.EDIT_ACTIVATION_REQUEST,
+        PermissionCode.DELETE_ACTIVATION_REQUEST,
         PermissionCode.VIEW_SERVICE_PROVIDERS,
         PermissionCode.CREATE_SERVICE_PROVIDER,
+        PermissionCode.EDIT_SERVICE_PROVIDER,
+        PermissionCode.DELETE_SERVICE_PROVIDER,
         PermissionCode.VIEW_BILLS,
         PermissionCode.CREATE_BILL,
         PermissionCode.VIEW_DEMAND_LETTERS,
         PermissionCode.CREATE_DEMAND_LETTER,
+        PermissionCode.VIEW_DAILY_REPORTS,
+        PermissionCode.CREATE_DAILY_REPORTS,
+        PermissionCode.DELETE_DAILY_REPORTS,
+        PermissionCode.EDIT_DAILY_REPORTS,
+        PermissionCode.VIEW_EMPLOYEES,
+        PermissionCode.CREATE_EMPLOYEE,
+        PermissionCode.EDIT_EMPLOYEE,
+        PermissionCode.DELETE_EMPLOYEE,
         PermissionCode.MANAGE_USERS,
         PermissionCode.MANAGE_ROLES,
       ];
@@ -280,6 +298,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       baseUser.roleName = 'Manager';
       baseUser.isManagedUser = false;
       baseUser.propertyAccess = [];
+      baseUser.requiresPasswordChange = false;
       return baseUser;
     }
 
@@ -315,6 +334,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setAccessibleProperties(fullUser.propertyAccess || []);
         setIsEnabled(fullUser.isEnabled ?? true);
         setRoleName(fullUser.roleName || null);
+        setRequiresPasswordChange(fullUser.requiresPasswordChange || false);
         
         // Pre-cache permissions for faster access
         permissionCache.clear();
@@ -337,18 +357,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (email: string, password: string) => {
     try {
-      // Login returns user data with permissions and property access
+      // First, login to get token
       const response = await authAPI.login(email, password);
       localStorage.setItem('token', response.token);
+      
+      // CRITICAL FIX: Check if the login response directly has requiresPasswordChange
+      const requiresChange = response.requiresPasswordChange === true;
+      
+      // Always fetch profile separately to ensure consistent data structure
+      const profile = await authAPI.getProfile();
+      
+      // Merge the requiresPasswordChange flag from login response if present
+      // This ensures managed users with temporary passwords get redirected properly
+      const profileWithFlag = {
+        ...profile,
+        requiresPasswordChange: requiresChange || profile.requiresPasswordChange
+      };
 
-      // FIX: handle both response shapes: { token, user: {...} } and { token, ...userFields }
-      let profile = response.user;
-      if (!profile) {
-        // If login response doesn't include user object, fetch it separately
-        profile = await authAPI.getProfile();
-      }
-
-      const fullUser = await buildUserWithAccess(profile);
+      const fullUser = await buildUserWithAccess(profileWithFlag);
 
       if (!fullUser.isEnabled) {
         router.push('/account-disabled');
@@ -361,6 +387,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setAccessibleProperties(fullUser.propertyAccess || []);
       setIsEnabled(fullUser.isEnabled ?? true);
       setRoleName(fullUser.roleName || null);
+      setRequiresPasswordChange(fullUser.requiresPasswordChange || false);
       
       // Pre-cache permissions
       permissionCache.clear();
@@ -370,8 +397,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
       }
 
-      // Redirect to dashboard immediately - no additional API calls needed
-      router.push('/dashboard');
+      // Check if user needs to change password
+      if (fullUser.requiresPasswordChange) {
+        router.push('/change-password');
+      } else {
+        router.push('/dashboard');
+      }
     } catch (error) {
       console.error('Login error:', error);
       throw error;
@@ -390,6 +421,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setAccessibleProperties(fullUser.propertyAccess || []);
     setIsEnabled(fullUser.isEnabled ?? true);
     setRoleName(fullUser.roleName || null);
+    setRequiresPasswordChange(fullUser.requiresPasswordChange || false);
 
     router.push('/dashboard');
   };
@@ -401,6 +433,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setAccessibleProperties([]);
     setIsEnabled(true);
     setRoleName(null);
+    setRequiresPasswordChange(false);
     permissionCache.clear();
     propertiesCache.clear();
     router.push('/login');
@@ -422,6 +455,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setAccessibleProperties(fullUser.propertyAccess || []);
       setIsEnabled(fullUser.isEnabled ?? true);
       setRoleName(fullUser.roleName || null);
+      setRequiresPasswordChange(fullUser.requiresPasswordChange || false);
       
       // Re-cache new permissions
       if (fullUser.permissions) {
@@ -432,7 +466,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       console.log('User access refreshed successfully', {
         permissions: fullUser.permissions?.length,
-        properties: fullUser.propertyAccess?.length
+        properties: fullUser.propertyAccess?.length,
+        requiresPasswordChange: fullUser.requiresPasswordChange
       });
     } catch (err) {
       console.error('Refresh access failed:', err);
@@ -517,6 +552,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     isAdmin: user?.role === 'ADMIN',
     isManager: user?.role === 'MANAGER',
     isManagedUser: user?.isManagedUser === true || user?.role === 'USER',
+    requiresPasswordChange,
     login,
     register,
     logout,

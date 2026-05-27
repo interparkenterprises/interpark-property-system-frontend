@@ -35,7 +35,7 @@ export async function exportArrearsToPDF(
 
   // Add letterhead (top)
   try {
-    const topLetterheadUrl = 'https://www.genspark.ai/api/files/s/a8WiMPx8';
+    const topLetterheadUrl = '/letterhead-02.jpg';
     const response = await fetch(topLetterheadUrl);
     if (response.ok) {
       const blob = await response.blob();
@@ -43,7 +43,7 @@ export async function exportArrearsToPDF(
       await new Promise((resolve) => {
         reader.onloadend = () => {
           const base64data = reader.result as string;
-          doc.addImage(base64data, 'PNG', 10, 10, pageWidth - 20, 25);
+          doc.addImage(base64data, 'JPEG', 10, 10, pageWidth - 20, 25);
           resolve(null);
         };
         reader.readAsDataURL(blob);

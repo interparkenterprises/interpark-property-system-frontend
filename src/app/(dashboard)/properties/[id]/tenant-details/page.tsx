@@ -1098,7 +1098,7 @@ export default function TenantDetailPage() {
       <motion.div variants={itemVariants}>
         <Button
           onClick={() => router.back()}
-          className="group px-6 py-3 bg-gray-100 text-gray-900 hover:bg-gray-200 transition-all duration-300 shadow-sm hover:shadow-md rounded-lg"
+          className="group px-6 py-3 bg-gray-100 text-black hover:bg-gray-100 transition-all duration-300 shadow-sm hover:shadow-md rounded-lg"
         >
           <motion.span className="flex items-center gap-2" whileHover={{ x: -2 }}>
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

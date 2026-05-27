@@ -1,13 +1,22 @@
+// Update your User interface in types/index.ts
 export interface User {
   id: string;
   name: string;
   email: string;
   role: 'ADMIN' | 'MANAGER' | 'USER';
+  isApproved?: boolean;
+  isManagedUser?: boolean;
+  createdByManagerId?: string;
+  canManagerLogin?: boolean;
+  lastLoginAt?: string;
   createdAt: string;
   updatedAt: string;
+  accessibleProperties?: string[];
+  permissions?: string[];
   properties?: Property[];
   todos?: ToDo[];
   commissions?: ManagerCommission[];
+  requiresPasswordChange?: boolean;
 }
 
 export interface Landlord {
@@ -272,11 +281,107 @@ export interface OverdueTenantsResponse {
     totalOverdueTenants: number;
     totalOverdueAmount: number;
     averageOverdueAmount: number;
+    overdueDaysStats?: {
+      min: number;
+      max: number;
+      average: number;
+    };
+    overdueCategories?: {
+      week1: number;
+      week2: number;
+      month1: number;
+      month2: number;
+      month3: number;
+      more: number;
+    };
   };
   filter: {
     propertyId: string | null;
-    scope: 'specific_property' | 'managed_properties' | 'all_properties';
+    daysOverdue: string | null;
+    customDays: number | null;
+    scope: 'specific_property' | 'managed_properties' | 'all_properties' | 'accessible_properties' | 'no_permission';
   };
+}
+
+// Next Payment Response Types
+export interface NextPaymentContact {
+  email: string;
+  phone: string;
+  kra: string;
+}
+
+export interface NextPaymentUnit {
+  number: string;
+  type: string;
+  size: number;
+  floor: string;
+}
+
+export interface NextPaymentAmount {
+  rent: number;
+  serviceCharge: number;
+  vat: number;
+  total: number;
+}
+
+export interface NextPaymentDetails {
+  dueDate: string;
+  daysUntilDue: number;
+  isOverdue: boolean;
+  amount: NextPaymentAmount;
+  status: string;
+  policy: PaymentPolicy;
+}
+
+export interface RentEscalation {
+  rate: number;
+  frequency: EscalationFrequency;
+  nextDate: string;
+}
+
+export interface NextPaymentRent {
+  current: number;
+  escalation: RentEscalation | null;
+}
+
+export interface NextPaymentHistory {
+  lastPayment: string;
+  paymentsMade: number;
+}
+
+export interface NextPaymentItem {
+  id: string;
+  name: string;
+  contact: NextPaymentContact;
+  unit: NextPaymentUnit;
+  payment: NextPaymentDetails;
+  rent: NextPaymentRent;
+  history: NextPaymentHistory | null;
+}
+
+export interface NextPaymentsSummary {
+  total: number;
+  overdue: number;
+  upcoming: number;
+  amounts: {
+    outstanding: number;
+    upcoming: number;
+  };
+  byPolicy: {
+    MONTHLY: number;
+    QUARTERLY: number;
+    ANNUAL: number;
+  };
+}
+
+export interface NextPaymentsResponse {
+  success: boolean;
+  property: {
+    id: string;
+    name: string;
+  };
+  summary: NextPaymentsSummary;
+  payments: NextPaymentItem[];
 }
 
 export type PaymentStatus = 'PAID' | 'PARTIAL' | 'UNPAID'| 'CREDIT' | 'PREPAID';
@@ -621,12 +726,21 @@ export interface News {
 }
 
 export interface AuthResponse {
-  user: User;
   id: string;
   name: string;
   email: string;
-  role: string;
+  role: 'ADMIN' | 'MANAGER' | 'USER';
+  isApproved?: boolean;
+  isManagedUser?: boolean;
+  managedBy?: {
+    id: string;
+    name: string;
+  } | null;
+  accessibleProperties?: string[] | PropertyAccess[];
+  permissions?: string[];
+  requiresPasswordChange?: boolean;
   token: string;
+  message?: string; // For registration response
 }
 
 // Commission Types
@@ -1701,6 +1815,7 @@ export interface UpdateCustomRoleRequest {
   name?: string;
   description?: string;
   permissionIds?: string[];
+  propertyIds: string[]; // Add this line
 }
 
 export interface ManagedUser {
@@ -1716,26 +1831,34 @@ export interface ManagedUser {
   updatedAt: string;
 }
 
-export interface UpdateManagedUserAccessRequest {
-  roleId?: string;  // Add this for role switching
-  role?: string;
-  customRoleId?: string;
-  propertyAccess?: {
-    propertyId: string;
-    permissions: string[];
-  }[];
-}
-
 export interface CreateManagedUserRequest {
   name: string;
   email: string;
-  password: string;
-  role: string;
-  customRoleId?: string;
-  propertyAccess?: {
-    propertyId: string;
-    permissions: string[];
-  }[];
+  roleId: string;        // Required - properties inherited from role
+  expiresAt?: string;    // Optional expiration date
+}
+
+export interface CreateManagedUserResponse {
+  success: boolean;
+  message: string;
+  data: {
+    id: string;
+    name: string;
+    email: string;
+    role: {
+      id: string;
+      name: string;
+      propertyAccessCount: number;
+    };
+  };
+  temporaryPassword: string;
+}
+
+export interface UpdateManagedUserAccessRequest {
+  roleId?: string;          // Optional: New role ID (user will inherit new role's properties)
+  expiresAt?: string;       // Optional: Update role expiration date
+  isActive?: boolean;       // Optional: Enable/disable user login
+  // NOTE: propertyAccess and permissions removed - properties are inherited from the role
 }
 
 export interface UpdateManagedUserAccessRequest {
@@ -1748,8 +1871,10 @@ export interface UpdateManagedUserAccessRequest {
 }
 
 export interface GrantPropertyAccessRequest {
-  propertyId: string;
-  permissions: string[];
+  propertyIds: string[];  // Change from propertyId to propertyIds
+  canEdit?: boolean;
+  canExport?: boolean;
+  expiresAt?: string;
 }
 
 export interface UpdatePropertyPermissionsRequest {
@@ -1803,16 +1928,208 @@ export interface CacheStats {
 // ======================================================
 
 export interface UserWithAccess extends User {
-  requiresPasswordChange: any;
-  managedBy: any;
   permissions?: string[];
   propertyAccess?: PropertyAccess[];
   isEnabled?: boolean;
   roleName?: string | null;
   isManagedUser?: boolean;
   canManagerLogin?: boolean;
+  requiresPasswordChange?: boolean; 
+  managedBy?: string | { id: string; name: string } | null;
 }
 
+// ======================================================
+// EMPLOYEE TYPES
+// ======================================================
+
+export type PaymentFrequency = 'MONTHLY' | 'BI_WEEKLY' | 'WEEKLY' | 'DAILY';
+export type EmployeeStatus = 'ACTIVE' | 'INACTIVE' | 'TERMINATED' | 'ON_LEAVE';
+export type PaymentMethod = 'CASH' | 'BANK_TRANSFER' | 'MPESA' | 'CHEQUE';
+
+export interface Employee {
+  id: string;
+  name: string;
+  phoneNumber?: string;
+  email?: string;
+  jobTitle: string;
+  jobDescription?: string;
+  salaryAmount: number;
+  paymentFrequency: PaymentFrequency;
+  status: EmployeeStatus;
+  createdAt: string;
+  updatedAt: string;
+  createdById: string;
+  createdBy?: {
+    id: string;
+    name: string;
+    email: string;
+    role: string;
+  };
+  salaryPayments?: SalaryPayment[];
+  currentPaymentStatus?: 'PAID' | 'PENDING';
+  currentPaymentPeriod?: string;
+}
+
+export interface SalaryPayment {
+  id: string;
+  employeeId: string;
+  amount: number;
+  paymentDate: string;
+  paymentPeriod: string;
+  paymentMethod: PaymentMethod;
+  transactionRef?: string;
+  notes?: string;
+  receiptUrl?: string;
+  status: 'PAID';
+  createdAt: string;
+  updatedAt: string;
+  recordedById: string;
+  employee?: Employee;
+  recordedBy?: {
+    id: string;
+    name: string;
+    email: string;
+    role: string;
+  };
+}
+
+export interface CreateEmployeeRequest {
+  name: string;
+  phoneNumber?: string;
+  email?: string;
+  jobTitle: string;
+  jobDescription?: string;
+  salaryAmount: number;
+  paymentFrequency: PaymentFrequency;
+  status?: EmployeeStatus;
+}
+
+export interface UpdateEmployeeRequest {
+  name?: string;
+  phoneNumber?: string;
+  email?: string;
+  jobTitle?: string;
+  jobDescription?: string;
+  salaryAmount?: number;
+  paymentFrequency?: PaymentFrequency;
+  status?: EmployeeStatus;
+}
+
+export interface UpdateEmployeeStatusRequest {
+  status: EmployeeStatus;
+}
+
+export interface RecordSalaryPaymentRequest {
+  amount: number;
+  paymentPeriod: string;
+  paymentMethod: PaymentMethod;
+  transactionRef?: string;
+  notes?: string;
+}
+
+export interface GetEmployeesParams {
+  status?: EmployeeStatus;
+  jobTitle?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface EmployeesListResponse {
+  success: boolean;
+  employees: Employee[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
+export interface EmployeeResponse {
+  success: boolean;
+  data: Employee;
+  message?: string;
+}
+
+export interface EmployeesDueResponse {
+  success: boolean;
+  data: Employee[];
+  count: number;
+  message: string;
+}
+
+export interface UpcomingPaymentsResponse {
+  success: boolean;
+  data: Array<{
+    employee: Employee;
+    nextPaymentDate: string;
+    daysUntilPayment: number;
+    isPaid: boolean;
+    paymentPeriod: string;
+    needsPayment: boolean;
+  }>;
+  count: number;
+  message: string;
+}
+
+export interface PaymentHistoryResponse {
+  success: boolean;
+  data: SalaryPayment[];
+  count: number;
+  message: string;
+}
+
+export interface StatisticsResponse {
+  success: boolean;
+  data: {
+    totalEmployees: number;
+    activeEmployees: number;
+    pendingPayments: number;
+    totalPaidThisMonth: number;
+    currentPeriod: string;
+  };
+}
+
+export interface Reminder {
+  id: string;
+  action: string;
+  performedBy: string;
+  targetUser: string;
+  changes: {
+    type: 'URGENT' | 'WARNING' | 'REMINDER' | 'UPCOMING';
+    message: string;
+    dueDate?: string;
+    daysOverdue?: number;
+    daysUntilDue?: number;
+    salaryAmount: number;
+    employeeName: string;
+    creatorId?: string;
+  };
+  createdAt: string;
+}
+
+export interface RemindersResponse {
+  success: boolean;
+  data: Reminder[];
+  count: number;
+  message: string;
+}
+
+export interface PaymentStatusSummaryResponse {
+  success: boolean;
+  data: {
+    currentPeriod: string;
+    dueCount: number;
+    upcomingCount: number;
+    dueEmployees: Employee[];
+    upcomingPayments: Array<{
+      employee: Employee;
+      nextPaymentDate: string;
+      daysUntilPayment: number;
+      isPaid: boolean;
+      paymentPeriod: string;
+      needsPayment: boolean;
+    }>;
+  };
+}
 
 // Permission codes from your backend
 export enum PermissionCode {
@@ -1995,6 +2312,14 @@ export enum PermissionCode {
   EDIT_UNIT = 'EDIT_UNIT',
   DELETE_UNIT = 'DELETE_UNIT',
   UPDATE_UNIT_STATUS = 'UPDATE_UNIT_STATUS',
+
+  // ==============================================
+  // EMPLOYEE PERMISSIONS
+  // ==============================================
+  VIEW_EMPLOYEES = 'VIEW_EMPLOYEES',
+  CREATE_EMPLOYEE = 'CREATE_EMPLOYEE',
+  EDIT_EMPLOYEE ='EDIT_EMPLOYEE',
+  DELETE_EMPLOYEE = 'DELETE_EMPLOYEE',
   
   // ==============================================
   // USER MANAGEMENT PERMISSIONS
