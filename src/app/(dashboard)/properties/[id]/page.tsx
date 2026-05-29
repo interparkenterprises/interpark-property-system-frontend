@@ -74,11 +74,11 @@ export default function PropertyDetailPage() {
 
   const propertyId = params.id as string;
 
-  // Check if user can access modules
+  // Check if user can access modules using canAccessModule
   const canViewUnits = canAccessModule('units');
   const canViewTenants = canAccessModule('tenants');
   const canViewProviders = canViewServiceProviders;
-  const canViewReports = isAdmin || isManager;
+  const canViewReports = canAccessModule('reports'); // Updated to use canAccessModule
   const canViewActivationsTab = canViewActivations;
   
   // Permissions that should allow a user to open the tenant details page
@@ -174,6 +174,8 @@ export default function PropertyDetailPage() {
   };
 
   const fetchDailyReports = async () => {
+    if (!canViewReports) return;
+    
     try {
       setReportsLoading(true);
       const response = await dailyReportsAPI.getByProperty(propertyId, {
@@ -1023,7 +1025,7 @@ export default function PropertyDetailPage() {
             </motion.button>
           )}
 
-          {/* Reports Tab - Only visible for admin/manager */}
+          {/* Reports Tab - Only show if user has report permissions */}
           {canViewReports && (
             <motion.button
               whileHover={{ scale: 1.02 }}
