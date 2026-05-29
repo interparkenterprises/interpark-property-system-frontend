@@ -2,9 +2,9 @@
 
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { customRolesAPI, permissionsAPI } from '@/lib/api'
+import { customRolesAPI, permissionsAPI, propertiesAPI } from '@/lib/api'
 import { useGlobalPermissions } from '@/app/providers/PermissionsProvider'
-import type { CustomRole, Permission } from '@/types'
+import type { CustomRole, Permission, Property } from '@/types'
 
 type RolePermissionRecord =
   | Permission
@@ -110,10 +110,11 @@ function getPermissionCategory(permission: RolePermissionRecord) {
 }
 
 export default function RolesPage() {
-  const { canManageRoles } = useGlobalPermissions()
+  const { canManageRoles, user } = useGlobalPermissions()
 
   const [roles, setRoles] = useState<CustomRoleRecord[]>([])
   const [permissions, setPermissions] = useState<Permission[]>([])
+  const [properties, setProperties] = useState<Property[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -127,6 +128,7 @@ export default function RolesPage() {
   const [editName, setEditName] = useState('')
   const [editDescription, setEditDescription] = useState('')
   const [selectedPermissionIds, setSelectedPermissionIds] = useState<string[]>([])
+  const [selectedPropertyIds, setSelectedPropertyIds] = useState<string[]>([])
 
   const loadData = useCallback(
     async (refresh = false) => {
@@ -140,13 +142,15 @@ export default function RolesPage() {
           setIsLoading(true)
         }
 
-        const [rolesData, permissionsData] = await Promise.all([
+        const [rolesData, permissionsData, propertiesData] = await Promise.all([
           customRolesAPI.getAll(),
           permissionsAPI.getAll(),
+          propertiesAPI.getAll(),
         ])
 
         setRoles(rolesData as CustomRoleRecord[])
         setPermissions(permissionsData)
+        setProperties(propertiesData)
       } catch (err: any) {
         setError(err?.message || 'Failed to load role data.')
       } finally {
@@ -198,6 +202,12 @@ export default function RolesPage() {
     setEditName(role.name)
     setEditDescription(role.description || '')
     setSelectedPermissionIds(role.permissions.map((permission) => getPermissionId(permission)).filter(Boolean))
+    
+    // Extract current property IDs from the role's property access
+    const currentPropertyIds = (role.propertyAccess || [])
+      .map((access) => access.propertyId)
+      .filter((id): id is string => Boolean(id))
+    setSelectedPropertyIds(currentPropertyIds)
   }
 
   const closeEditModal = () => {
@@ -205,6 +215,7 @@ export default function RolesPage() {
     setEditName('')
     setEditDescription('')
     setSelectedPermissionIds([])
+    setSelectedPropertyIds([])
   }
 
   const togglePermission = (permissionId: string) => {
@@ -215,11 +226,32 @@ export default function RolesPage() {
     )
   }
 
+  const toggleProperty = (propertyId: string) => {
+    setSelectedPropertyIds((prev) =>
+      prev.includes(propertyId)
+        ? prev.filter((id) => id !== propertyId)
+        : [...prev, propertyId]
+    )
+  }
+
+  const toggleAllProperties = () => {
+    if (selectedPropertyIds.length === properties.length) {
+      setSelectedPropertyIds([])
+    } else {
+      setSelectedPropertyIds(properties.map(p => p.id))
+    }
+  }
+
   const handleUpdateRole = async () => {
     if (!editingRole) return
 
     if (!editName.trim()) {
       setError('Role name is required.')
+      return
+    }
+
+    if (selectedPropertyIds.length === 0) {
+      setError('Please select at least one property for this role.')
       return
     }
 
@@ -232,7 +264,7 @@ export default function RolesPage() {
         name: editName.trim(),
         description: editDescription.trim() || undefined,
         permissionIds: selectedPermissionIds,
-        propertyIds: []
+        propertyIds: selectedPropertyIds,
       })
 
       setSuccessMessage('Role updated successfully.')
@@ -286,7 +318,7 @@ export default function RolesPage() {
         <div>
           <h1 className="text-3xl font-bold text-slate-800">Role Management</h1>
           <p className="mt-1 text-sm text-slate-600">
-            View, inspect, edit, and remove custom roles with full permission details.
+            View, inspect, edit, and remove custom roles with full permission and property details.
           </p>
         </div>
 
@@ -303,7 +335,7 @@ export default function RolesPage() {
 
           <Link
             href="/roles/create"
-            className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-linear-to-r from-blue-600 to-blue-700 px-4 py-2.5 text-sm font-semibold text-white shadow-md transition hover:from-blue-700 hover:to-blue-800"
+            className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-blue-600 bg-blue-300 px-4 py-2.5 text-sm font-semibold text-white shadow-md transition-all duration-300 hover:bg-white hover:text-blue-600"
           >
             Create Custom Role / User
           </Link>
@@ -386,6 +418,9 @@ export default function RolesPage() {
                     <span className="inline-flex rounded-full bg-blue-200/80 px-3 py-1 text-xs font-semibold text-blue-900 backdrop-blur-sm">
                       {role.permissions?.length || 0} permissions
                     </span>
+                    <span className="inline-flex rounded-full bg-emerald-200/80 px-3 py-1 text-xs font-semibold text-emerald-900 backdrop-blur-sm">
+                      {role.propertyAccess?.length || 0} properties
+                    </span>
                     <span className="inline-flex rounded-full bg-indigo-200/80 px-3 py-1 text-xs font-semibold text-indigo-900 backdrop-blur-sm">
                       {role.assignments?.length || 0} assignments
                     </span>
@@ -454,6 +489,29 @@ export default function RolesPage() {
                   <p className="mt-3 text-sm text-slate-600">No permissions assigned.</p>
                 )}
               </div>
+
+              {role.propertyAccess && role.propertyAccess.length > 0 && (
+                <div className="mt-4 border-t border-white/20 pt-4">
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-slate-700">
+                    Properties
+                  </h3>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {role.propertyAccess.slice(0, 3).map((access) => (
+                      <span
+                        key={access.id}
+                        className="inline-flex rounded-full bg-emerald-100/80 backdrop-blur-sm px-3 py-1 text-xs font-semibold text-emerald-800"
+                      >
+                        {access.property?.name || 'Unknown Property'}
+                      </span>
+                    ))}
+                    {role.propertyAccess.length > 3 && (
+                      <span className="inline-flex rounded-full bg-emerald-100/80 backdrop-blur-sm px-3 py-1 text-xs font-semibold text-emerald-800">
+                        +{role.propertyAccess.length - 3} more
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           ))
         )}
@@ -589,7 +647,7 @@ export default function RolesPage() {
         </div>
       )}
 
-      {/* Edit Modal - Glass morphism */}
+      {/* Edit Modal with Properties Selection */}
       {editingRole && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
           <div className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-2xl bg-linear-to-br from-sky-900/95 to-blue-900/95 backdrop-blur-md shadow-2xl">
@@ -612,7 +670,7 @@ export default function RolesPage() {
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
                   <label className="mb-2 block text-sm font-semibold text-slate-300">
-                    Role Name
+                    Role Name <span className="text-red-400">*</span>
                   </label>
                   <input
                     type="text"
@@ -637,10 +695,68 @@ export default function RolesPage() {
                 </div>
               </div>
 
+              {/* Properties Section */}
+              <div>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-200">
+                      Property Access <span className="text-red-400">*</span>
+                    </h3>
+                    <p className="mt-1 text-sm text-slate-300">
+                      Select which properties this role will have access to.
+                      Selected: <span className="font-semibold text-white">{selectedPropertyIds.length}</span> / {properties.length}
+                    </p>
+                  </div>
+                  
+                  {properties.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={toggleAllProperties}
+                      className="text-sm text-blue-300 hover:text-blue-100 font-medium transition"
+                    >
+                      {selectedPropertyIds.length === properties.length ? 'Deselect All' : 'Select All'}
+                    </button>
+                  )}
+                </div>
+
+                {properties.length === 0 ? (
+                  <div className="mt-4 rounded-xl border border-yellow-200 bg-yellow-50/80 p-4 text-sm text-yellow-800">
+                    <p>No properties available. You need to create properties before editing roles.</p>
+                    <Link href="/properties/create" className="mt-2 inline-block text-blue-600 hover:underline">
+                      Create a Property →
+                    </Link>
+                  </div>
+                ) : (
+                  <div className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                    {properties.map((property) => (
+                      <label
+                        key={property.id}
+                        className="flex cursor-pointer items-center gap-3 rounded-xl border border-sky-700 bg-white/5 p-3 transition hover:bg-white/20"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedPropertyIds.includes(property.id)}
+                          onChange={() => toggleProperty(property.id)}
+                          className="h-4 w-4 cursor-pointer rounded border-sky-600 text-blue-600 focus:ring-blue-500"
+                        />
+                        <div className="flex-1">
+                          <p className="text-sm font-semibold text-slate-200">{property.name}</p>
+                          {property.address && (
+                            <p className="text-xs text-slate-400 truncate">{property.address}</p>
+                          )}
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Permissions Section */}
               <div>
                 <h3 className="text-lg font-bold text-slate-200">Permissions</h3>
                 <p className="mt-1 text-sm text-slate-300">
                   Select the permissions you want to assign to this role.
+                  Selected: <span className="font-semibold text-white">{selectedPermissionIds.length}</span>
                 </p>
 
                 <div className="mt-4 grid gap-4 lg:grid-cols-2">
@@ -697,7 +813,7 @@ export default function RolesPage() {
                 <button
                   type="button"
                   onClick={handleUpdateRole}
-                  disabled={actionKey === `update-${editingRole.id}`}
+                  disabled={actionKey === `update-${editingRole.id}` || selectedPropertyIds.length === 0}
                   className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-linear-to-r from-blue-600 to-blue-700 px-4 py-2.5 text-sm font-semibold text-white shadow-md transition hover:from-blue-700 hover:to-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {actionKey === `update-${editingRole.id}` ? <Spinner /> : null}

@@ -8,6 +8,52 @@ import type { CustomRole, Permission, Property } from '@/types'
 
 type CreateTab = 'role' | 'user'
 
+// Toast Component
+interface ToastProps {
+  message: string
+  type: 'success' | 'error' | 'info' | 'warning'
+  onClose: () => void
+  duration?: number
+}
+
+function Toast({ message, type, onClose, duration = 5000 }: ToastProps) {
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      onClose()
+    }, duration)
+
+    return () => clearTimeout(timer)
+  }, [duration, onClose])
+
+  const styles = {
+    success: 'bg-emerald-50 border-emerald-200 text-emerald-800',
+    error: 'bg-red-50 border-red-200 text-red-800',
+    info: 'bg-blue-50 border-blue-200 text-blue-800',
+    warning: 'bg-yellow-50 border-yellow-200 text-yellow-800'
+  }
+
+  const icons = {
+    success: '✓',
+    error: '✗',
+    info: 'ℹ',
+    warning: '⚠'
+  }
+
+  return (
+    <div className={`fixed bottom-4 right-4 z-50 flex items-center gap-3 rounded-2xl border p-4 shadow-lg backdrop-blur-sm animate-in slide-in-from-right-5 ${styles[type]}`}>
+      <span className="text-xl font-bold">{icons[type]}</span>
+      <p className="text-sm font-medium">{message}</p>
+      <button
+        onClick={onClose}
+        className="ml-4 text-xs opacity-70 hover:opacity-100"
+        aria-label="Close notification"
+      >
+        ✕
+      </button>
+    </div>
+  )
+}
+
 function Spinner({ className = 'w-4 h-4' }: { className?: string }) {
   return (
     <svg
@@ -46,6 +92,9 @@ export default function CreateRoleAndUserPage() {
   const [error, setError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
+  // Toast notifications state
+  const [toasts, setToasts] = useState<Array<{ id: string; message: string; type: 'success' | 'error' | 'info' | 'warning' }>>([])
+
   const [isCreatingRole, setIsCreatingRole] = useState(false)
   const [isCreatingUser, setIsCreatingUser] = useState(false)
 
@@ -62,6 +111,17 @@ export default function CreateRoleAndUserPage() {
   const [expiresAt, setExpiresAt] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [generatedPassword, setGeneratedPassword] = useState<string | null>(null)
+
+  // Helper function to show toast
+  const showToast = (message: string, type: 'success' | 'error' | 'info' | 'warning') => {
+    const id = Date.now().toString() + Math.random().toString(36).substr(2, 6)
+    setToasts(prev => [...prev, { id, message, type }])
+  }
+
+  // Helper function to remove toast
+  const removeToast = (id: string) => {
+    setToasts(prev => prev.filter(toast => toast.id !== id))
+  }
 
   useEffect(() => {
     setActiveTab(canManageRoles ? 'role' : 'user')
@@ -108,7 +168,9 @@ export default function CreateRoleAndUserPage() {
         setRoles(rolesData || [])
         setProperties(propertiesData || [])
       } catch (err: any) {
-        setError(err?.message || 'Failed to load form data.')
+        const errorMessage = err?.message || 'Failed to load form data.'
+        setError(errorMessage)
+        showToast(errorMessage, 'error')
       } finally {
         setIsLoadingData(false)
       }
@@ -159,8 +221,10 @@ export default function CreateRoleAndUserPage() {
   const toggleAllProperties = () => {
     if (selectedPropertyIds.length === properties.length) {
       setSelectedPropertyIds([])
+      showToast('All properties deselected', 'info')
     } else {
       setSelectedPropertyIds(properties.map(p => p.id))
+      showToast(`Selected all ${properties.length} properties`, 'info')
     }
   }
 
@@ -168,12 +232,12 @@ export default function CreateRoleAndUserPage() {
     e.preventDefault()
 
     if (!roleName.trim()) {
-      setError('Custom role name is required.')
+      showToast('Custom role name is required.', 'error')
       return
     }
 
     if (selectedPropertyIds.length === 0) {
-      setError('Please select at least one property for this role.')
+      showToast('Please select at least one property for this role.', 'error')
       return
     }
 
@@ -188,7 +252,17 @@ export default function CreateRoleAndUserPage() {
         propertyIds: selectedPropertyIds,
       } as any)
 
+      // Success toast with details
+      const permissionCount = selectedPermissionIds.length
+      const propertyCount = selectedPropertyIds.length
+      showToast(
+        `✨ Role "${roleName.trim()}" created successfully! (${permissionCount} permissions, ${propertyCount} properties)`,
+        'success'
+      )
+      
       setSuccessMessage('Custom role created successfully.')
+      
+      // Reset form
       setRoleName('')
       setRoleDescription('')
       setSelectedPermissionIds([])
@@ -197,7 +271,9 @@ export default function CreateRoleAndUserPage() {
       const updatedRoles = await customRolesAPI.getAll()
       setRoles(updatedRoles)
     } catch (err: any) {
-      setError(err?.message || 'Failed to create custom role.')
+      const errorMessage = err?.message || 'Failed to create custom role.'
+      setError(errorMessage)
+      showToast(errorMessage, 'error')
     } finally {
       setIsCreatingRole(false)
     }
@@ -207,24 +283,24 @@ export default function CreateRoleAndUserPage() {
     e.preventDefault()
 
     if (!userName.trim()) {
-      setError('Full name is required.')
+      showToast('Full name is required.', 'error')
       return
     }
 
     if (!userEmail.trim()) {
-      setError('Email address is required.')
+      showToast('Email address is required.', 'error')
       return
     }
 
     if (!selectedRoleId) {
-      setError('Please select a custom role for this user.')
+      showToast('Please select a custom role for this user.', 'error')
       return
     }
 
     // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
     if (!emailRegex.test(userEmail.trim())) {
-      setError('Please enter a valid email address.')
+      showToast('Please enter a valid email address.', 'error')
       return
     }
 
@@ -240,15 +316,24 @@ export default function CreateRoleAndUserPage() {
         expiresAt: expiresAt || undefined,
       })
 
+      // Success message with details
+      const propertyCount = response.data?.role?.propertyAccessCount || 0
+      const selectedRole = roles.find(r => r.id === selectedRoleId)
+      
+      showToast(
+        `✅ User "${userName.trim()}" created successfully! Invitation sent to ${userEmail}. They will have access to ${propertyCount} property(ies) via role "${selectedRole?.name}".`,
+        'success'
+      )
+      
       setSuccessMessage(`User created successfully! A temporary password has been sent to ${userEmail}.`)
       
       // Store the generated password for display (in case email fails)
       if (response.temporaryPassword) {
         setGeneratedPassword(response.temporaryPassword)
+        showToast('⚠️ Password generated - please save it securely. The user will also receive it via email.', 'warning')
       }
       
       // Show role inheritance info
-      const propertyCount = response.data?.role?.propertyAccessCount || 0
       if (propertyCount > 0) {
         setSuccessMessage(prev => `${prev} User will have access to ${propertyCount} property(ies) via the selected role.`)
       }
@@ -263,7 +348,9 @@ export default function CreateRoleAndUserPage() {
       const updatedRoles = await customRolesAPI.getAll()
       setRoles(updatedRoles)
     } catch (err: any) {
-      setError(err?.message || 'Failed to create managed user.')
+      const errorMessage = err?.message || 'Failed to create managed user.'
+      setError(errorMessage)
+      showToast(errorMessage, 'error')
     } finally {
       setIsCreatingUser(false)
     }
@@ -277,6 +364,7 @@ export default function CreateRoleAndUserPage() {
     setGeneratedPassword(null)
     setShowPassword(false)
     setError(null)
+    showToast('Form has been reset', 'info')
   }
 
   const getSelectedRoleProperties = () => {
@@ -320,7 +408,7 @@ export default function CreateRoleAndUserPage() {
           {canManageRoles && (
             <Link
               href="/roles"
-              className="inline-flex cursor-pointer items-center rounded-xl bg-blue-500 px-4 py-2.5 text-sm font-semibold text-white shadow-md transition-colors hover:bg-black-800"
+              className="inline-flex cursor-pointer items-center rounded-xl border border-blue-600 bg-blue-300 px-4 py-2.5 text-sm font-semibold text-white shadow-md transition-all duration-300 hover:bg-white hover:text-blue-600"
             >
               View Roles
             </Link>
@@ -356,6 +444,7 @@ export default function CreateRoleAndUserPage() {
               onClick={() => {
                 navigator.clipboard.writeText(generatedPassword)
                 setSuccessMessage('Password copied to clipboard!')
+                showToast('Password copied to clipboard!', 'success')
               }}
               className="rounded-lg bg-yellow-100 px-3 py-1.5 text-xs font-medium text-yellow-800 hover:bg-yellow-200"
             >
@@ -384,7 +473,10 @@ export default function CreateRoleAndUserPage() {
         <div className="flex flex-wrap gap-3">
           <button
             type="button"
-            onClick={() => setActiveTab('role')}
+            onClick={() => {
+              setActiveTab('role')
+              showToast('Switched to Role Creation', 'info')
+            }}
             className={`inline-flex cursor-pointer items-center rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
               activeTab === 'role'
                 ? 'bg-linear-to-r from-blue-600 to-blue-700 text-white shadow-md'
@@ -396,7 +488,10 @@ export default function CreateRoleAndUserPage() {
 
           <button
             type="button"
-            onClick={() => setActiveTab('user')}
+            onClick={() => {
+              setActiveTab('user')
+              showToast('Switched to User Creation', 'info')
+            }}
             className={`inline-flex cursor-pointer items-center rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
               activeTab === 'user'
                 ? 'bg-linear-to-r from-blue-600 to-blue-700 text-white shadow-md'
@@ -569,6 +664,7 @@ export default function CreateRoleAndUserPage() {
                     setRoleDescription('')
                     setSelectedPermissionIds([])
                     setSelectedPropertyIds([])
+                    showToast('Role form has been reset', 'info')
                   }}
                   className="inline-flex cursor-pointer items-center rounded-xl border border-blue-300 bg-white/80 backdrop-blur-sm px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-blue-50/80"
                 >
@@ -580,8 +676,14 @@ export default function CreateRoleAndUserPage() {
                   disabled={isCreatingRole}
                   className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-linear-to-r from-blue-600 to-blue-700 px-4 py-2.5 text-sm font-semibold text-white shadow-md transition hover:from-blue-700 hover:to-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {isCreatingRole ? <Spinner /> : null}
-                  Create Role
+                  {isCreatingRole ? (
+                    <>
+                      <Spinner />
+                      Creating Role...
+                    </>
+                  ) : (
+                    'Create Role'
+                  )}
                 </button>
               </div>
             </form>
@@ -696,14 +798,30 @@ export default function CreateRoleAndUserPage() {
                   disabled={isCreatingUser || !selectedRoleId || roles.length === 0}
                   className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-linear-to-r from-blue-600 to-blue-700 px-4 py-2.5 text-sm font-semibold text-white shadow-md transition hover:from-blue-700 hover:to-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {isCreatingUser ? <Spinner /> : null}
-                  Create User & Send Invite
+                  {isCreatingUser ? (
+                    <>
+                      <Spinner />
+                      Creating User & Sending Invite...
+                    </>
+                  ) : (
+                    'Create User & Send Invite'
+                  )}
                 </button>
               </div>
             </form>
           ) : null}
         </>
       )}
+
+      {/* Toast Notifications Container */}
+      {toasts.map(toast => (
+        <Toast
+          key={toast.id}
+          message={toast.message}
+          type={toast.type}
+          onClose={() => removeToast(toast.id)}
+        />
+      ))}
     </div>
   )
 }

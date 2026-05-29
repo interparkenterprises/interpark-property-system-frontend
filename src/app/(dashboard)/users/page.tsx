@@ -764,7 +764,7 @@ export default function UsersPage() {
 
           <Link
             href="/roles/create"
-            className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-linear-to-r from-blue-600 to-blue-700 px-4 py-2.5 text-sm font-semibold text-white shadow-md transition hover:from-blue-700 hover:to-blue-800"
+            className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-blue-600 bg-blue-300 px-4 py-2.5 text-sm font-semibold text-white shadow-md transition-all duration-300 hover:bg-white hover:text-blue-600"
           >
             Create User / Role
           </Link>
@@ -786,19 +786,19 @@ export default function UsersPage() {
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-2xl bg-white/20 p-5 shadow-lg ring-1 ring-white/30 backdrop-blur-md">
           <p className="text-sm font-semibold text-blue-900">Total Users</p>
-          <p className="mt-2 text-3xl font-bold text-slate-800">{summary.total}</p>
+          <p className="mt-2 text-3xl font-bold text-slate-200">{summary.total}</p>
         </div>
         <div className="rounded-2xl bg-white/20 p-5 shadow-lg ring-1 ring-white/30 backdrop-blur-md">
           <p className="text-sm font-semibold text-emerald-900">Active</p>
-          <p className="mt-2 text-3xl font-bold text-slate-800">{summary.active}</p>
+          <p className="mt-2 text-3xl font-bold text-slate-200">{summary.active}</p>
         </div>
         <div className="rounded-2xl bg-white/20 p-5 shadow-lg ring-1 ring-white/30 backdrop-blur-md">
           <p className="text-sm font-semibold text-amber-900">Inactive</p>
-          <p className="mt-2 text-3xl font-bold text-slate-800">{summary.inactive}</p>
+          <p className="mt-2 text-3xl font-bold text-slate-200">{summary.inactive}</p>
         </div>
         <div className="rounded-2xl bg-white/20 p-5 shadow-lg ring-1 ring-white/30 backdrop-blur-md">
           <p className="text-sm font-semibold text-sky-900">With Custom Roles</p>
-          <p className="mt-2 text-3xl font-bold text-slate-800">{summary.customRoles}</p>
+          <p className="mt-2 text-3xl font-bold text-slate-200">{summary.customRoles}</p>
         </div>
       </div>
 
@@ -909,8 +909,8 @@ export default function UsersPage() {
                     >
                       <td className="px-6 py-4 align-top">
                         <div>
-                          <p className="text-base font-bold text-slate-800">{user.name}</p>
-                          <p className="text-sm font-medium text-slate-700">{user.email}</p>
+                          <p className="text-base font-bold text-white">{user.name}</p>
+                          <p className="text-sm font-medium text-white">{user.email}</p>
                         </div>
                       </td>
 
