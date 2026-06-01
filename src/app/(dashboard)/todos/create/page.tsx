@@ -12,7 +12,7 @@ export default function CreateTodoPage() {
   const handleSuccess = () => {
     setSuccess(true);
     setTimeout(() => {
-      router.push('/dashboard/todos');
+      router.push('/todos');
     }, 2000);
   };
 

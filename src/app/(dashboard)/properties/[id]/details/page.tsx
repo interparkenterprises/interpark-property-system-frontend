@@ -19,7 +19,7 @@ import { exportArrearsToPDF } from '@/lib/arrearsPdfGenerator';
 import { exportPropertyToExcel, ExportSection } from '@/lib/excelGenerator';
 import { exportOverduesToPDF } from '@/lib/overduesPdfGenerator';
 
-type TabType = 'income' | 'commissions' | 'payments' | 'arrears' | 'overdues' | 'UpcomingPayments';
+type TabType = 'income' | 'commissions' | 'payments' | 'arrears' | 'overdues' | 'UpcomingPayments' | 'rentReport' | 'billsReport';
 
 // Define proper types for Framer Motion variants
 const containerVariants = {
@@ -134,6 +134,33 @@ export default function PropertyDetailInfoPage() {
   const [nextPaymentsLoading, setNextPaymentsLoading] = useState(false);
   const [expandedPaymentTenant, setExpandedPaymentTenant] = useState<string | null>(null);
 
+  // State for Rent Report
+  const [rentReportData, setRentReportData] = useState<any>(null);
+  const [rentReportLoading, setRentReportLoading] = useState(false);
+  const [rentReportFilters, setRentReportFilters] = useState({
+    dateFrom: '',
+    dateTo: '',
+    status: '',
+    page: 1,
+    limit: 100
+  });
+
+  // State for Bills Report
+  const [billsReportData, setBillsReportData] = useState<any>(null);
+  const [billsReportLoading, setBillsReportLoading] = useState(false);
+  const [billsReportFilters, setBillsReportFilters] = useState({
+    dateFrom: '',
+    dateTo: '',
+    billType: '',
+    status: '',
+    page: 1,
+    limit: 100
+  });
+
+  // Export loading states
+  const [exportingRentReport, setExportingRentReport] = useState(false);
+  const [exportingBillsReport, setExportingBillsReport] = useState(false);
+
   const propertyId = params.id as string;
 
   useEffect(() => {
@@ -157,6 +184,15 @@ export default function PropertyDetailInfoPage() {
       fetchNextPaymentsData();
     }
   }, [activeTab, propertyId]);
+
+  useEffect(() => {
+    if (activeTab === 'rentReport' && !rentReportData) {
+      fetchRentReport();
+    }
+    if (activeTab === 'billsReport' && !billsReportData) {
+      fetchBillsReport();
+    }
+  }, [activeTab]);
 
   const fetchPropertyDetails = async () => {
     try {
@@ -211,6 +247,125 @@ export default function PropertyDetailInfoPage() {
       console.error('Error fetching overdue tenants:', error);
     } finally {
       setOverduesLoading(false);
+    }
+  };
+
+  // Fetch Rent Report
+  const fetchRentReport = async () => {
+    setRentReportLoading(true);
+    try {
+      const params: any = {};
+      if (rentReportFilters.dateFrom) params.dateFrom = rentReportFilters.dateFrom;
+      if (rentReportFilters.dateTo) params.dateTo = rentReportFilters.dateTo;
+      if (rentReportFilters.status) params.status = rentReportFilters.status;
+      if (rentReportFilters.page) params.page = rentReportFilters.page;
+      if (rentReportFilters.limit) params.limit = rentReportFilters.limit;
+      
+      const response = await paymentsAPI.getPropertyRentPaymentReport(propertyId, params);
+      setRentReportData(response.data);
+    } catch (error) {
+      console.error('Error fetching rent report:', error);
+      alert('Failed to fetch rent report');
+    } finally {
+      setRentReportLoading(false);
+    }
+  };
+
+  // Fetch Bills Report
+  const fetchBillsReport = async () => {
+    setBillsReportLoading(true);
+    try {
+      const params: any = {};
+      if (billsReportFilters.dateFrom) params.dateFrom = billsReportFilters.dateFrom;
+      if (billsReportFilters.dateTo) params.dateTo = billsReportFilters.dateTo;
+      if (billsReportFilters.billType) params.billType = billsReportFilters.billType;
+      if (billsReportFilters.status) params.status = billsReportFilters.status;
+      if (billsReportFilters.page) params.page = billsReportFilters.page;
+      if (billsReportFilters.limit) params.limit = billsReportFilters.limit;
+      
+      const response = await paymentsAPI.getPropertyBillsPaymentReport(propertyId, params);
+      setBillsReportData(response.data);
+    } catch (error) {
+      console.error('Error fetching bills report:', error);
+      alert('Failed to fetch bills report');
+    } finally {
+      setBillsReportLoading(false);
+    }
+  };
+
+  // Export Rent Report to Excel
+  const handleExportRentReport = async () => {
+    if (!rentReportData) {
+      alert('No rent report data to export');
+      return;
+    }
+    
+    setExportingRentReport(true);
+    try {
+      const { exportRentReportToExcel } = await import('@/lib/excelRentReportGenerator');
+      const { buffer, filename } = await exportRentReportToExcel(rentReportData, {
+        periodFrom: rentReportFilters.dateFrom,
+        periodTo: rentReportFilters.dateTo,
+        status: rentReportFilters.status
+      });
+      
+      // Create blob from buffer (ensure it's a Uint8Array/ArrayBuffer for Blob)
+      const uint8Array = buffer instanceof ArrayBuffer ? new Uint8Array(buffer) : new Uint8Array(buffer as any);
+      const blob = new Blob([uint8Array], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      link.click();
+      window.URL.revokeObjectURL(url);
+      
+      alert('Rent report exported successfully!');
+    } catch (error) {
+      console.error('Error exporting rent report:', error);
+      alert('Failed to export rent report');
+    } finally {
+      setExportingRentReport(false);
+    }
+  };
+
+
+  // Export Bills Report to Excel
+  const handleExportBillsReport = async () => {
+    if (!billsReportData) {
+      alert('No bills report data to export');
+      return;
+    }
+    
+    setExportingBillsReport(true);
+    try {
+      const { exportBillsReportToExcel } = await import('@/lib/excelBillsReportGenerator');
+      const { buffer, filename } = await exportBillsReportToExcel(billsReportData, {
+        periodFrom: billsReportFilters.dateFrom,
+        periodTo: billsReportFilters.dateTo,
+        billType: billsReportFilters.billType,
+        status: billsReportFilters.status
+      });
+      
+      // Create blob from buffer (convert to Uint8Array)
+      const uint8Array = new Uint8Array(buffer);
+      const blob = new Blob([uint8Array], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      link.click();
+      window.URL.revokeObjectURL(url);
+      
+      alert('Bills report exported successfully!');
+    } catch (error) {
+      console.error('Error exporting bills report:', error);
+      alert('Failed to export bills report');
+    } finally {
+      setExportingBillsReport(false);
     }
   };
 
@@ -918,11 +1073,20 @@ export default function PropertyDetailInfoPage() {
               label: 'Payment Report',
               icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
             },
-
             {
               id: 'UpcomingPayments',
               label: 'Upcoming Payments',
               icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z',
+            },
+            {
+              id: 'rentReport',
+              label: 'Rent Report',
+              icon: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
+            },
+            {
+              id: 'billsReport',
+              label: 'Bills Report',
+              icon: 'M13 10V3L4 14h7v7l9-11h-7z',
             },
           ].map((tab) => (
             <motion.button
@@ -1545,7 +1709,7 @@ export default function PropertyDetailInfoPage() {
                                           <td className="py-3 px-4 text-red-700" colSpan={2}>
                                             Ksh {group.totalArrears.toLocaleString()}
                                           </td>
-                                        </tr>
+                                         </tr>
                                       </tfoot>
                                     </table>
                                   </div>
@@ -2281,7 +2445,7 @@ export default function PropertyDetailInfoPage() {
                             <th className="text-left py-3 px-4 font-semibold text-gray-900">
                               Frequency
                             </th>
-                          </tr>
+                           </tr>
                         </thead>
                         <tbody>
                           {property.serviceProviders.map((provider, index) => (
@@ -2322,7 +2486,8 @@ export default function PropertyDetailInfoPage() {
             </motion.div>
           </div>
         )}
-        {/* UPCOMING PAYMENTS TAB - No Overdue Section */}
+
+        {/* UPCOMING PAYMENTS TAB */}
         {activeTab === 'UpcomingPayments' && (
           <div className="space-y-6">
             <motion.div
@@ -2672,6 +2837,493 @@ export default function PropertyDetailInfoPage() {
                   <Button onClick={fetchNextPaymentsData} className="mt-4">
                     Retry
                   </Button>
+                </div>
+              )}
+            </motion.div>
+          </div>
+        )}
+
+        {/* RENT REPORT TAB */}
+        {activeTab === 'rentReport' && (
+          <div className="space-y-6">
+            <motion.div
+              variants={itemVariants}
+              className="bg-white rounded-2xl p-8 shadow-lg border border-gray-200"
+            >
+              <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+                    <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold text-gray-900">Rent Payment Report</h2>
+                    <p className="text-sm text-gray-700 mt-1">
+                      Comprehensive rent collection analysis for this property
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  onClick={handleExportRentReport}
+                  disabled={exportingRentReport || !rentReportData}
+                  className="px-6 py-2.5 bg-green-600 text-white hover:bg-green-700 transition-all duration-300 shadow-md rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <span className="flex items-center gap-2">
+                    {exportingRentReport ? (
+                      <>
+                        <motion.svg
+                          animate={{ rotate: 360 }}
+                          transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                          className="w-5 h-5"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </motion.svg>
+                        Exporting...
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        Export to Excel
+                      </>
+                    )}
+                  </span>
+                </Button>
+              </div>
+
+              {/* Filters */}
+              <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-900 mb-1">Date From</label>
+                    <input
+                      type="date"
+                      value={rentReportFilters.dateFrom}
+                      onChange={(e) => setRentReportFilters({ ...rentReportFilters, dateFrom: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-gray-900 bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-900 mb-1">Date To</label>
+                    <input
+                      type="date"
+                      value={rentReportFilters.dateTo}
+                      onChange={(e) => setRentReportFilters({ ...rentReportFilters, dateTo: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-gray-900 bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-900 mb-1">Status</label>
+                    <select
+                      value={rentReportFilters.status}
+                      onChange={(e) => setRentReportFilters({ ...rentReportFilters, status: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-gray-900 bg-white"
+                    >
+                      <option value="">All</option>
+                      <option value="PAID">Paid</option>
+                      <option value="PARTIAL">Partial</option>
+                      <option value="UNPAID">Unpaid</option>
+                      <option value="PREPAID">Prepaid</option>
+                      <option value="CREDIT">Credit</option>
+                    </select>
+                  </div>
+                  <div className="flex items-end">
+                    <Button
+                      onClick={fetchRentReport}
+                      className="w-full bg-green-600 text-white hover:bg-green-700"
+                    >
+                      Apply Filters
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              {rentReportLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="text-center">
+                    <div className="relative w-12 h-12 mx-auto mb-4">
+                      <motion.div
+                        className="absolute inset-0 border-4 border-green-200 rounded-full"
+                        animate={{ scale: [1, 1.2, 1] }}
+                        transition={{ duration: 1.5, repeat: Infinity }}
+                      />
+                      <motion.div
+                        className="absolute inset-0 border-4 border-t-green-500 border-r-transparent border-b-transparent border-l-transparent rounded-full"
+                        animate={{ rotate: 360 }}
+                        transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                      />
+                    </div>
+                    <p className="text-gray-900">Loading rent report...</p>
+                  </div>
+                </div>
+              ) : rentReportData ? (
+                <>
+                  {/* Summary Cards */}
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                    <div className="bg-linear-to-br from-green-50 to-green-100 rounded-xl p-5 border border-green-200">
+                      <div className="text-sm font-medium text-green-700 mb-1">Collection Rate</div>
+                      <div className="text-2xl font-bold text-gray-900">{rentReportData.summary.collectionRate}%</div>
+                      <div className="text-xs text-gray-700 mt-1">{rentReportData.summary.collectionRateStatus}</div>
+                    </div>
+                    <div className="bg-linear-to-br from-blue-50 to-blue-100 rounded-xl p-5 border border-blue-200">
+                      <div className="text-sm font-medium text-blue-700 mb-1">Total Collected</div>
+                      <div className="text-2xl font-bold text-gray-900">Ksh {rentReportData.summary.totalRentCollected.toLocaleString()}</div>
+                    </div>
+                    <div className="bg-linear-to-br from-red-50 to-red-100 rounded-xl p-5 border border-red-200">
+                      <div className="text-sm font-medium text-red-700 mb-1">Total Arrears</div>
+                      <div className="text-2xl font-bold text-gray-900">Ksh {rentReportData.summary.totalArrears.toLocaleString()}</div>
+                    </div>
+                    <div className="bg-linear-to-br from-purple-50 to-purple-100 rounded-xl p-5 border border-purple-200">
+                      <div className="text-sm font-medium text-purple-700 mb-1">Total Tenants</div>
+                      <div className="text-2xl font-bold text-gray-900">{rentReportData.summary.totalTenants}</div>
+                    </div>
+                  </div>
+
+                  {/* Payment Breakdown */}
+                  <div className="mb-6">
+                    <h3 className="text-lg font-bold text-gray-900 mb-3">Payment Breakdown</h3>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      <div className="bg-green-50 rounded-lg p-3 text-center">
+                        <div className="text-2xl font-bold text-green-700">{rentReportData.summary.paymentBreakdown.fullyPaid}</div>
+                        <div className="text-xs text-gray-700">Fully Paid</div>
+                      </div>
+                      <div className="bg-yellow-50 rounded-lg p-3 text-center">
+                        <div className="text-2xl font-bold text-yellow-700">{rentReportData.summary.paymentBreakdown.partiallyPaid}</div>
+                        <div className="text-xs text-gray-700">Partially Paid</div>
+                      </div>
+                      <div className="bg-red-50 rounded-lg p-3 text-center">
+                        <div className="text-2xl font-bold text-red-700">{rentReportData.summary.paymentBreakdown.unpaid}</div>
+                        <div className="text-xs text-gray-700">Unpaid</div>
+                      </div>
+                      <div className="bg-orange-50 rounded-lg p-3 text-center">
+                        <div className="text-2xl font-bold text-orange-700">{rentReportData.summary.paymentBreakdown.overdue}</div>
+                        <div className="text-xs text-gray-700">Overdue</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Monthly Trends Table */}
+                  {rentReportData.monthlyTrends && rentReportData.monthlyTrends.length > 0 && (
+                    <div className="mb-6">
+                      <h3 className="text-lg font-bold text-gray-900 mb-3">Monthly Trends</h3>
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead>
+                            <tr className="border-b-2 border-gray-200">
+                              <th className="text-left py-3 px-4 font-semibold text-gray-900">Month</th>
+                              <th className="text-right py-3 px-4 font-semibold text-gray-900">Expected</th>
+                              <th className="text-right py-3 px-4 font-semibold text-gray-900">Collected</th>
+                              <th className="text-right py-3 px-4 font-semibold text-gray-900">Arrears</th>
+                              <th className="text-right py-3 px-4 font-semibold text-gray-900">Collection Rate</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rentReportData.monthlyTrends.map((trend: any, idx: number) => {
+                              const rate = trend.expected > 0 ? ((trend.collected / trend.expected) * 100).toFixed(1) : '0';
+                              return (
+                                <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50">
+                                  <td className="py-3 px-4 font-medium text-gray-900">{trend.month}</td>
+                                  <td className="py-3 px-4 text-right text-gray-900">Ksh {trend.expected.toLocaleString()}</td>
+                                  <td className="py-3 px-4 text-right text-gray-900">Ksh {trend.collected.toLocaleString()}</td>
+                                  <td className="py-3 px-4 text-right text-red-600 font-semibold">Ksh {trend.arrears.toLocaleString()}</td>
+                                  <td className="py-3 px-4 text-right font-semibold text-gray-900">{rate}%</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Tenant Outstanding Table */}
+                  {rentReportData.tenantOutstanding && rentReportData.tenantOutstanding.length > 0 && (
+                    <div>
+                      <h3 className="text-lg font-bold text-gray-900 mb-3">Tenants with Outstanding Balances</h3>
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead>
+                            <tr className="border-b-2 border-gray-200">
+                              <th className="text-left py-3 px-4 font-semibold text-gray-900">Tenant</th>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-900">Unit</th>
+                              <th className="text-right py-3 px-4 font-semibold text-gray-900">Expected</th>
+                              <th className="text-right py-3 px-4 font-semibold text-gray-900">Paid</th>
+                              <th className="text-right py-3 px-4 font-semibold text-gray-900">Outstanding</th>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-900">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rentReportData.tenantOutstanding.map((tenant: any, idx: number) => (
+                              <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50">
+                                <td className="py-3 px-4 font-medium text-gray-900">{tenant.tenantName}</td>
+                                <td className="py-3 px-4 text-gray-900">{tenant.unitNo}</td>
+                                <td className="py-3 px-4 text-right text-gray-900">Ksh {tenant.expectedTotal.toLocaleString()}</td>
+                                <td className="py-3 px-4 text-right text-green-600 font-semibold">Ksh {tenant.paidTotal.toLocaleString()}</td>
+                                <td className="py-3 px-4 text-right text-red-600 font-semibold">Ksh {tenant.outstandingBalance.toLocaleString()}</td>
+                                <td className="py-3 px-4">
+                                  <span className={`inline-flex px-2 py-1 rounded-full text-xs font-semibold ${
+                                    tenant.paymentStatus === 'PAID' ? 'bg-green-100 text-green-700' :
+                                    tenant.paymentStatus === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' :
+                                    'bg-red-100 text-red-700'
+                                  }`}>
+                                    {tenant.paymentStatus}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="text-center py-12">
+                  <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+                    <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                  </div>
+                  <p className="text-gray-900 font-medium">No rent report data available</p>
+                  <Button onClick={fetchRentReport} className="mt-4">Load Report</Button>
+                </div>
+              )}
+            </motion.div>
+          </div>
+        )}
+
+        {/* BILLS REPORT TAB */}
+        {activeTab === 'billsReport' && (
+          <div className="space-y-6">
+            <motion.div
+              variants={itemVariants}
+              className="bg-white rounded-2xl p-8 shadow-lg border border-gray-200"
+            >
+              <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                    <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-bold text-gray-900">Bills Payment Report</h2>
+                    <p className="text-sm text-gray-700 mt-1">
+                      Water and electricity bill collection analysis
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  onClick={handleExportBillsReport}
+                  disabled={exportingBillsReport || !billsReportData}
+                  className="px-6 py-2.5 bg-blue-600 text-white hover:bg-blue-700 transition-all duration-300 shadow-md rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <span className="flex items-center gap-2">
+                    {exportingBillsReport ? (
+                      <>
+                        <motion.svg
+                          animate={{ rotate: 360 }}
+                          transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                          className="w-5 h-5"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </motion.svg>
+                        Exporting...
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        Export to Excel
+                      </>
+                    )}
+                  </span>
+                </Button>
+              </div>
+
+              {/* Filters */}
+              <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-900 mb-1">Date From</label>
+                    <input
+                      type="date"
+                      value={billsReportFilters.dateFrom}
+                      onChange={(e) => setBillsReportFilters({ ...billsReportFilters, dateFrom: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-900 mb-1">Date To</label>
+                    <input
+                      type="date"
+                      value={billsReportFilters.dateTo}
+                      onChange={(e) => setBillsReportFilters({ ...billsReportFilters, dateTo: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-900 mb-1">Bill Type</label>
+                    <select
+                      value={billsReportFilters.billType}
+                      onChange={(e) => setBillsReportFilters({ ...billsReportFilters, billType: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
+                    >
+                      <option value="">All</option>
+                      <option value="WATER">Water</option>
+                      <option value="ELECTRICITY">Electricity</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-900 mb-1">Status</label>
+                    <select
+                      value={billsReportFilters.status}
+                      onChange={(e) => setBillsReportFilters({ ...billsReportFilters, status: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
+                    >
+                      <option value="">All</option>
+                      <option value="PAID">Paid</option>
+                      <option value="PARTIAL">Partial</option>
+                      <option value="UNPAID">Unpaid</option>
+                      <option value="OVERDUE">Overdue</option>
+                    </select>
+                  </div>
+                  <div className="flex items-end">
+                    <Button
+                      onClick={fetchBillsReport}
+                      className="w-full bg-blue-600 text-white hover:bg-blue-700"
+                    >
+                      Apply Filters
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              {billsReportLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="text-center">
+                    <div className="relative w-12 h-12 mx-auto mb-4">
+                      <motion.div
+                        className="absolute inset-0 border-4 border-blue-200 rounded-full"
+                        animate={{ scale: [1, 1.2, 1] }}
+                        transition={{ duration: 1.5, repeat: Infinity }}
+                      />
+                      <motion.div
+                        className="absolute inset-0 border-4 border-t-blue-500 border-r-transparent border-b-transparent border-l-transparent rounded-full"
+                        animate={{ rotate: 360 }}
+                        transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                      />
+                    </div>
+                    <p className="text-gray-900">Loading bills report...</p>
+                  </div>
+                </div>
+              ) : billsReportData ? (
+                <>
+                  {/* Summary Cards */}
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                    <div className="bg-linear-to-br from-blue-50 to-blue-100 rounded-xl p-5 border border-blue-200">
+                      <div className="text-sm font-medium text-blue-700 mb-1">Water Collection</div>
+                      <div className="text-2xl font-bold text-gray-900">{billsReportData.summary.water.collectionRate}%</div>
+                      <div className="text-xs text-gray-700 mt-1">Ksh {billsReportData.summary.water.totalCollected.toLocaleString()} collected</div>
+                    </div>
+                    <div className="bg-linear-to-br from-yellow-50 to-yellow-100 rounded-xl p-5 border border-yellow-200">
+                      <div className="text-sm font-medium text-yellow-700 mb-1">Electricity Collection</div>
+                      <div className="text-2xl font-bold text-gray-900">{billsReportData.summary.electricity.collectionRate}%</div>
+                      <div className="text-xs text-gray-700 mt-1">Ksh {billsReportData.summary.electricity.totalCollected.toLocaleString()} collected</div>
+                    </div>
+                    <div className="bg-linear-to-br from-red-50 to-red-100 rounded-xl p-5 border border-red-200">
+                      <div className="text-sm font-medium text-red-700 mb-1">Total Arrears</div>
+                      <div className="text-2xl font-bold text-gray-900">Ksh {billsReportData.summary.overall.totalArrears.toLocaleString()}</div>
+                    </div>
+                    <div className="bg-linear-to-br from-purple-50 to-purple-100 rounded-xl p-5 border border-purple-200">
+                      <div className="text-sm font-medium text-purple-700 mb-1">Delinquent Bills</div>
+                      <div className="text-2xl font-bold text-gray-900">{billsReportData.summary.overall.delinquentBillsCount}</div>
+                      <div className="text-xs text-gray-700 mt-1">Over 30 days overdue</div>
+                    </div>
+                  </div>
+
+                  {/* Payment Breakdown */}
+                  <div className="mb-6">
+                    <h3 className="text-lg font-bold text-gray-900 mb-3">Bill Payment Breakdown</h3>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      <div className="bg-green-50 rounded-lg p-3 text-center">
+                        <div className="text-2xl font-bold text-green-700">{billsReportData.summary.overall.paymentBreakdown.paid}</div>
+                        <div className="text-xs text-gray-700">Paid</div>
+                      </div>
+                      <div className="bg-yellow-50 rounded-lg p-3 text-center">
+                        <div className="text-2xl font-bold text-yellow-700">{billsReportData.summary.overall.paymentBreakdown.partial}</div>
+                        <div className="text-xs text-gray-700">Partial</div>
+                      </div>
+                      <div className="bg-red-50 rounded-lg p-3 text-center">
+                        <div className="text-2xl font-bold text-red-700">{billsReportData.summary.overall.paymentBreakdown.unpaid}</div>
+                        <div className="text-xs text-gray-700">Unpaid</div>
+                      </div>
+                      <div className="bg-orange-50 rounded-lg p-3 text-center">
+                        <div className="text-2xl font-bold text-orange-700">{billsReportData.summary.overall.paymentBreakdown.overdue}</div>
+                        <div className="text-xs text-gray-700">Overdue</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Delinquent Bills Table */}
+                  {billsReportData.delinquentBills && billsReportData.delinquentBills.length > 0 && (
+                    <div className="mb-6">
+                      <h3 className="text-lg font-bold text-gray-900 mb-3">Delinquent Bills (Over 30 Days)</h3>
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead>
+                            <tr className="border-b-2 border-gray-200">
+                              <th className="text-left py-3 px-4 font-semibold text-gray-900">Invoice #</th>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-900">Tenant</th>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-900">Unit</th>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-900">Type</th>
+                              <th className="text-right py-3 px-4 font-semibold text-gray-900">Amount</th>
+                              <th className="text-right py-3 px-4 font-semibold text-gray-900">Balance</th>
+                              <th className="text-right py-3 px-4 font-semibold text-gray-900">Days Overdue</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {billsReportData.delinquentBills.map((bill: any, idx: number) => (
+                              <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50">
+                                <td className="py-3 px-4 font-mono text-sm text-gray-900">{bill.invoiceNumber}</td>
+                                <td className="py-3 px-4 text-gray-900">{bill.tenantName}</td>
+                                <td className="py-3 px-4 text-gray-900">{bill.unitNo}</td>
+                                <td className="py-3 px-4">
+                                  <span className={`inline-flex px-2 py-1 rounded-full text-xs font-semibold ${
+                                    bill.billType === 'WATER' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'
+                                  }`}>
+                                    {bill.billType}
+                                  </span>
+                                </td>
+                                <td className="py-3 px-4 text-right text-gray-900">Ksh {bill.amount.toLocaleString()}</td>
+                                <td className="py-3 px-4 text-right text-red-600 font-semibold">Ksh {bill.balance.toLocaleString()}</td>
+                                <td className="py-3 px-4 text-right text-orange-600 font-semibold">{bill.daysOverdue} days</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="text-center py-12">
+                  <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+                    <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                  </div>
+                  <p className="text-gray-900 font-medium">No bills report data available</p>
+                  <Button onClick={fetchBillsReport} className="mt-4">Load Report</Button>
                 </div>
               )}
             </motion.div>

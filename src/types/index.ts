@@ -509,6 +509,195 @@ export interface CreatePaymentReportResponse {
   } | null;
 }
 
+// Add these interfaces to your types/index.ts file
+export interface PropertyRentPaymentReportResponse {
+  success: boolean;
+  data: {
+    property: {
+      id: string;
+      name: string;
+      address: string;
+    };
+    summary: {
+      totalTenants: number;
+      totalRentCollected: number;
+      totalRentExpected: number;
+      totalArrears: number;
+      collectionRate: number;
+      collectionRateStatus: 'EXCELLENT' | 'GOOD' | 'AVERAGE' | 'POOR';
+      paymentBreakdown: {
+        fullyPaid: number;
+        partiallyPaid: number;
+        unpaid: number;
+        overdue: number;
+      };
+    };
+    monthlyTrends: Array<{
+      month: string;
+      expected: number;
+      collected: number;
+      arrears: number;
+      reportCount: number;
+    }>;
+    tenantOutstanding: Array<{
+      tenantId: string;
+      tenantName: string;
+      unitNo: string;
+      unitType: string;
+      expectedTotal: number;
+      paidTotal: number;
+      outstandingBalance: number;
+      arrears: number;
+      lastPaymentDate: string | null;
+      paymentStatus: PaymentStatus;
+    }>;
+    paymentReports: Array<{
+      id: string;
+      tenantName: string;
+      unitNo: string;
+      paymentPeriod: string;
+      expectedAmount: number;
+      amountPaid: number;
+      arrears: number;
+      status: PaymentStatus;
+      invoiceCount: number;
+      datePaid: string;
+    }>;
+    pagination: {
+      page: number;
+      limit: number;
+      total: number;
+      totalPages: number;
+    };
+  };
+}
+
+export interface PropertyBillsPaymentReportResponse {
+  success: boolean;
+  data: {
+    property: {
+      id: string;
+      name: string;
+      address: string;
+    };
+    summary: {
+      totalTenants: number;
+      totalBillInvoices: number;
+      water: {
+        totalBilled: number;
+        totalCollected: number;
+        totalArrears: number;
+        collectionRate: number;
+        status: 'EXCELLENT' | 'GOOD' | 'AVERAGE' | 'POOR';
+      };
+      electricity: {
+        totalBilled: number;
+        totalCollected: number;
+        totalArrears: number;
+        collectionRate: number;
+        status: 'EXCELLENT' | 'GOOD' | 'AVERAGE' | 'POOR';
+      };
+      overall: {
+        totalBilled: number;
+        totalCollected: number;
+        totalArrears: number;
+        collectionRate: number;
+        delinquentBillsCount: number;
+        paymentBreakdown: {
+          paid: number;
+          partial: number;
+          unpaid: number;
+          overdue: number;
+        };
+      };
+    };
+    monthlyTrends: Array<{
+      month: string;
+      water: { expected: number; collected: number; arrears: number };
+      electricity: { expected: number; collected: number; arrears: number };
+      total: { expected: number; collected: number; arrears: number };
+    }>;
+    tenantOutstanding: Array<{
+      tenantId: string;
+      tenantName: string;
+      unitNo: string;
+      unitType: string;
+      water: {
+        total: number;
+        paid: number;
+        outstanding: number;
+        status: string;
+      };
+      electricity: {
+        total: number;
+        paid: number;
+        outstanding: number;
+        status: string;
+      };
+      totalOutstanding: number;
+    }>;
+    delinquentBills: Array<{
+      id: string;
+      invoiceNumber: string;
+      tenantName: string;
+      unitNo: string;
+      billType: BillType;
+      amount: number;
+      amountPaid: number;
+      balance: number;
+      issueDate: string;
+      dueDate: string;
+      daysOverdue: number;
+      status: InvoiceStatus;
+    }>;
+    billInvoices: Array<{
+      id: string;
+      invoiceNumber: string;
+      tenantName: string;
+      unitNo: string;
+      billType: BillType;
+      billReferenceNumber: string;
+      billReferenceDate: string;
+      issueDate: string;
+      dueDate: string;
+      totalAmount: number;
+      amountPaid: number;
+      balance: number;
+      status: InvoiceStatus;
+      unitsConsumed: number;
+      chargePerUnit: number;
+      previousReading: number;
+      currentReading: number;
+      vatRate: number | null;
+      vatAmount: number | null;
+    }>;
+    pagination: {
+      page: number;
+      limit: number;
+      total: number;
+      totalPages: number;
+    };
+  };
+}
+
+export interface GetPropertyRentReportParams {
+  dateFrom?: string;
+  dateTo?: string;
+  status?: PaymentStatus;
+  page?: number;
+  limit?: number;
+}
+
+export interface GetPropertyBillsReportParams {
+  dateFrom?: string;
+  dateTo?: string;
+  billType?: BillType;
+  status?: InvoiceStatus;
+  page?: number;
+  limit?: number;
+}
+
+
 // NEW: Interface for receipt download response
 export interface ReceiptDownloadResponse {
   success: boolean;
@@ -705,17 +894,129 @@ export interface OfferLetter {
   updatedAt: string;
 }
 
-export type ToDoStatus = 'PENDING' | 'COMPLETED';
+// Update the ToDoStatus enum
+export type ToDoStatus = 
+  | 'PENDING' 
+  | 'IN_PROGRESS' 
+  | 'PENDING_APPROVAL' 
+  | 'COMPLETED' 
+  | 'OVERDUE' 
+  | 'REJECTED';
 
+// Add TaskPriority type
+export type TaskPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+
+// Update ToDo interface
 export interface ToDo {
   id: string;
   userId: string;
-  user?: User;
+  user?: {
+    id: string;
+    name: string;
+    email: string;
+  };
   title: string;
   description?: string;
   status: ToDoStatus;
+  priority: TaskPriority;
   dueDate?: string;
   createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  
+  // Task assignment fields
+  assignedById?: string;
+  assignedBy?: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  requiresApproval: boolean;
+  
+  // Self-created task fields
+  isSelfCreated: boolean;
+  approvedById?: string;
+  approvedBy?: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  approvedAt?: string;
+  rejectionReason?: string;
+  
+  // Completion fields
+  completionNotes?: string;
+  reviewedById?: string;
+  reviewedBy?: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  reviewedAt?: string;
+}
+
+// Add Todo Statistics interface
+export interface TodoStatistics {
+  total: number;
+  byStatus: {
+    pending: number;
+    inProgress: number;
+    pendingApproval: number;
+    completed: number;
+    overdue: number;
+    rejected: number;
+  };
+  byPriority: {
+    low: number;
+    medium: number;
+    high: number;
+    urgent: number;
+  };
+  completion: {
+    completionRate: string;
+    averageCompletionTime: string | null;
+    tasksCompletedOnTime: number;
+    tasksCompletedLate: number;
+  };
+  dailyActivity: Record<string, { created: number; completed: number }>;
+  weeklyActivity: Record<string, { created: number; completed: number }>;
+  mostProductiveDays: Array<{
+    day: string;
+    tasksCompleted: number;
+  }>;
+}
+
+// Add CreateTodoRequest interface
+export interface CreateTodoRequest {
+  title: string;
+  description?: string;
+  dueDate?: string;
+  priority?: TaskPriority;
+  assignedUserId?: string; // For managers assigning tasks
+}
+
+// Add UpdateTodoRequest interface
+export interface UpdateTodoRequest {
+  title?: string;
+  description?: string;
+  status?: ToDoStatus;
+  dueDate?: string;
+  priority?: TaskPriority;
+  completionNotes?: string;
+  rejectionReason?: string;
+}
+
+// Add ApproveSelfCreatedTaskRequest interface
+export interface ApproveSelfCreatedTaskRequest {
+  approved: boolean;
+  rejectionReason?: string;
+}
+
+// Add GetTodosQueryParams interface
+export interface GetTodosQueryParams {
+  status?: ToDoStatus;
+  priority?: TaskPriority;
+  userId?: string;
 }
 
 export interface News {

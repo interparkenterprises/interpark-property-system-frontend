@@ -8,26 +8,52 @@ const loadLetterheadImage = async (
   pageWidth: number
 ): Promise<boolean> => {
   try {
-    const topLetterheadUrl = '/letterhead-02.jpg';
-
+    // Use PNG for better quality
+    const topLetterheadUrl = '/letterhead-02.png';
+    
     const response = await fetch(topLetterheadUrl);
-
+    
     if (!response.ok) {
       return false;
     }
-
+    
     const blob = await response.blob();
-
+    
     const reader = new FileReader();
-
+    
     const base64data = await new Promise<string>((resolve, reject) => {
       reader.onloadend = () => resolve(reader.result as string);
       reader.onerror = reject;
       reader.readAsDataURL(blob);
     });
-
-    doc.addImage(base64data, 'JPEG', 10, 10, pageWidth - 20, 25);
-
+    
+    // Get original dimensions
+    const img = new Image();
+    const imgDimensions = await new Promise<{ width: number; height: number }>((resolve, reject) => {
+      img.onload = () => {
+        resolve({ width: img.width, height: img.height });
+      };
+      img.onerror = reject;
+      img.src = base64data;
+    });
+    
+    // Calculate proportional dimensions
+    const maxWidth = pageWidth - 20;
+    const maxHeight = 35; // Slightly taller than before
+    
+    let finalWidth = maxWidth;
+    let finalHeight = (imgDimensions.height / imgDimensions.width) * maxWidth;
+    
+    if (finalHeight > maxHeight) {
+      finalHeight = maxHeight;
+      finalWidth = (imgDimensions.width / imgDimensions.height) * maxHeight;
+    }
+    
+    const xPosition = (pageWidth - finalWidth) / 2;
+    
+    // Use 'PNG' format and add compression option
+    doc.addImage(base64data, 'PNG', xPosition, 10, finalWidth, finalHeight, undefined, 'FAST');
+    
     return true;
   } catch (error) {
     console.error('Error loading letterhead:', error);

@@ -2,7 +2,8 @@ import axios from 'axios';
 import { 
   User, Landlord, Property, Unit, Tenant, 
   PaymentReport, PaymentPreview, Income, ServiceProvider, Lead, 
-  ToDo, News, AuthResponse, ManagerCommission, CommissionStats,
+  ToDo, TodoStatistics, CreateTodoRequest, UpdateTodoRequest, ApproveSelfCreatedTaskRequest, GetTodosQueryParams,
+  News, AuthResponse, ManagerCommission, CommissionStats,
   ServiceCharge, Invoice, InvoiceStatus, GenerateInvoiceRequest,
   Bill, CreateBillRequest, UpdateBillRequest, PayBillRequest, BillResponse, BillType, BillStatus,
   OfferLetter, OfferStatus, LetterType,
@@ -75,6 +76,12 @@ import {
   StatisticsResponse,
   UpcomingPaymentsResponse,
   UpdateEmployeeRequest,
+  TaskPriority,
+  ToDoStatus,
+  GetPropertyRentReportParams,
+  PropertyRentPaymentReportResponse,
+  GetPropertyBillsReportParams,
+  PropertyBillsPaymentReportResponse,
 } from '@/types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.interparkpropertysystem.co.ke/api';
@@ -878,6 +885,58 @@ export const paymentsAPI = {
     }
   },
 
+    // NEW: Get property rent payment report
+  getPropertyRentPaymentReport: async (
+    propertyId: string,
+    params?: GetPropertyRentReportParams
+  ): Promise<PropertyRentPaymentReportResponse> => {
+    try {
+      const response = await api.get(`/payments/property/${propertyId}/rent`, {
+        params
+      });
+      
+      // Handle the response structure
+      if (!response.data || !response.data.success) {
+        throw new Error(response.data?.message || 'Invalid response from server');
+      }
+
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to fetch property rent payment report:', error);
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to fetch property rent payment report';
+      throw new Error(message);
+    }
+  },
+
+  // NEW: Get property bills payment report
+  getPropertyBillsPaymentReport: async (
+    propertyId: string,
+    params?: GetPropertyBillsReportParams
+  ): Promise<PropertyBillsPaymentReportResponse> => {
+    try {
+      const response = await api.get(`/payments/property/${propertyId}/bills`, {
+        params
+      });
+      
+      // Handle the response structure
+      if (!response.data || !response.data.success) {
+        throw new Error(response.data?.message || 'Invalid response from server');
+      }
+
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to fetch property bills payment report:', error);
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to fetch property bills payment report';
+      throw new Error(message);
+    }
+  },
+
 };
 
 // Invoice API functions
@@ -1400,45 +1459,124 @@ export const leadsAPI = {
 };
 
 export const todosAPI = {
-  getAll: async (): Promise<ToDo[]> => {
+  // Get all todos with optional filters
+  getAll: async (params?: GetTodosQueryParams): Promise<ToDo[]> => {
     try {
-      const response = await api.get('/todos');
+      const response = await api.get('/todos', { params });
       return response.data;
     } catch (error) {
-      return handleApiError(error);
+      throw error;
     }
   },
+  
+  // Get single todo by ID
   getById: async (id: string): Promise<ToDo> => {
     try {
       const response = await api.get(`/todos/${id}`);
       return response.data;
     } catch (error) {
-      return handleApiError(error);
+      throw error;
     }
   },
-  create: async (data: Partial<ToDo>): Promise<ToDo> => {
+  
+  // Create new todo (self-created or manager assigned)
+  create: async (data: CreateTodoRequest): Promise<ToDo> => {
     try {
       const response = await api.post('/todos', data);
       return response.data;
     } catch (error) {
-      return handleApiError(error);
+      throw error;
     }
   },
-  update: async (id: string, data: Partial<ToDo>): Promise<ToDo> => {
+  
+  // Update todo (status, details, etc.)
+  update: async (id: string, data: UpdateTodoRequest): Promise<ToDo> => {
     try {
       const response = await api.put(`/todos/${id}`, data);
       return response.data;
     } catch (error) {
-      return handleApiError(error);
+      throw error;
     }
   },
-  delete: async (id: string): Promise<void> => {
+  
+  // Delete todo (Admin/Manager only)
+  delete: async (id: string): Promise<{ message: string }> => {
     try {
-      await api.delete(`/todos/${id}`);
+      const response = await api.delete(`/todos/${id}`);
+      return response.data;
     } catch (error) {
-      return handleApiError(error);
+      throw error;
     }
   },
+  
+  // Get task statistics for a user
+  getStats: async (userId?: string): Promise<TodoStatistics> => {
+    try {
+      const url = userId ? `/todos/stats/${userId}` : '/todos/stats/';
+      const response = await api.get(url);
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+  
+  // Manager approves or rejects self-created task
+  approveSelfCreatedTask: async (id: string, data: ApproveSelfCreatedTaskRequest): Promise<{ message: string; todo: ToDo }> => {
+    try {
+      const response = await api.put(`/todos/${id}/approve-self-task`, data);
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  },
+  
+  // Convenience methods for common operations
+  
+  // User marks task as complete (pending approval)
+  markAsComplete: async (id: string, completionNotes?: string): Promise<ToDo> => {
+    return todosAPI.update(id, { 
+      status: 'PENDING_APPROVAL', 
+      completionNotes 
+    });
+  },
+  
+  // Manager approves completed task
+  approveTask: async (id: string): Promise<ToDo> => {
+    return todosAPI.update(id, { status: 'COMPLETED' });
+  },
+  
+  // Manager rejects task
+  rejectTask: async (id: string, rejectionReason: string): Promise<ToDo> => {
+    return todosAPI.update(id, { 
+      status: 'REJECTED', 
+      rejectionReason 
+    });
+  },
+  
+  // Manager approves self-created task
+  approveSelfTask: async (id: string): Promise<{ message: string; todo: ToDo }> => {
+    return todosAPI.approveSelfCreatedTask(id, { approved: true });
+  },
+  
+  // Manager rejects self-created task
+  rejectSelfTask: async (id: string, rejectionReason: string): Promise<{ message: string; todo: ToDo }> => {
+    return todosAPI.approveSelfCreatedTask(id, { approved: false, rejectionReason });
+  },
+  
+  // Get tasks by status
+  getByStatus: async (status: ToDoStatus): Promise<ToDo[]> => {
+    return todosAPI.getAll({ status });
+  },
+  
+  // Get tasks by priority
+  getByPriority: async (priority: TaskPriority): Promise<ToDo[]> => {
+    return todosAPI.getAll({ priority });
+  },
+  
+  // Get tasks for a specific user (Manager/Admin only)
+  getUserTasks: async (userId: string, status?: ToDoStatus): Promise<ToDo[]> => {
+    return todosAPI.getAll({ userId, status });
+  }
 };
 
 export const newsAPI = {
