@@ -6,6 +6,7 @@ import { useGlobalPermissions } from '@/app/providers/PermissionsProvider';
 import { useAuth } from '@/context/AuthContext';
 import { propertiesAPI, landlordsAPI, commissionsAPI } from '@/lib/api';
 import { Property } from '@/types';
+import AdminUserManagement from '@/components/admin/AdminUserManagement';
 
 interface DashboardStats {
   properties: number;
@@ -45,6 +46,7 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [isRefreshingPermissions, setIsRefreshingPermissions] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
 
   const fetchedRef = useRef(false);
 
@@ -290,8 +292,13 @@ export default function DashboardPage() {
                   Welcome back, <span className="font-semibold text-white">{user?.name}</span>
                 </p>
 
-                <span className="inline-flex w-fit items-center rounded-full border border-blue-500/30 bg-blue-500/15 px-3 py-1 text-xs font-semibold text-blue-300">
+                <span className={`inline-flex w-fit items-center rounded-full px-3 py-1 text-xs font-semibold ${
+                  isAdmin 
+                    ? 'border border-purple-500/30 bg-purple-500/15 text-purple-300'
+                    : 'border border-blue-500/30 bg-blue-500/15 text-blue-300'
+                }`}>
                   {roleName || user?.role}
+                  {isAdmin && ' (Administrator)'}
                 </span>
 
                 {isManagedUser && (
@@ -302,42 +309,73 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {(isManagedUser || isManager) && (
-              <button
-                onClick={handleRefreshPermissions}
-                disabled={isRefreshingPermissions}
-                className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {isRefreshingPermissions ? (
-                  <>
-                    <svg
-                      className="h-4 w-4 animate-spin"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-                    </svg>
-                    Refreshing...
-                  </>
-                ) : (
-                  <>
-                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                      />
-                    </svg>
-                    Refresh Permissions
-                  </>
-                )}
-              </button>
-            )}
+            <div className="flex gap-3">
+              {/* Admin Panel Toggle Button */}
+              {isAdmin && (
+                <button
+                  onClick={() => setShowAdminPanel(!showAdminPanel)}
+                  className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition ${
+                    showAdminPanel
+                      ? 'bg-purple-600 text-white hover:bg-purple-500'
+                      : 'border border-purple-600 text-purple-400 hover:bg-purple-600/20'
+                  }`}
+                >
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"
+                    />
+                  </svg>
+                  {showAdminPanel ? 'Hide Admin Panel' : 'Show Admin Panel'}
+                </button>
+              )}
+
+              {(isManagedUser || isManager) && (
+                <button
+                  onClick={handleRefreshPermissions}
+                  disabled={isRefreshingPermissions}
+                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isRefreshingPermissions ? (
+                    <>
+                      <svg
+                        className="h-4 w-4 animate-spin"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                      </svg>
+                      Refreshing...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                        />
+                      </svg>
+                      Refresh Permissions
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
           </div>
         </div>
+
+        {/* Admin User Management Section */}
+        {isAdmin && showAdminPanel && (
+          <div className="mb-8">
+            <AdminUserManagement />
+          </div>
+        )}
 
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
           {canAccessProperties && (
