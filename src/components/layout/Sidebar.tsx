@@ -57,7 +57,6 @@ export default function Sidebar() {
         </svg>
       )
     },
-    // ADD EMPLOYEES MENU ITEM HERE
     { 
       name: 'Employees Info', 
       href: '/employees',
@@ -72,9 +71,9 @@ export default function Sidebar() {
     { 
       name: 'My Income', 
       href: '/myIncome',
-      requiredPermissions: ['VIEW_COMMISSIONS', 'VIEW_TENANT_FINANCIALS'],
+      requiredPermissions: ['VIEW_COMMISSIONS'],
       requiredRole: ['ADMIN', 'MANAGER'],
-      hideForManagedUser: true, // Hide for managed users (they don't have income)
+      hideForManagedUser: true,
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -84,9 +83,8 @@ export default function Sidebar() {
     { 
       name: 'Leads', 
       href: '/leads',
-      requiredPermissions: ['VIEW_LEADS', 'MANAGE_LEADS'],
+      requiredPermissions: ['VIEW_LEADS'],
       requiredRole: ['ADMIN', 'MANAGER', 'USER'],
-      // REMOVED hideForManagedUser: true - managed users can see if they have permissions
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
@@ -96,9 +94,9 @@ export default function Sidebar() {
     { 
       name: 'Landlords', 
       href: '/landlords',
-      requiredPermissions: ['VIEW_LANDLORDS', 'MANAGE_LANDLORDS'],
+      requiredPermissions: ['VIEW_LANDLORDS'],
       requiredRole: ['ADMIN', 'MANAGER', 'USER'],
-      hideForManagedUser: true, // Keep hidden for managed users based on your business logic
+      hideForManagedUser: true,
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
@@ -190,15 +188,6 @@ export default function Sidebar() {
       return false
     }
 
-    // For ADMIN and MANAGER, they have full access to Leads, Landlords, and My Income
-    if (isAdmin || isManager) {
-      // These items are always visible to ADMIN and MANAGER regardless of specific permissions
-      const adminManagerAlwaysVisible = ['Leads', 'Landlords', 'My Income', 'Employees Info','User Management', 'Create Custom Role & User', 'Role Management']
-      if (adminManagerAlwaysVisible.includes(item.name)) {
-        return true
-      }
-    }
-
     // Check role-based access
     if (item.requiredRole) {
       const hasRequiredRole = item.requiredRole.some(role => {
@@ -210,27 +199,48 @@ export default function Sidebar() {
       if (!hasRequiredRole) return false
     }
 
-    // Check permission-based access for all users
-    if (item.requiredPermissions && item.requiredPermissions.length > 0) {
-      // Map menu items to their corresponding permission checks
-      const permissionMap: Record<string, boolean> = {
-        'VIEW_PROPERTIES': canViewProperties,
-        'VIEW_LEADS': canViewLeads,
-        'MANAGE_LEADS': canViewLeads,
-        'VIEW_LANDLORDS': canViewLandlords,
-        'MANAGE_LANDLORDS': canViewLandlords,
-        'VIEW_OFFER_LETTERS': canViewOffers,
-        'VIEW_COMMISSIONS': canViewIncome,
-        'VIEW_TENANT_FINANCIALS': canViewIncome,
-        'VIEW_EMPLOYEES': permissions?.employees?.canView || false, 
-        'MANAGE_USERS': canManageUsers,
-        'MANAGE_ROLES': canManageRoles,
+    // For ADMIN and MANAGER, they have full access to certain items regardless of permissions
+    if (isAdmin || isManager) {
+      // Only ADMIN and MANAGER specific items that should ALWAYS be visible to them
+      const adminManagerAlwaysVisible = [
+        'User Management', 
+        'Create Custom Role & User', 
+        'Role Management'
+      ]
+      if (adminManagerAlwaysVisible.includes(item.name)) {
+        return true
       }
-      
-      // Check if any of the required permissions are granted
-      const hasRequiredPermission = item.requiredPermissions.some(perm => 
-        permissionMap[perm] === true
-      )
+    }
+
+    // Check permission-based access for all users (including managed users)
+    if (item.requiredPermissions && item.requiredPermissions.length > 0) {
+      // Build permission map dynamically from the permissions object
+      const hasRequiredPermission = item.requiredPermissions.some(perm => {
+        // Map the permission to the actual value from usePermissions
+        switch(perm) {
+          case 'VIEW_PROPERTIES':
+            return canViewProperties
+          case 'VIEW_LEADS':
+          case 'MANAGE_LEADS':
+            return canViewLeads
+          case 'VIEW_LANDLORDS':
+          case 'MANAGE_LANDLORDS':
+            return canViewLandlords
+          case 'VIEW_OFFER_LETTERS':
+            return canViewOffers
+          case 'VIEW_COMMISSIONS':
+          case 'VIEW_TENANT_FINANCIALS':
+            return canViewIncome
+          case 'VIEW_EMPLOYEES':
+            return permissions?.employees?.canView || false
+          case 'MANAGE_USERS':
+            return canManageUsers
+          case 'MANAGE_ROLES':
+            return canManageRoles
+          default:
+            return false
+        }
+      })
       
       if (!hasRequiredPermission) return false
     }
@@ -290,7 +300,7 @@ export default function Sidebar() {
         <div className="w-6 h-5 flex flex-col justify-between relative">
           <span
             className={`block h-0.5 w-full transform transition-all duration-300 ease-in-out ${
-              isOpen ? 'bg-slate-900 rotate-45 translate-y-[9px]' : 'bg-white'
+              isOpen ? 'bg-slate-900 rotate-45 translate-y-2.25' : 'bg-white'
             }`}
           />
           <span
@@ -300,7 +310,7 @@ export default function Sidebar() {
           />
           <span
             className={`block h-0.5 w-full transform transition-all duration-300 ease-in-out ${
-              isOpen ? 'bg-slate-900 -rotate-45 -translate-y-[9px]' : 'bg-white'
+              isOpen ? 'bg-slate-900 -rotate-45 -translate-y-2.25' : 'bg-white'
             }`}
           />
         </div>

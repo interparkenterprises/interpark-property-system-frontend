@@ -100,8 +100,8 @@ export function usePermissions() {
       properties: {
         canView: isAdmin || isManager || hasPermission(PermissionCode.VIEW_PROPERTIES) || hasManagedPropertyAccess,
         canCreate: isAdmin || isManager || hasPermission(PermissionCode.CREATE_PROPERTY),
-        canEdit: isAdmin || hasPermission(PermissionCode.EDIT_PROPERTY),
-        canDelete: isAdmin || hasPermission(PermissionCode.DELETE_PROPERTY),
+        canEdit: isAdmin || hasPermission(PermissionCode.EDIT_PROPERTY) || (isManager && hasManagedPropertyAccess),
+        canDelete: isAdmin || hasPermission(PermissionCode.DELETE_PROPERTY) || (isManager && hasManagedPropertyAccess),
         canExport: isAdmin || isManager || hasPermission(PermissionCode.VIEW_PROPERTIES) || hasManagedPropertyAccess,
       },
       units: makePerms(
@@ -238,11 +238,11 @@ export function usePermissions() {
         PermissionCode.VIEW_INCOMES
       ),
       employees: makePerms(
-        PermissionCode.VIEW_EMPLOYEES || 'VIEW_EMPLOYEES',
-        PermissionCode.CREATE_EMPLOYEE || 'CREATE_EMPLOYEE',
-        PermissionCode.EDIT_EMPLOYEE || 'EDIT_EMPLOYEE',
-        PermissionCode.DELETE_EMPLOYEE || 'DELETE_EMPLOYEE',
-        PermissionCode.VIEW_EMPLOYEES || 'VIEW_EMPLOYEES'
+        PermissionCode.VIEW_EMPLOYEES,
+        PermissionCode.CREATE_EMPLOYEE,
+        PermissionCode.EDIT_EMPLOYEE,
+        PermissionCode.DELETE_EMPLOYEE,
+        PermissionCode.VIEW_EMPLOYEES
       ),
     };
   }, [auth, accessiblePropertyIds]);
@@ -258,16 +258,16 @@ export function usePermissions() {
     if (permissions.properties.canView) {
       navigation.push({ name: 'Properties', href: '/properties', icon: '🏠' });
     }
-    if (permissions.leads.canView && (auth?.isAdmin || auth?.isManager)) {
+    if (permissions.leads.canView) {
       navigation.push({ name: 'Leads', href: '/leads', icon: '👥' });
     }
-    if (permissions.landlords.canView && (auth?.isAdmin || auth?.isManager)) {
+    if (permissions.landlords.canView) {
       navigation.push({ name: 'Landlords', href: '/landlords', icon: '👤' });
     }
     if (permissions.offers.canView) {
       navigation.push({ name: 'Offers', href: '/offers', icon: '📄' });
     }
-    if (permissions.employees.canView && (auth?.isAdmin || auth?.isManager)) {
+    if (permissions.employees.canView) {
       navigation.push({ name: 'Employees Info', href: '/employees', icon: '👥' });
     }
     if (permissions.bills.canView) {
@@ -282,7 +282,7 @@ export function usePermissions() {
     if (permissions.demandLetters.canView) {
       navigation.push({ name: 'Demand Letters', href: '/demand-letters', icon: '📧' });
     }
-    if (permissions.commissions.canView && (auth?.isAdmin || auth?.isManager)) {
+    if (permissions.commissions.canView) {
       navigation.push({ name: 'My Income', href: '/myIncome', icon: '💰' });
     }
     if (permissions.todos.canView) {
@@ -293,7 +293,7 @@ export function usePermissions() {
     }
 
     return navigation;
-  }, [permissions, auth?.isAdmin, auth?.isManager]);
+  }, [permissions]);
 
   // If auth is loading or not ready, return defaults
   if (!auth || auth.isLoading) {
@@ -424,21 +424,22 @@ export function usePermissions() {
     canAssignLandlord: canAssignLandlord(),
     canViewLandlordsForAssignment: canViewLandlordsForAssignment(),
     canCreateNewLandlord: canCreateNewLandlord(),
-    canViewLeads: (isAdmin || isManager) && permissions.leads.canView,
-    canCreateLead: (isAdmin || isManager) && permissions.leads.canCreate,
-    canEditLead: (isAdmin || isManager) && permissions.leads.canEdit,
-    canDeleteLead: (isAdmin || isManager) && permissions.leads.canDelete,
-    canViewLandlords: (isAdmin || isManager) && permissions.landlords.canView,
-    canCreateLandlord: (isAdmin || isManager) && permissions.landlords.canCreate,
-    canEditLandlord: (isAdmin || isManager) && permissions.landlords.canEdit,
-    canDeleteLandlord: (isAdmin || isManager) && permissions.landlords.canDelete,
+    // FIXED: Removed (isAdmin || isManager) restriction - now based purely on permissions
+    canViewLeads: permissions.leads.canView,
+    canCreateLead: permissions.leads.canCreate,
+    canEditLead: permissions.leads.canEdit,
+    canDeleteLead: permissions.leads.canDelete,
+    canViewLandlords: permissions.landlords.canView,
+    canCreateLandlord: permissions.landlords.canCreate,
+    canEditLandlord: permissions.landlords.canEdit,
+    canDeleteLandlord: permissions.landlords.canDelete,
     canViewOffers: permissions.offers.canView,
     canCreateOffer: permissions.offers.canCreate,
     canEditOffer: permissions.offers.canEdit,
     canDeleteOffer: permissions.offers.canDelete,
-    canViewIncome: (isAdmin || isManager) && permissions.commissions.canView,
-    canManageUsers: isAdmin || isManager || permissions.users.canView,
-    canManageRoles: isAdmin || permissions.roles.canView,
+    canViewIncome: permissions.commissions.canView,
+    canManageUsers: permissions.users.canView,
+    canManageRoles: permissions.roles.canView,
     // Service Providers
     canViewServiceProviders: permissions.serviceProviders.canView,
     canCreateServiceProvider: permissions.serviceProviders.canCreate,

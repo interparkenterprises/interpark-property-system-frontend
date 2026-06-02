@@ -82,7 +82,7 @@ export default function LeadsPage() {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] p-8">
+      <div className="flex flex-col items-center justify-center min-h-100 p-8">
         <div className="relative">
           <div className="h-16 w-16 rounded-full border-4 border-gray-300 dark:border-gray-600 border-t-primary-600 dark:border-t-primary-400 animate-spin"></div>
           <div className="absolute inset-0 flex items-center justify-center">
