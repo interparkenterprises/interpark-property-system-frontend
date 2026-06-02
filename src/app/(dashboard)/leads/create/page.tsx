@@ -4,10 +4,33 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import LeadForm from '@/components/forms/LeadForm';
 import { Button } from '@/components/ui/button';
+import { PermissionGuard } from '@/components/auth/PermissionGuard';
+import { useGlobalPermissions } from '@/app/providers/PermissionsProvider';
 
 export default function CreateLeadPage() {
   const router = useRouter();
+  const { canCreateLead } = useGlobalPermissions();
   const [success, setSuccess] = useState(false);
+
+  // Check permission
+  if (!canCreateLead) {
+    return (
+      <div className="p-6">
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-8 text-center">
+          <h1 className="text-2xl font-bold text-red-700 dark:text-red-400 mb-2">Access Denied</h1>
+          <p className="text-red-600 dark:text-red-300">
+            You don't have permission to create leads. Please contact an administrator.
+          </p>
+          <Button 
+            onClick={() => router.back()}
+            className="mt-4"
+          >
+            Go Back
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   const handleSuccess = () => {
     setSuccess(true);

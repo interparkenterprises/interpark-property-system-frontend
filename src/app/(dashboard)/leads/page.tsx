@@ -6,28 +6,49 @@ import { Lead } from '@/types';
 import { leadsAPI } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
+import { PermissionGuard } from '@/components/auth/PermissionGuard';
+import { useGlobalPermissions } from '@/app/providers/PermissionsProvider';
 
 export default function LeadsPage() {
+  // ✅ ALL HOOKS MUST BE CALLED AT THE TOP LEVEL
   const { user, userId } = useAuth();
+  const { 
+    canViewLeads, 
+    canCreateLead, 
+    canDeleteLead, 
+    isAdmin, 
+    isManager, 
+    getAccessiblePropertyIds 
+  } = useGlobalPermissions();
+  
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
   const [deletingLead, setDeletingLead] = useState<string | null>(null);
 
+  // ✅ useEffect is now before any conditional returns
   useEffect(() => {
-    if (user) {
+    if (user && canViewLeads) {
       fetchLeads();
     }
-  }, [user]);
+  }, [user, canViewLeads]); // Added canViewLeads as dependency
 
   const fetchLeads = async () => {
     try {
       setLoading(true);
       let data = await leadsAPI.getAll();
       
-      // If user is MANAGER, filter by createdById
-      if (user?.role === 'MANAGER' && userId) {
+      // Apply filters based on user role and permissions
+      if (isManager && userId) {
+        // Managers only see leads they created
         data = data.filter(lead => lead.createdById === userId);
+      } else if (!isAdmin && !isManager) {
+        // Managed users only see leads for properties they have access to
+        const accessiblePropertyIds = getAccessiblePropertyIds();
+        data = data.filter(lead => 
+          lead.propertyId && accessiblePropertyIds.includes(lead.propertyId)
+        );
       }
+      // Admins see all leads
       
       setLeads(data);
     } catch (error) {
@@ -38,9 +59,9 @@ export default function LeadsPage() {
   };
 
   const handleDelete = async (id: string) => {
-    // Only ADMIN can delete (optional - remove if managers can delete their own leads)
-    if (user?.role !== 'ADMIN') {
-      alert('Only administrators can delete leads.');
+    // Check permission for delete
+    if (!canDeleteLead) {
+      alert('You don\'t have permission to delete leads.');
       return;
     }
 
@@ -57,17 +78,9 @@ export default function LeadsPage() {
     }
   };
 
-  // Show loading while auth is being checked
-  if (!user && loading) {
-    return (
-      <div className="flex justify-center items-center h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 dark:border-blue-500"></div>
-      </div>
-    );
-  }
-
-  // Check if user has permission to view leads
-  if (user && !['ADMIN', 'MANAGER'].includes(user.role)) {
+  // ✅ Conditional returns now come AFTER all hooks
+  // Check if user can view leads
+  if (!canViewLeads) {
     return (
       <div className="p-6">
         <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-8 text-center">
@@ -102,25 +115,34 @@ export default function LeadsPage() {
         <div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Leads</h1>
           <p className="text-gray-600 dark:text-gray-400 mt-1">
-            {user?.role === 'ADMIN' 
+            {isAdmin 
               ? 'Manage all leads' 
-              : 'Manage your leads'}
+              : isManager
+              ? 'Manage your leads'
+              : 'View leads for your assigned properties'}
           </p>
-          {user?.role === 'MANAGER' && (
+          {isManager && (
             <div className="mt-2 text-sm text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-3 py-1 rounded-full inline-block">
-              Viewing only your leads
+              Viewing only leads you created
+            </div>
+          )}
+          {!isAdmin && !isManager && (
+            <div className="mt-2 text-sm text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20 px-3 py-1 rounded-full inline-block">
+              Viewing leads for your assigned properties only
             </div>
           )}
         </div>
-        <Link href="/leads/create">
-          <Button className="px-6 py-3 bg-blue-600 dark:bg-blue-700 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors font-medium shadow-sm">
-            + Add Lead
-          </Button>
-        </Link>
+        <PermissionGuard module="leads" action="create">
+          <Link href="/leads/create">
+            <Button className="px-6 py-3 bg-blue-600 dark:bg-blue-700 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors font-medium shadow-sm">
+              + Add Lead
+            </Button>
+          </Link>
+        </PermissionGuard>
       </div>
 
       {/* Stats Cards - Only show for ADMIN */}
-      {user?.role === 'ADMIN' && (
+      {isAdmin && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
             <p className="text-sm text-gray-600 dark:text-gray-400">Total Leads</p>
@@ -147,15 +169,19 @@ export default function LeadsPage() {
           </svg>
           <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">No leads found</h3>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            {user?.role === 'ADMIN' 
+            {isAdmin 
               ? 'No leads match your search criteria.'
-              : "You haven't created any leads yet."}
+              : isManager
+              ? "You haven't created any leads yet."
+              : "No leads found for your assigned properties."}
           </p>
-          <Link href="/leads/create">
-            <button className="mt-6 px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors">
-              Add Lead
-            </button>
-          </Link>
+          <PermissionGuard module="leads" action="create">
+            <Link href="/leads/create">
+              <button className="mt-6 px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors">
+                Add Lead
+              </button>
+            </Link>
+          </PermissionGuard>
         </div>
       ) : (
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
@@ -178,7 +204,7 @@ export default function LeadsPage() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                     Created
                   </th>
-                  {user?.role === 'ADMIN' && (
+                  {isAdmin && (
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Created By
                     </th>
@@ -206,7 +232,7 @@ export default function LeadsPage() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                       {new Date(lead.createdAt).toLocaleDateString()}
                     </td>
-                    {user?.role === 'ADMIN' && lead.createdById && (
+                    {isAdmin && lead.createdById && (
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                         {lead.createdById || 'Unknown'}
                       </td>
@@ -219,7 +245,7 @@ export default function LeadsPage() {
                         >
                           View
                         </Link>
-                        {user?.role === 'ADMIN' && (
+                        <PermissionGuard module="leads" action="delete">
                           <button
                             onClick={() => handleDelete(lead.id)}
                             disabled={deletingLead === lead.id}
@@ -234,7 +260,7 @@ export default function LeadsPage() {
                               'Delete'
                             )}
                           </button>
-                        )}
+                        </PermissionGuard>
                       </div>
                     </td>
                   </tr>

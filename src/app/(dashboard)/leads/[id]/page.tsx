@@ -7,13 +7,19 @@ import { leadsAPI } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import LeadForm from '@/components/forms/LeadForm';
 import Link from 'next/link';
+import { PermissionGuard } from '@/components/auth/PermissionGuard';
+import { useGlobalPermissions } from '@/app/providers/PermissionsProvider';
+import { useAuth } from '@/context/AuthContext';
 
 export default function LeadDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const { user } = useAuth();
+  const { canEditLead, canDeleteLead, isAdmin, isManager, getAccessiblePropertyIds } = useGlobalPermissions();
   const [lead, setLead] = useState<Lead | null>(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const leadId = params.id as string;
 
@@ -24,15 +30,41 @@ export default function LeadDetailPage() {
   const fetchLead = async () => {
     try {
       const data = await leadsAPI.getById(leadId);
-      setLead(data);
+      
+      // Check if user has permission to view this specific lead
+      if (isAdmin) {
+        // Admin can view any lead
+        setLead(data);
+      } else if (isManager) {
+        // Manager can only view leads they created
+        if (data.createdById === user?.id) {
+          setLead(data);
+        } else {
+          setError('You do not have permission to view this lead.');
+        }
+      } else {
+        // Managed users can only view leads for properties they have access to
+        const accessiblePropertyIds = getAccessiblePropertyIds();
+        if (data.propertyId && accessiblePropertyIds.includes(data.propertyId)) {
+          setLead(data);
+        } else {
+          setError('You do not have permission to view this lead.');
+        }
+      }
     } catch (error) {
       console.error('Error fetching lead:', error);
+      setError('Failed to load lead details.');
     } finally {
       setLoading(false);
     }
   };
 
   const handleDelete = async () => {
+    if (!canDeleteLead) {
+      alert('You don\'t have permission to delete leads.');
+      return;
+    }
+    
     if (confirm('Are you sure you want to delete this lead?')) {
       try {
         await leadsAPI.delete(leadId);
@@ -50,7 +82,7 @@ export default function LeadDetailPage() {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] p-8">
+      <div className="flex flex-col items-center justify-center min-h-100 p-8">
         <div className="relative">
           <div className="h-16 w-16 rounded-full border-4 border-gray-300 dark:border-gray-600 border-t-primary-600 dark:border-t-primary-400 animate-spin"></div>
           <div className="absolute inset-0 flex items-center justify-center">
@@ -63,8 +95,22 @@ export default function LeadDetailPage() {
     );
   }
 
-  if (!lead) {
-    return <div>Lead not found</div>;
+  if (error || !lead) {
+    return (
+      <div className="p-6">
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-8 text-center">
+          <h1 className="text-2xl font-bold text-red-700 dark:text-red-400 mb-2">Access Denied</h1>
+          <p className="text-red-600 dark:text-red-300">
+            {error || 'Lead not found'}
+          </p>
+          <Link href="/leads">
+            <Button className="mt-4">
+              Back to Leads
+            </Button>
+          </Link>
+        </div>
+      </div>
+    );
   }
 
   if (editing) {
@@ -106,12 +152,16 @@ export default function LeadDetailPage() {
           <h1 className="text-2xl font-semibold text-gray-800 dark:text-gray-100">{lead.name}</h1>
         </div>
         <div className="space-x-2">
-          <Button onClick={() => setEditing(true)}>
-            Edit
-          </Button>
-          <Button variant="danger" onClick={handleDelete}>
-            Delete
-          </Button>
+          <PermissionGuard module="leads" action="edit">
+            <Button onClick={() => setEditing(true)}>
+              Edit
+            </Button>
+          </PermissionGuard>
+          <PermissionGuard module="leads" action="delete">
+            <Button variant="danger" onClick={handleDelete}>
+              Delete
+            </Button>
+          </PermissionGuard>
         </div>
       </div>
 

@@ -1,15 +1,28 @@
 'use client';
 
-import { useState, useEffect, SetStateAction } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { offerLettersAPI } from '@/lib/api';
 import type { OfferLetter, OfferStatus } from '@/types';
 import OfferLetterForm from '@/components/forms/OfferLetterForm';
 import { useAuth } from '@/context/AuthContext';
+import { useGlobalPermissions } from '@/app/providers/PermissionsProvider';
+import { PermissionGuard } from '@/components/auth/PermissionGuard';
 
 export default function OffersPage() {
   const router = useRouter();
   const { user, userId } = useAuth();
+  const { 
+    canViewOffers, 
+    canCreateOffer, 
+    canEditOffer, 
+    canDeleteOffer,
+    isAdmin, 
+    isManager,
+    isManagedUser,
+    getAccessiblePropertyIds 
+  } = useGlobalPermissions();
+  
   const [offers, setOffers] = useState<OfferLetter[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -18,24 +31,34 @@ export default function OffersPage() {
   const [generatingPdf, setGeneratingPdf] = useState<string | null>(null);
   const [downloadingPdf, setDownloadingPdf] = useState<string | null>(null);
   const [deletingOffer, setDeletingOffer] = useState<string | null>(null);
+  const [updatingStatus, setUpdatingStatus] = useState<string | null>(null);
 
+  // ✅ Check permission at the top - but after hooks
+  // All hooks must be called before conditional returns
   useEffect(() => {
-    if (user) {
+    if (user && canViewOffers) {
       fetchOffers();
     }
-  }, [user]);
+  }, [user, canViewOffers]);
 
   const fetchOffers = async () => {
     try {
       setLoading(true);
-      let data: OfferLetter[];
+      let data = await offerLettersAPI.getAll();
       
-      // Fetch all offers, then filter on client side
-      data = await offerLettersAPI.getAll();
-      
-      // If user is MANAGER, filter by createdById
-      if (user?.role === 'MANAGER' && userId) {
+      // Apply filters based on user role and permissions
+      if (isAdmin) {
+        // Admins see all offers
+        // No filtering needed
+      } else if (isManager && userId) {
+        // Managers only see offers they created
         data = data.filter(offer => offer.createdById === userId);
+      } else if (isManagedUser) {
+        // Managed users only see offers for properties they have access to
+        const accessiblePropertyIds = getAccessiblePropertyIds();
+        data = data.filter(offer => 
+          offer.propertyId && accessiblePropertyIds.includes(offer.propertyId)
+        );
       }
       
       setOffers(data);
@@ -82,20 +105,28 @@ export default function OffersPage() {
   };
 
   const handleStatusChange = async (offerId: string, newStatus: OfferStatus) => {
+    // Check if user has permission to edit offers
+    if (!canEditOffer) {
+      alert('You don\'t have permission to update offer status.');
+      return;
+    }
+    
     try {
+      setUpdatingStatus(offerId);
       await offerLettersAPI.updateStatus(offerId, newStatus);
       alert('Status updated successfully!');
       fetchOffers();
     } catch (error: any) {
       console.error('Failed to update status:', error);
       alert(`Failed to update status: ${error.message || 'Please try again.'}`);
+    } finally {
+      setUpdatingStatus(null);
     }
   };
 
   const handleDelete = async (offerId: string) => {
-    // Only ADMIN can delete
-    if (user?.role !== 'ADMIN') {
-      alert('Only administrators can delete offer letters.');
+    if (!canDeleteOffer) {
+      alert('You don\'t have permission to delete offer letters.');
       return;
     }
 
@@ -142,27 +173,36 @@ export default function OffersPage() {
       offer.property?.name?.toLowerCase().includes(searchTerm.toLowerCase());
     
     // If user is MANAGER, also filter by user ID
-    if (user?.role === 'MANAGER') {
+    if (isManager) {
       return matchesStatus && matchesSearch && offer.createdById === userId;
     }
     
     return matchesStatus && matchesSearch;
   });
 
-  // Calculate stats (only for ADMIN users)
-  const stats = user?.role === 'ADMIN' ? {
-    total: offers.length,
-    draft: offers.filter(o => o.status === 'DRAFT').length,
-    sent: offers.filter(o => o.status === 'SENT').length,
-    accepted: offers.filter(o => o.status === 'ACCEPTED').length,
-    rejected: offers.filter(o => o.status === 'REJECTED').length,
-  } : {
+  // Calculate stats
+  const stats = {
     total: offers.length,
     draft: offers.filter(o => o.status === 'DRAFT').length,
     sent: offers.filter(o => o.status === 'SENT').length,
     accepted: offers.filter(o => o.status === 'ACCEPTED').length,
     rejected: offers.filter(o => o.status === 'REJECTED').length,
   };
+
+  // ✅ Conditional returns AFTER all hooks
+  // Check if user has permission to view offers
+  if (!canViewOffers) {
+    return (
+      <div className="p-6">
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-8 text-center">
+          <h1 className="text-2xl font-bold text-red-700 dark:text-red-400 mb-2">Access Denied</h1>
+          <p className="text-red-600 dark:text-red-300">
+            You don't have permission to view offer letters. Please contact an administrator.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (showForm) {
     return (
@@ -187,16 +227,10 @@ export default function OffersPage() {
     );
   }
 
-  // Check if user has permission to view offers
-  if (user && !['ADMIN', 'MANAGER'].includes(user.role)) {
+  if (loading) {
     return (
-      <div className="p-6">
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-8 text-center">
-          <h1 className="text-2xl font-bold text-red-700 dark:text-red-400 mb-2">Access Denied</h1>
-          <p className="text-red-600 dark:text-red-300">
-            You don't have permission to view offer letters. Please contact an administrator.
-          </p>
-        </div>
+      <div className="flex justify-center items-center py-12">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 dark:border-blue-500"></div>
       </div>
     );
   }
@@ -208,26 +242,35 @@ export default function OffersPage() {
         <div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Offer Letters</h1>
           <p className="text-gray-600 dark:text-gray-400 mt-1">
-            {user?.role === 'ADMIN' 
+            {isAdmin 
               ? 'Manage all offer letters' 
-              : 'Manage your offer letters'}
+              : isManager
+              ? 'Manage your offer letters'
+              : 'View offer letters for your assigned properties'}
           </p>
-          {user?.role === 'MANAGER' && (
+          {isManager && (
             <div className="mt-2 text-sm text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-3 py-1 rounded-full inline-block">
-              Viewing only your offers
+              Viewing only offers you created
+            </div>
+          )}
+          {isManagedUser && (
+            <div className="mt-2 text-sm text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20 px-3 py-1 rounded-full inline-block">
+              Viewing offers for your assigned properties only
             </div>
           )}
         </div>
-        <button
-          onClick={() => setShowForm(true)}
-          className="px-6 py-3 bg-blue-600 dark:bg-blue-700 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors font-medium shadow-sm"
-        >
-          + Create Offer Letter
-        </button>
+        <PermissionGuard module="offers" action="create">
+          <button
+            onClick={() => setShowForm(true)}
+            className="px-6 py-3 bg-blue-600 dark:bg-blue-700 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors font-medium shadow-sm"
+          >
+            + Create Offer Letter
+          </button>
+        </PermissionGuard>
       </div>
 
       {/* Stats Cards - Only show for ADMIN */}
-      {user?.role === 'ADMIN' && (
+      {isAdmin && (
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
             <p className="text-sm text-gray-600 dark:text-gray-400">Total Offers</p>
@@ -284,11 +327,7 @@ export default function OffersPage() {
       </div>
 
       {/* Offers List */}
-      {loading ? (
-        <div className="flex justify-center items-center py-12">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 dark:border-blue-500"></div>
-        </div>
-      ) : filteredOffers.length === 0 ? (
+      {filteredOffers.length === 0 ? (
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-12 text-center">
           <svg
             className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
@@ -305,16 +344,20 @@ export default function OffersPage() {
           </svg>
           <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">No offer letters found</h3>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            {user?.role === 'ADMIN' 
+            {isAdmin 
               ? 'No offer letters match your search criteria.'
-              : "You haven't created any offer letters yet."}
+              : isManager
+              ? "You haven't created any offer letters yet."
+              : "No offer letters found for your assigned properties."}
           </p>
-          <button
-            onClick={() => setShowForm(true)}
-            className="mt-6 px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors"
-          >
-            Create Offer Letter
-          </button>
+          <PermissionGuard module="offers" action="create">
+            <button
+              onClick={() => setShowForm(true)}
+              className="mt-6 px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors"
+            >
+              Create Offer Letter
+            </button>
+          </PermissionGuard>
         </div>
       ) : (
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
@@ -343,7 +386,7 @@ export default function OffersPage() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                     Issue Date
                   </th>
-                  {user?.role === 'ADMIN' && (
+                  {isAdmin && (
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                       Created By
                     </th>
@@ -386,24 +429,32 @@ export default function OffersPage() {
                       KES {offer.rentAmount?.toLocaleString() || '0'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <select
-                        value={offer.status}
-                        onChange={(e) => handleStatusChange(offer.id, e.target.value as OfferStatus)}
-                        className={`px-2 py-1 text-xs font-medium rounded-full border-0 cursor-pointer ${getStatusColor(offer.status)}`}
-                      >
-                        <option value="DRAFT" className="text-gray-900 dark:text-gray-100">Draft</option>
-                        <option value="SENT" className="text-gray-900 dark:text-gray-100">Sent</option>
-                        <option value="ACCEPTED" className="text-gray-900 dark:text-gray-100">Accepted</option>
-                        <option value="REJECTED" className="text-gray-900 dark:text-gray-100">Rejected</option>
-                        <option value="EXPIRED" className="text-gray-900 dark:text-gray-100">Expired</option>
-                        <option value="CANCELLED" className="text-gray-900 dark:text-gray-100">Cancelled</option>
-                        <option value="CONVERTED" className="text-gray-900 dark:text-gray-100">Converted</option>
-                      </select>
+                      <PermissionGuard module="offers" action="edit">
+                        <select
+                          value={offer.status}
+                          onChange={(e) => handleStatusChange(offer.id, e.target.value as OfferStatus)}
+                          disabled={updatingStatus === offer.id}
+                          className={`px-2 py-1 text-xs font-medium rounded-full border-0 cursor-pointer ${getStatusColor(offer.status)}`}
+                        >
+                          <option value="DRAFT" className="text-gray-900 dark:text-gray-100">Draft</option>
+                          <option value="SENT" className="text-gray-900 dark:text-gray-100">Sent</option>
+                          <option value="ACCEPTED" className="text-gray-900 dark:text-gray-100">Accepted</option>
+                          <option value="REJECTED" className="text-gray-900 dark:text-gray-100">Rejected</option>
+                          <option value="EXPIRED" className="text-gray-900 dark:text-gray-100">Expired</option>
+                          <option value="CANCELLED" className="text-gray-900 dark:text-gray-100">Cancelled</option>
+                          <option value="CONVERTED" className="text-gray-900 dark:text-gray-100">Converted</option>
+                        </select>
+                      </PermissionGuard>
+                      {!canEditOffer && (
+                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(offer.status)}`}>
+                          {offer.status}
+                        </span>
+                      )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                       {offer.issueDate ? new Date(offer.issueDate).toLocaleDateString() : 'N/A'}
                     </td>
-                    {user?.role === 'ADMIN' && offer.createdById && (
+                    {isAdmin && offer.createdById && (
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                         {offer.createdById || 'Unknown'}
                       </td>
@@ -444,7 +495,7 @@ export default function OffersPage() {
                             )}
                           </button>
                         )}
-                        {user?.role === 'ADMIN' && (
+                        <PermissionGuard module="offers" action="delete">
                           <button
                             onClick={() => handleDelete(offer.id)}
                             disabled={deletingOffer === offer.id}
@@ -460,7 +511,7 @@ export default function OffersPage() {
                               'Delete'
                             )}
                           </button>
-                        )}
+                        </PermissionGuard>
                       </div>
                     </td>
                   </tr>

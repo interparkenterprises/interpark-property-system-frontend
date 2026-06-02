@@ -269,6 +269,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         PermissionCode.PROCESS_COMMISSIONS,
         PermissionCode.VIEW_OFFER_LETTERS,
         PermissionCode.CREATE_OFFER_LETTER,
+        PermissionCode.EDIT_OFFER_LETTER,
+        PermissionCode.DELETE_OFFER_LETTER,
         PermissionCode.VIEW_DAILY_REPORTS,
         PermissionCode.CREATE_DAILY_REPORTS,
         PermissionCode.VIEW_ACTIVATION_REQUESTS,
@@ -293,6 +295,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         PermissionCode.DELETE_EMPLOYEE,
         PermissionCode.MANAGE_USERS,
         PermissionCode.MANAGE_ROLES,
+        PermissionCode.VIEW_LEADS,
+        PermissionCode.CREATE_LEAD,
+        PermissionCode.EDIT_LEAD,
+        PermissionCode.DELETE_LEAD,
       ];
       baseUser.isEnabled = true;
       baseUser.roleName = 'Manager';

@@ -3,8 +3,8 @@
 import { useState, useEffect } from 'react';
 import { Lead, Property } from '@/types';
 import { leadsAPI, propertiesAPI } from '@/lib/api';
-//import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { useGlobalPermissions } from '@/app/providers/PermissionsProvider';
 
 interface LeadFormProps {
   lead?: Lead;
@@ -17,6 +17,13 @@ const getDraftKey = (leadId?: string) =>
   leadId ? `lead_form_draft_${leadId}` : 'lead_form_draft_new';
 
 export default function LeadForm({ lead, onSuccess, onCancel }: LeadFormProps) {
+  const { 
+    isAdmin, 
+    isManager, 
+    isManagedUser, 
+    getAccessiblePropertyIds 
+  } = useGlobalPermissions();
+  
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -100,7 +107,16 @@ export default function LeadForm({ lead, onSuccess, onCancel }: LeadFormProps) {
 
   const fetchProperties = async () => {
     try {
-      const data = await propertiesAPI.getAll();
+      let data = await propertiesAPI.getAll();
+      
+      // Filter properties based on user permissions
+      if (isManagedUser) {
+        const accessibleIds = getAccessiblePropertyIds();
+        data = data.filter(property => accessibleIds.includes(property.id));
+      }
+      // For ADMIN and MANAGER, show all properties
+      // MANAGERs can create leads for any property (but leads are filtered by createdById)
+      
       setProperties(data);
     } catch (error) {
       console.error('Error fetching properties:', error);
@@ -343,6 +359,11 @@ export default function LeadForm({ lead, onSuccess, onCancel }: LeadFormProps) {
             </option>
           ))}
         </select>
+        {isManagedUser && properties.length === 0 && (
+          <p className="mt-1 text-sm text-amber-600 dark:text-amber-400">
+            You don't have access to any properties. Please contact an administrator.
+          </p>
+        )}
       </div>
 
       <div>

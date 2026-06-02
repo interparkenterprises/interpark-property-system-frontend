@@ -25,7 +25,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { PermissionGuard } from '@/components/auth/PermissionGuard';
+//import { PermissionGuard } from '@/components/auth/PermissionGuard';
 import { useGlobalPermissions } from '@/app/providers/PermissionsProvider';
 import { PermissionCode } from '@/types';
 
@@ -1197,7 +1197,7 @@ export default function TenantBillsPage() {
       {/* Create Bill Dialog */}
       {(isAdmin || isManager || hasPermission(PermissionCode.CREATE_BILL)) && (
         <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-          <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+          <DialogContent className="sm:max-w-150 max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="text-2xl font-bold text-gray-900">Create New Bill</DialogTitle>
               <DialogDescription className="text-gray-700">
@@ -1453,7 +1453,7 @@ export default function TenantBillsPage() {
       {/* Edit Bill Dialog */}
       {(isAdmin || isManager || hasPermission(PermissionCode.EDIT_BILL)) && (
         <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
-          <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+          <DialogContent className="sm:max-w-150 max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="text-2xl font-bold text-gray-900">Edit Bill</DialogTitle>
               <DialogDescription className="text-gray-700">
@@ -1641,7 +1641,7 @@ export default function TenantBillsPage() {
 
       {/* Pay Bill Dialog */}
       <Dialog open={showPayDialog} onOpenChange={setShowPayDialog}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-125">
           <DialogHeader>
             <DialogTitle className="text-2xl font-bold text-gray-900">
               {selectedBillInvoice ? 'Record Bill Invoice Payment' : 'Record Bill Payment'}
@@ -1774,7 +1774,7 @@ export default function TenantBillsPage() {
       {/* Generate Bill Invoice Dialog */}
       {(isAdmin || isManager || hasPermission(PermissionCode.CREATE_BILL_INVOICE)) && (
         <Dialog open={showGenerateInvoiceDialog} onOpenChange={setShowGenerateInvoiceDialog}>
-          <DialogContent className="sm:max-w-[500px]">
+          <DialogContent className="sm:max-w-125">
             <DialogHeader>
               <DialogTitle className="text-2xl font-bold text-gray-900">Generate Bill Invoice</DialogTitle>
               <DialogDescription className="text-gray-700">
@@ -1885,7 +1885,7 @@ export default function TenantBillsPage() {
       {/* Bill Invoices Dialog */}
       {(isAdmin || isManager || hasPermission(PermissionCode.VIEW_BILL_INVOICES)) && (
         <Dialog open={showBillInvoicesDialog} onOpenChange={setShowBillInvoicesDialog}>
-          <DialogContent className="sm:max-w-[800px] max-h-[80vh] overflow-y-auto">
+          <DialogContent className="sm:max-w-200 max-h-[80vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="text-2xl font-bold text-gray-900">Bill Invoices</DialogTitle>
               <DialogDescription className="text-gray-700">

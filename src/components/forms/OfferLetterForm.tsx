@@ -7,6 +7,7 @@ import { propertiesAPI } from '@/lib/api';
 import { leadsAPI } from '@/lib/api';
 import { unitsAPI } from '@/lib/api';
 import type { Property, Lead, Unit, OfferStatus, LetterType, UsageType } from '@/types';
+import { useGlobalPermissions } from '@/app/providers/PermissionsProvider';
 
 interface OfferLetterFormProps {
   offerId?: string;
@@ -20,6 +21,16 @@ const getDraftKey = (offerId?: string) =>
 
 export default function OfferLetterForm({ offerId, onSuccess, onCancel }: OfferLetterFormProps) {
   const router = useRouter();
+  const { 
+    isAdmin, 
+    isManager, 
+    isManagedUser, 
+    getAccessiblePropertyIds,
+    canViewLeads,
+    canViewProperties,
+    // canViewUnits is removed since we're using property-based filtering instead
+  } = useGlobalPermissions();
+  
   const [loading, setLoading] = useState(false);
   const [properties, setProperties] = useState<Property[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -146,7 +157,15 @@ export default function OfferLetterForm({ offerId, onSuccess, onCancel }: OfferL
 
   const fetchProperties = async () => {
     try {
-      const data = await propertiesAPI.getAll();
+      let data = await propertiesAPI.getAll();
+      
+      // Filter properties based on user permissions
+      if (isManagedUser) {
+        const accessibleIds = getAccessiblePropertyIds();
+        data = data.filter(property => accessibleIds.includes(property.id));
+      }
+      // For ADMIN and MANAGER, show all properties
+      
       setProperties(data);
     } catch (error) {
       console.error('Failed to fetch properties:', error);
@@ -155,7 +174,22 @@ export default function OfferLetterForm({ offerId, onSuccess, onCancel }: OfferL
 
   const fetchLeads = async () => {
     try {
-      const data = await leadsAPI.getAll();
+      let data = await leadsAPI.getAll();
+      
+      // Filter leads based on user permissions
+      if (isManagedUser) {
+        // Managed users can only create offers for leads associated with their accessible properties
+        const accessibleIds = getAccessiblePropertyIds();
+        data = data.filter(lead => 
+          lead.propertyId && accessibleIds.includes(lead.propertyId)
+        );
+      } else if (isManager && offerId === undefined) {
+        // For managers creating new offers, only show leads they created
+        // But when editing, they can see all leads associated with their properties
+        const userId = localStorage.getItem('userId');
+        data = data.filter(lead => lead.createdById === userId);
+      }
+      
       setLeads(data);
     } catch (error) {
       console.error('Failed to fetch leads:', error);
@@ -164,10 +198,22 @@ export default function OfferLetterForm({ offerId, onSuccess, onCancel }: OfferL
 
   const fetchUnits = async (propertyId: string) => {
     try {
-      const data = await unitsAPI.getByProperty(propertyId);
-      setUnits(data.filter(unit => unit.status === 'VACANT'));
+      let data = await unitsAPI.getByProperty(propertyId);
+      
+      // Filter units based on user permissions
+      if (isManagedUser) {
+        const accessibleIds = getAccessiblePropertyIds();
+        if (!accessibleIds.includes(propertyId)) {
+          data = [];
+        }
+      }
+      
+      // Only show vacant units for offer letters
+      const vacantUnits = data.filter(unit => unit.status === 'VACANT');
+      setUnits(vacantUnits);
     } catch (error) {
       console.error('Failed to fetch units:', error);
+      setUnits([]);
     }
   };
 
@@ -333,8 +379,12 @@ export default function OfferLetterForm({ offerId, onSuccess, onCancel }: OfferL
             <span className="ml-2 font-medium">{selectedUnit.unitType}</span>
           </div>
           <div>
-            <span className="text-gray-600 dark:text-gray-400">Rent Type:</span>
-            <span className="ml-2 font-medium">{selectedUnit.rentType}</span>
+            <span className="text-gray-600 dark:text-gray-400">Status:</span>
+            <span className="ml-2 font-medium">
+              <span className="px-2 py-0.5 text-xs rounded-full bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+                {selectedUnit.status}
+              </span>
+            </span>
           </div>
         </div>
         {selectedUnit.calculationInfo && (
@@ -350,6 +400,18 @@ export default function OfferLetterForm({ offerId, onSuccess, onCancel }: OfferL
       </div>
     );
   };
+
+  // Show access denied if user doesn't have permission to view properties or leads
+  if (!canViewProperties || !canViewLeads) {
+    return (
+      <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-8 text-center">
+        <h1 className="text-2xl font-bold text-red-700 dark:text-red-400 mb-2">Access Denied</h1>
+        <p className="text-red-600 dark:text-red-300">
+          You don't have permission to create offer letters. Please contact an administrator.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6 bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
@@ -377,6 +439,11 @@ export default function OfferLetterForm({ offerId, onSuccess, onCancel }: OfferL
         <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
           Generate an offer letter for a prospective tenant
         </p>
+        {isManagedUser && properties.length === 0 && (
+          <p className="mt-2 text-sm text-amber-600 dark:text-amber-400">
+            Note: You can only create offers for properties you have access to.
+          </p>
+        )}
       </div>
 
       {/* Basic Information */}
@@ -399,6 +466,11 @@ export default function OfferLetterForm({ offerId, onSuccess, onCancel }: OfferL
               </option>
             ))}
           </select>
+          {isManagedUser && leads.length === 0 && (
+            <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+              No leads available for your assigned properties.
+            </p>
+          )}
         </div>
 
         <div>
@@ -424,6 +496,11 @@ export default function OfferLetterForm({ offerId, onSuccess, onCancel }: OfferL
               {getPropertyTypeLabel()}
             </p>
           )}
+          {isManagedUser && properties.length === 0 && (
+            <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+              You don't have access to any properties. Please contact an administrator.
+            </p>
+          )}
         </div>
 
         <div>
@@ -444,13 +521,18 @@ export default function OfferLetterForm({ offerId, onSuccess, onCancel }: OfferL
             </option>
             {units.map(unit => (
               <option key={unit.id} value={unit.id} className="text-gray-900 dark:text-gray-100">
-                Unit {unit.unitNo} - {unit.sizeSqFt} sq ft - KES {unit.rentAmount.toLocaleString()}
+                Unit {unit.unitNo} - {unit.sizeSqFt} sq ft - KES {unit.rentAmount.toLocaleString()} - {unit.status}
               </option>
             ))}
           </select>
           {units.length > 0 && !formData.unitId && (
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              {units.length} vacant unit(s) available
+              {units.length} vacant unit(s) available for this property
+            </p>
+          )}
+          {formData.propertyId && units.length === 0 && (
+            <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+              No vacant units available for this property.
             </p>
           )}
           {selectedUnit && getUnitDetails()}

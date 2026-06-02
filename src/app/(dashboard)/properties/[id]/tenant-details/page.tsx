@@ -1743,7 +1743,7 @@ export default function TenantDetailPage() {
 
       {/* Generate Invoice Dialog */}
       <Dialog open={showInvoiceDialog} onOpenChange={setShowInvoiceDialog}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-125">
           <DialogHeader>
             <DialogTitle className="text-2xl font-bold text-heading-color">Generate Invoice</DialogTitle>
             <DialogDescription className="text-gray-700">
@@ -1804,7 +1804,7 @@ export default function TenantDetailPage() {
                 placeholder={`Add any additional notes (e.g., ${tenant.paymentPolicy} rent for ${new Date(tenant.paymentSummary?.nextPayment?.dueDate || new Date()).toLocaleDateString('default', { month: 'long', year: 'numeric' })})`}
                 value={invoiceForm.notes}
                 onChange={(e) => setInvoiceForm({ ...invoiceForm, notes: e.target.value })}
-                className="min-h-[100px] text-gray-800"
+                className="min-h-25 text-gray-800"
               />
             </div>
           </div>
@@ -2005,7 +2005,7 @@ export default function TenantDetailPage() {
 
       {/* Create Payment Dialog */}
       <Dialog open={showCreatePaymentDialog} onOpenChange={setShowCreatePaymentDialog}>
-        <DialogContent className="sm:max-w-[900px] max-h-[90vh] flex flex-col p-0">
+        <DialogContent className="sm:max-w-225 max-h-[90vh] flex flex-col p-0">
           <div className="px-6 pt-6 pb-0">
             <DialogHeader>
               <DialogTitle className="text-2xl font-bold text-heading-color">Record Payment</DialogTitle>
@@ -2693,7 +2693,7 @@ export default function TenantDetailPage() {
 
       {/* Partial Payment Invoice Dialog */}
       <Dialog open={showPartialPaymentInvoiceDialog} onOpenChange={setShowPartialPaymentInvoiceDialog}>
-        <DialogContent className="sm:max-w-[500px]">
+        <DialogContent className="sm:max-w-125">
           <DialogHeader>
             <DialogTitle className="text-2xl font-bold text-heading-color">Generate Balance Invoice</DialogTitle>
             <DialogDescription className="text-gray-700">
@@ -2746,7 +2746,7 @@ export default function TenantDetailPage() {
                 placeholder="Add any additional notes"
                 value={partialInvoiceForm.notes}
                 onChange={(e) => setPartialInvoiceForm({ ...partialInvoiceForm, notes: e.target.value })}
-                className="min-h-[100px]"
+                className="min-h-25"
               />
             </div>
           </div>
@@ -3009,7 +3009,7 @@ export default function TenantDetailPage() {
                   placeholder="Example: Include a 14-day payment deadline. Mention that legal action may be pursued if payment is not received. Note any previous payment arrangements that were not honored..."
                   value={demandLetterForm.notes}
                   onChange={(e) => setDemandLetterForm({ ...demandLetterForm, notes: e.target.value })}
-                  className="min-h-[120px] resize-y placeholder:text-gray-500 placeholder:italic placeholder:text-sm border-gray-300 focus:border-blue-500 focus:ring-blue-500"
+                  className="min-h-30 resize-y placeholder:text-gray-500 placeholder:italic placeholder:text-sm border-gray-300 focus:border-blue-500 focus:ring-blue-500"
                 />
                 <p className="text-xs text-gray-500 mt-1">
                   These notes will be incorporated into the demand letter content
