@@ -33,7 +33,7 @@ export default function DashboardPage() {
     canViewProperties,
     canCreateProperty,
     canCreateOffer,
-    canViewIncome,
+   // canViewCommissions, // Changed from canViewIncome to canViewCommissions
     getAccessiblePropertyIds,
     canViewProperty,
   } = useGlobalPermissions();
@@ -56,6 +56,8 @@ export default function DashboardPage() {
 
   const accessiblePropertyIdsKey = accessiblePropertyIds.join(',');
   const canAccessProperties = canViewProperties || (isManagedUser && accessiblePropertyIds.length > 0);
+  // Commissions are only viewable by admins and managers
+  const canViewCommissionStats = false && (isAdmin || isManager);
 
   const formatCurrency = useCallback((amount: number) => {
     return new Intl.NumberFormat('en-KE', {
@@ -126,7 +128,8 @@ export default function DashboardPage() {
         );
       }
 
-      if (canViewIncome && (isAdmin || isManager) && user.id) {
+      // Use canViewCommissionStats instead of canViewIncome
+      if (canViewCommissionStats && (isAdmin || isManager) && user.id) {
         promises.push(
           commissionsAPI.getCommissionStats(user.id).then((commissionStats) => {
             newStats.totalIncome = commissionStats?.totalPaid || 0;
@@ -154,7 +157,7 @@ export default function DashboardPage() {
     isManager,
     isManagedUser,
     canAccessProperties,
-    canViewIncome,
+    canViewCommissionStats, // Changed from canViewIncome
     canViewProperty,
     accessiblePropertyIds,
     accessiblePropertyIdsKey,
@@ -428,7 +431,8 @@ export default function DashboardPage() {
             </Link>
           )}
 
-          {canViewIncome && (isAdmin || isManager) && (
+          {/* Changed from canViewIncome to canViewCommissionStats */}
+          {canViewCommissionStats && (isAdmin || isManager) && (
             <Link href="/myIncome" className="group">
               <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-lg shadow-black/20 transition-all duration-200 hover:-translate-y-0.5 hover:border-amber-400/50 hover:shadow-xl hover:shadow-amber-950/20">
                 <div className="flex items-center gap-4">
@@ -567,7 +571,8 @@ export default function DashboardPage() {
                 </Link>
               )}
 
-              {canViewIncome && (isAdmin || isManager) && (
+              {/* Changed from canViewIncome to canViewCommissionStats */}
+              {canViewCommissionStats && (isAdmin || isManager) && (
                 <Link
                   href="/myIncome"
                   className="flex w-full items-center rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm font-semibold text-amber-200 transition-all duration-200 hover:border-amber-400/40 hover:bg-amber-500/15"
@@ -614,7 +619,8 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {canViewIncome && (isAdmin || isManager) && user?.id && (
+        {/* Changed from canViewIncome to canViewCommissionStats */}
+        {canViewCommissionStats && (isAdmin || isManager) && user?.id && (
           <div className="mt-8 rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-lg shadow-black/20">
             <h2 className="text-lg font-bold text-slate-50">Commission Overview</h2>
             <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-3">
