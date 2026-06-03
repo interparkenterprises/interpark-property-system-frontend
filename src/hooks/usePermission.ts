@@ -11,7 +11,7 @@ interface ActionPermissions {
 }
 
 interface ModulePermissions {
-  employees: any;
+  employees: ActionPermissions;
   properties: ActionPermissions;
   units: ActionPermissions;
   tenants: ActionPermissions;
@@ -47,8 +47,8 @@ export function usePermissions() {
     // If auth is loading or not ready, return all false
     if (!auth || auth.isLoading) {
       return {
-        properties: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
         employees: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
+        properties: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
         units: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
         tenants: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
         leads: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
@@ -95,6 +95,13 @@ export function usePermissions() {
     });
 
     return {
+      employees: {
+        canView: isAdmin || isManager || hasPermission(PermissionCode.VIEW_EMPLOYEES),
+        canCreate: isAdmin || hasPermission(PermissionCode.CREATE_EMPLOYEE),
+        canEdit: isAdmin || hasPermission(PermissionCode.EDIT_EMPLOYEE),
+        canDelete: isAdmin || hasPermission(PermissionCode.DELETE_EMPLOYEE),
+        canExport: isAdmin || isManager || hasPermission(PermissionCode.VIEW_EMPLOYEES),
+      },
       properties: {
         canView: isAdmin || isManager || hasPermission(PermissionCode.VIEW_PROPERTIES) || hasManagedPropertyAccess,
         canCreate: isAdmin || isManager || hasPermission(PermissionCode.CREATE_PROPERTY),
@@ -102,13 +109,6 @@ export function usePermissions() {
         canDelete: isAdmin || hasPermission(PermissionCode.DELETE_PROPERTY) || (isManager && hasManagedPropertyAccess),
         canExport: isAdmin || isManager || hasPermission(PermissionCode.VIEW_PROPERTIES) || hasManagedPropertyAccess,
       },
-      employees: makePerms(
-        PermissionCode.VIEW_EMPLOYEES,
-        PermissionCode.CREATE_EMPLOYEE,
-        PermissionCode.EDIT_EMPLOYEE,
-        PermissionCode.DELETE_EMPLOYEE,
-        PermissionCode.VIEW_EMPLOYEES
-      ),
       units: makePerms(
         PermissionCode.VIEW_UNITS,
         PermissionCode.CREATE_UNIT,
@@ -219,7 +219,7 @@ export function usePermissions() {
         PermissionCode.CREATE_BILLS,
         PermissionCode.EDIT_BILLS,
         PermissionCode.DELETE_BILLS,
-        PermissionCode.VIEW_BILLS
+        PermissionCode.PAY_BILLS,
       ),
       billInvoices: makePerms(
         PermissionCode.VIEW_BILL_INVOICES,
@@ -278,6 +278,9 @@ export function usePermissions() {
     }
     if (permissions.news.canView) {
       navigation.push({ name: 'News', href: '/news', icon: '📰' });
+    }
+    if (permissions.employees.canView) {
+      navigation.push({ name: 'Employees Info', href: '/employees', icon: '👥' });
     }
 
     return navigation;
@@ -339,6 +342,10 @@ export function usePermissions() {
       canCreateDemandLetter: false,
       canEditDemandLetter: false,
       canDeleteDemandLetter: false,
+      canViewEmployees: false,
+      canCreateEmployee: false,
+      canEditEmployee: false,
+      canDeleteEmployee: false,
     };
   }
 
@@ -421,6 +428,11 @@ export function usePermissions() {
     // User Management permissions
     canManageUsers: permissions.users.canView || permissions.users.canCreate,
     canManageRoles: permissions.roles.canView,
+    // Employee permissions
+    canViewEmployees: permissions.employees.canView,
+    canCreateEmployee: permissions.employees.canCreate,
+    canEditEmployee: permissions.employees.canEdit,
+    canDeleteEmployee: permissions.employees.canDelete,
     // Service Provider permissions
     canViewServiceProviders: permissions.serviceProviders.canView,
     canCreateServiceProvider: permissions.serviceProviders.canCreate,
@@ -455,5 +467,7 @@ export function usePermissions() {
     canDownloadInvoice: hasPermission(PermissionCode.DOWNLOAD_INVOICES),
     canDownloadDemandLetter: hasPermission(PermissionCode.DOWNLOAD_DEMAND_LETTER),
     canDownloadBillInvoice: hasPermission(PermissionCode.DOWNLOAD_BILL_INVOICE),
+    // Bill permissions
+    canPayBills: hasPermission(PermissionCode.PAY_BILLS),
   };
 }

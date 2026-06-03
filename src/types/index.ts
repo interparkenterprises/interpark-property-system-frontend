@@ -2477,6 +2477,7 @@ export enum PermissionCode {
   CREATE_BILLS = 'CREATE_BILLS',
   EDIT_BILLS = 'EDIT_BILLS',
   DELETE_BILLS = 'DELETE_BILLS',
+  PAY_BILLS = 'PAY_BILLS',
   RECORD_METER_READINGS = 'RECORD_METER_READINGS',
 
   // ==============================================

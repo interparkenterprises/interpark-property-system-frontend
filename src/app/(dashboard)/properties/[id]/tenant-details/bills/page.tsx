@@ -66,7 +66,7 @@ export default function TenantBillsPage() {
     PermissionCode.CREATE_BILLS,
     PermissionCode.EDIT_BILLS,
     PermissionCode.DELETE_BILLS,
-    PermissionCode.PAY_BILL,
+    PermissionCode.PAY_BILLS,
     PermissionCode.VIEW_BILL_INVOICES,
     PermissionCode.CREATE_BILL_INVOICE,
     PermissionCode.DOWNLOAD_BILL_INVOICE,
@@ -94,7 +94,7 @@ export default function TenantBillsPage() {
   const canCreateBill = isAdmin || isManager || permissions.bills.canCreate;
   const canEditBill = isAdmin || isManager || permissions.bills.canEdit;
   const canDeleteBill = isAdmin || isManager || permissions.bills.canDelete;
-  const canPayBill = isAdmin || isManager || hasPermission(PermissionCode.PAY_BILL);
+  const canPayBill = isAdmin || isManager || hasPermission(PermissionCode.PAY_BILLS);
   const canRecordMeterReadings = isAdmin || isManager || hasPermission(PermissionCode.RECORD_METER_READINGS);
   
   const canViewBillInvoices = isAdmin || isManager || permissions.billInvoices.canView;
