@@ -1,11 +1,10 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Tenant, Unit, VATType } from '@/types';
 import { tenantsAPI, unitsAPI } from '@/lib/api';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { useGlobalPermissions } from '@/app/providers/PermissionsProvider';
 
 interface TenantFormProps {
   tenant?: Tenant;
@@ -52,18 +51,6 @@ const getDraftKey = (tenantId?: string, propertyId?: string) => {
 };
 
 export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: TenantFormProps) {
-  // Permission hooks - using the centralized permission system
-  const { 
-    isAdmin, 
-    isManager,
-    canCreateTenant,  // Now available directly from useGlobalPermissions
-    canEditTenant,    // Now available directly from useGlobalPermissions
-  } = useGlobalPermissions();
-  
-  // No need to redefine these - they come directly from the hook
-  // const canCreateTenant = isAdmin || isManager || permissions.tenants.canCreate;
-  // const canEditTenant = isAdmin || isManager || permissions.tenants.canEdit;
-  
   const [formData, setFormData] = useState<TenantFormData>({
     fullName: '',
     contact: '',
@@ -89,23 +76,9 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
   const [selectedUnit, setSelectedUnit] = useState<Unit | null>(null);
   const [fetchingUnits, setFetchingUnits] = useState(false);
   const [hasDraft, setHasDraft] = useState(false);
-  
-  // Use ref to track if form has been submitted to prevent duplicate submissions
-  const isSubmittingRef = useRef(false);
-
-  // Log permissions for debugging
-  useEffect(() => {
-    console.log('TenantForm - Permission check:', {
-      isAdmin,
-      isManager,
-      canCreateTenant,
-      canEditTenant,
-      tenantMode: tenant ? 'edit' : 'create'
-    });
-  }, [isAdmin, isManager, canCreateTenant, canEditTenant, tenant]);
 
   // Load draft from localStorage
-  const loadDraft = useCallback(() => {
+  const loadDraft = () => {
     try {
       const draftKey = getDraftKey(tenant?.id, propertyId);
       const savedDraft = localStorage.getItem(draftKey);
@@ -119,20 +92,20 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
       console.error('Error loading draft:', error);
     }
     return false;
-  }, [tenant?.id, propertyId]);
+  };
 
   // Save draft to localStorage
-  const saveDraft = useCallback((data: TenantFormData) => {
+  const saveDraft = (data: TenantFormData) => {
     try {
       const draftKey = getDraftKey(tenant?.id, propertyId);
       localStorage.setItem(draftKey, JSON.stringify(data));
     } catch (error) {
       console.error('Error saving draft:', error);
     }
-  }, [tenant?.id, propertyId]);
+  };
 
   // Clear draft from localStorage
-  const clearDraft = useCallback(() => {
+  const clearDraft = () => {
     try {
       const draftKey = getDraftKey(tenant?.id, propertyId);
       localStorage.removeItem(draftKey);
@@ -140,14 +113,93 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
     } catch (error) {
       console.error('Error clearing draft:', error);
     }
-  }, [tenant?.id, propertyId]);
+  };
 
   // Create stable dependency array to prevent useEffect warnings
   const effectDependencies = useMemo(() => {
     return [tenant?.id, propertyId];
   }, [tenant?.id, propertyId]);
 
-  const fetchUnits = useCallback(async () => {
+  useEffect(() => {
+    // Early return if no propertyId
+    if (!propertyId) {
+      console.warn('Property ID is required for TenantForm');
+      setError('Property ID is required to load units.');
+      setUnits([]);
+      return;
+    }
+
+    const initializeForm = async () => {
+      await fetchUnits();
+      
+      // Try to load draft first
+      const draftLoaded = loadDraft();
+      
+      if (!draftLoaded && tenant) {
+        // No draft found, use tenant data for editing
+        setFormData({
+          fullName: tenant.fullName,
+          contact: tenant.contact,
+          email: tenant.email || '',
+          KRAPin: tenant.KRAPin,
+          POBox: tenant.POBox || '',
+          unitId: tenant.unitId,
+          leaseTerm: tenant.leaseTerm,
+          rent: tenant.rent,
+          escalationRate: tenant.escalationRate || 0,
+          escalationFrequency: tenant.escalationFrequency || undefined,
+          termStart: tenant.termStart.split('T')[0],
+          rentStart: tenant.rentStart.split('T')[0],
+          deposit: tenant.deposit,
+          vatRate: tenant.vatRate || 0,
+          vatType: tenant.vatType,
+          paymentPolicy: tenant.paymentPolicy,
+          serviceCharge: tenant.serviceCharge ? {
+            type: tenant.serviceCharge.type,
+            fixedAmount: tenant.serviceCharge.fixedAmount || 0,
+            percentage: tenant.serviceCharge.percentage || 0,
+            perSqFtRate: tenant.serviceCharge.perSqFtRate || 0
+          } : undefined
+        });
+        
+        // Set selected unit when editing tenant
+        if (tenant.unit) {
+          setSelectedUnit(tenant.unit);
+        }
+      } else if (!draftLoaded && !tenant) {
+        // No draft and not editing - start fresh
+        resetForm();
+      }
+    };
+
+    initializeForm();
+  }, effectDependencies);
+
+  const resetForm = () => {
+    setFormData({
+      fullName: '',
+      contact: '',
+      email: '',
+      KRAPin: '',
+      POBox: '',
+      unitId: '',
+      leaseTerm: '',
+      rent: 0,
+      escalationRate: 0,
+      escalationFrequency: undefined,
+      termStart: '',
+      rentStart: '',
+      deposit: 0,
+      vatRate: 0,
+      vatType: 'NOT_APPLICABLE',
+      paymentPolicy: 'MONTHLY',
+      serviceCharge: undefined
+    });
+    setSelectedUnit(null);
+    setError('');
+  };
+
+  const fetchUnits = async () => {
     // Don't fetch if no propertyId
     if (!propertyId) {
       console.warn('Cannot fetch units without propertyId');
@@ -208,88 +260,9 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
     } finally {
       setFetchingUnits(false);
     }
-  }, [propertyId, tenant]);
+  };
 
-  useEffect(() => {
-    // Early return if no propertyId
-    if (!propertyId) {
-      console.warn('Property ID is required for TenantForm');
-      setError('Property ID is required to load units.');
-      setUnits([]);
-      return;
-    }
-
-    const initializeForm = async () => {
-      await fetchUnits();
-      
-      // Try to load draft first
-      const draftLoaded = loadDraft();
-      
-      if (!draftLoaded && tenant) {
-        // No draft found, use tenant data for editing
-        setFormData({
-          fullName: tenant.fullName,
-          contact: tenant.contact,
-          email: tenant.email || '',
-          KRAPin: tenant.KRAPin,
-          POBox: tenant.POBox || '',
-          unitId: tenant.unitId,
-          leaseTerm: tenant.leaseTerm,
-          rent: tenant.rent,
-          escalationRate: tenant.escalationRate || 0,
-          escalationFrequency: tenant.escalationFrequency || undefined,
-          termStart: tenant.termStart.split('T')[0],
-          rentStart: tenant.rentStart.split('T')[0],
-          deposit: tenant.deposit,
-          vatRate: tenant.vatRate || 0,
-          vatType: tenant.vatType,
-          paymentPolicy: tenant.paymentPolicy,
-          serviceCharge: tenant.serviceCharge ? {
-            type: tenant.serviceCharge.type,
-            fixedAmount: tenant.serviceCharge.fixedAmount || 0,
-            percentage: tenant.serviceCharge.percentage || 0,
-            perSqFtRate: tenant.serviceCharge.perSqFtRate || 0
-          } : undefined
-        });
-        
-        // Set selected unit when editing tenant
-        if (tenant.unit) {
-          setSelectedUnit(tenant.unit);
-        }
-      } else if (!draftLoaded && !tenant) {
-        // No draft and not editing - start fresh
-        resetForm();
-      }
-    };
-
-    initializeForm();
-  }, [effectDependencies, fetchUnits, loadDraft, tenant]);
-
-  const resetForm = useCallback(() => {
-    setFormData({
-      fullName: '',
-      contact: '',
-      email: '',
-      KRAPin: '',
-      POBox: '',
-      unitId: '',
-      leaseTerm: '',
-      rent: 0,
-      escalationRate: 0,
-      escalationFrequency: undefined,
-      termStart: '',
-      rentStart: '',
-      deposit: 0,
-      vatRate: 0,
-      vatType: 'NOT_APPLICABLE',
-      paymentPolicy: 'MONTHLY',
-      serviceCharge: undefined
-    });
-    setSelectedUnit(null);
-    setError('');
-  }, []);
-
-  const handleUnitChange = useCallback(async (e: React.ChangeEvent<HTMLSelectElement>) => {
+  const handleUnitChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
     const unitId = e.target.value;
     
     // Update the unitId in form data
@@ -331,9 +304,9 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
       setFormData(updatedFormData);
       saveDraft(updatedFormData);
     }
-  }, [formData, units, hasDraft, saveDraft]);
+  };
 
-  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
     
     const newFormData = {
@@ -350,9 +323,9 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
     if (!hasDraft) {
       setHasDraft(true);
     }
-  }, [formData, hasDraft, saveDraft]);
+  };
 
-  const handleServiceChargeChange = useCallback((e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+  const handleServiceChargeChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
     
     const newFormData = {
@@ -369,9 +342,9 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
     if (!hasDraft) {
       setHasDraft(true);
     }
-  }, [formData, hasDraft, saveDraft]);
+  };
 
-  const handleServiceChargeTypeChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
+  const handleServiceChargeTypeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const { value } = e.target;
     const serviceChargeType = value as 'FIXED' | 'PERCENTAGE' | 'PER_SQ_FT';
     
@@ -408,9 +381,9 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
     if (!hasDraft) {
       setHasDraft(true);
     }
-  }, [formData, hasDraft, saveDraft]);
+  };
 
-  const handleRemoveServiceCharge = useCallback(() => {
+  const handleRemoveServiceCharge = () => {
     const newFormData = {
       ...formData,
       serviceCharge: undefined
@@ -422,13 +395,13 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
     if (!hasDraft) {
       setHasDraft(true);
     }
-  }, [formData, hasDraft, saveDraft]);
+  };
 
-  const handleAddServiceCharge = useCallback(() => {
+  const handleAddServiceCharge = () => {
     handleServiceChargeTypeChange({ target: { value: 'FIXED' } } as any);
-  }, [handleServiceChargeTypeChange]);
+  };
 
-  const hasServiceChargeValue = useCallback((): boolean => {
+  const hasServiceChargeValue = (): boolean => {
     if (!formData.serviceCharge) return false;
     
     const { type, fixedAmount, percentage, perSqFtRate } = formData.serviceCharge;
@@ -443,9 +416,9 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
       default:
         return false;
     }
-  }, [formData.serviceCharge]);
+  };
 
-  const handleClearDraft = useCallback(() => {
+  const handleClearDraft = () => {
     if (confirm('Are you sure you want to clear the saved draft? This action cannot be undone.')) {
       if (tenant) {
         // Reset to original tenant data
@@ -483,54 +456,16 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
       }
       clearDraft();
     }
-  }, [tenant, resetForm, clearDraft]);
+  };
 
-  // Validate permissions before submission
-  const validatePermissions = useCallback((): { hasPermission: boolean; errorMessage: string | null } => {
-    if (tenant) {
-      // Editing existing tenant
-      if (!canEditTenant) {
-        console.warn('TenantForm - Edit permission denied:', { isAdmin, isManager, canEditTenant });
-        return {
-          hasPermission: false,
-          errorMessage: 'You do not have permission to edit tenants. Please contact an administrator or refresh the page.'
-        };
-      }
-    } else {
-      // Creating new tenant
-      if (!canCreateTenant) {
-        console.warn('TenantForm - Create permission denied:', { isAdmin, isManager, canCreateTenant });
-        return {
-          hasPermission: false,
-          errorMessage: 'You do not have permission to create tenants. Please contact an administrator or refresh the page.'
-        };
-      }
-    }
-    return { hasPermission: true, errorMessage: null };
-  }, [tenant, canCreateTenant, canEditTenant, isAdmin, isManager]);
-
-  const handleSubmit = useCallback(async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    // Prevent duplicate submissions
-    if (isSubmittingRef.current) {
-      console.log('Form already submitting, skipping...');
-      return;
-    }
-    
-    // Validate permissions first
-    const { hasPermission, errorMessage } = validatePermissions();
-    if (!hasPermission) {
-      setError(errorMessage!);
-      return;
-    }
-    
     setLoading(true);
     setError('');
 
     try {
-      // Prepare data for API call
-      const submitData: Partial<Tenant> & { propertyId?: string } = {
+      // Prepare data for API call - use a flexible type for the request payload
+      const submitData: any = {
         fullName: formData.fullName,
         contact: formData.contact,
         email: formData.email.trim() || undefined,
@@ -548,6 +483,17 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
         vatType: formData.vatType,
         paymentPolicy: formData.paymentPolicy,
       };
+
+      // Add service charge to the main create/update request if it exists
+      if (formData.serviceCharge && hasServiceChargeValue()) {
+        // Transform ServiceChargeFormData to match backend expected format
+        submitData.serviceCharge = {
+          type: formData.serviceCharge.type,
+          fixedAmount: formData.serviceCharge.fixedAmount || 0,
+          percentage: formData.serviceCharge.percentage || 0,
+          perSqFtRate: formData.serviceCharge.perSqFtRate || 0,
+        };
+      }
 
       // Validate required fields
       if (!submitData.fullName?.trim()) {
@@ -574,7 +520,7 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
       if (!submitData.rentStart) {
         throw new Error('Rent start date is required');
       }
-      if (submitData.deposit === undefined || submitData.deposit < 0) {
+      if (!submitData.deposit || submitData.deposit < 0) {
         throw new Error('Valid deposit amount is required');
       }
 
@@ -592,52 +538,23 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
         throw new Error('Selected unit does not belong to this property');
       }
 
-      // IMPORTANT: Add propertyId to the submitData for creation
-      // This ensures the tenant is properly associated with the property
-      if (!tenant) {
-        submitData.propertyId = propertyId;
-      }
-
-      console.log('Submitting tenant data:', { ...submitData, propertyId });
-
-      isSubmittingRef.current = true;
-
       if (tenant) {
-        // For updates, first update the tenant basic info
+        // For updates, update tenant with all data including service charge
         await tenantsAPI.update(tenant.id, submitData);
-        
-        // Then handle service charge separately if it exists
-        if (formData.serviceCharge && hasServiceChargeValue()) {
-          await tenantsAPI.updateServiceCharge(tenant.id, formData.serviceCharge);
-        } else if (tenant.serviceCharge && !formData.serviceCharge) {
-          // Remove service charge if it was removed
-          await tenantsAPI.removeServiceCharge(tenant.id);
-        }
       } else {
-        // For creation, create tenant first
-        const newTenant = await tenantsAPI.create(submitData);
-        
-        // Then add service charge if it exists
-        if (formData.serviceCharge && hasServiceChargeValue()) {
-          await tenantsAPI.updateServiceCharge(newTenant.id, formData.serviceCharge);
-        }
+        // For creation, create tenant with all data including service charge
+        await tenantsAPI.create(submitData);
       }
       
       // Clear draft after successful submission
       clearDraft();
       
-      // Reset submitting ref
-      isSubmittingRef.current = false;
-      
       onSuccess?.();
     } catch (err: any) {
-      // Reset submitting ref on error
-      isSubmittingRef.current = false;
-      
-      // Enhanced error handling
+      // Enhanced error handling - let backend be the source of truth
       console.error('Error saving tenant:', err);
       
-      // Check for different error formats
+      // Get the error message from the backend response
       let errorMessage = 'Failed to save tenant';
       
       if (err instanceof Error) {
@@ -650,24 +567,12 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
         errorMessage = err;
       }
       
-      // Provide more specific error messages for common issues
-      if (errorMessage.includes('KRA Pin') || errorMessage.includes('KRA PIN')) {
-        errorMessage = 'A tenant with this KRA PIN already exists. Please use a different KRA PIN.';
-      } else if (errorMessage.includes('unit is already occupied')) {
-        errorMessage = 'The selected unit is already occupied. Please choose a vacant unit.';
-      } else if (errorMessage.includes('Access denied') || errorMessage.includes('permission')) {
-        errorMessage = 'You do not have permission to perform this action. Please refresh the page and try again. If the issue persists, contact your administrator.';
-      } else if (errorMessage.includes('does not belong to this property')) {
-        errorMessage = 'The selected unit is not part of this property. Please select a unit from this property.';
-      } else if (errorMessage.includes('email')) {
-        errorMessage = 'A tenant with this email already exists. Please use a different email.';
-      }
-      
+      // Display the backend error message directly without custom mapping
       setError(errorMessage);
     } finally {
       setLoading(false);
     }
-  }, [formData, tenant, units, propertyId, clearDraft, onSuccess, hasServiceChargeValue, validatePermissions]);
+  };
 
   // Helper function to get unit display name
   const getUnitDisplayName = (unit: Unit): string => {
@@ -715,15 +620,6 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
       {error && !error.includes('Warning') && (
         <div className="px-4 py-3 rounded bg-red-50 border border-red-200 text-red-600">
           {error}
-          {error.includes('refresh') && (
-            <button
-              type="button"
-              onClick={() => window.location.reload()}
-              className="ml-3 text-sm underline hover:text-red-800"
-            >
-              Refresh Page
-            </button>
-          )}
         </div>
       )}
 

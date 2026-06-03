@@ -286,6 +286,9 @@ export function usePermissions() {
     return navigation;
   }, [permissions]);
 
+  // Get isLoading from auth context
+  const isLoading = auth?.isLoading ?? true;
+
   // If auth is loading or not ready, return defaults
   if (!auth || auth.isLoading) {
     return {
@@ -293,6 +296,7 @@ export function usePermissions() {
       hasPermission: () => false,
       canAccessModule: () => false,
       getVisibleNavigation: () => [],
+      isLoading: true, // Add isLoading to return
       user: null,
       roleName: null,
       isAdmin: false,
@@ -346,7 +350,6 @@ export function usePermissions() {
       canCreateEmployee: false,
       canEditEmployee: false,
       canDeleteEmployee: false,
-      // Added missing tenant permissions
       canViewTenants: false,
       canCreateTenant: false,
       canEditTenant: false,
@@ -400,6 +403,7 @@ export function usePermissions() {
     hasPermission,
     canAccessModule,
     getVisibleNavigation,
+    isLoading: false, // Add isLoading to return - false when loaded
     user,
     roleName,
     isAdmin,
@@ -464,7 +468,7 @@ export function usePermissions() {
     canCreateDemandLetter: permissions.demandLetters.canCreate,
     canEditDemandLetter: permissions.demandLetters.canEdit,
     canDeleteDemandLetter: permissions.demandLetters.canDelete,
-    // Tenant permissions - ADDED THESE
+    // Tenant permissions
     canViewTenants: permissions.tenants.canView,
     canCreateTenant: permissions.tenants.canCreate,
     canEditTenant: permissions.tenants.canEdit,
