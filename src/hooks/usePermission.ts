@@ -346,6 +346,11 @@ export function usePermissions() {
       canCreateEmployee: false,
       canEditEmployee: false,
       canDeleteEmployee: false,
+      // Added missing tenant permissions
+      canViewTenants: false,
+      canCreateTenant: false,
+      canEditTenant: false,
+      canDeleteTenant: false,
     };
   }
 
@@ -448,6 +453,7 @@ export function usePermissions() {
     canCreateBill: permissions.bills.canCreate,
     canEditBill: permissions.bills.canEdit,
     canDeleteBill: permissions.bills.canDelete,
+    canPayBill: permissions.bills.canExport,
     // Bill Invoice permissions
     canViewBillInvoices: permissions.billInvoices.canView,
     canCreateBillInvoice: permissions.billInvoices.canCreate,
@@ -458,6 +464,11 @@ export function usePermissions() {
     canCreateDemandLetter: permissions.demandLetters.canCreate,
     canEditDemandLetter: permissions.demandLetters.canEdit,
     canDeleteDemandLetter: permissions.demandLetters.canDelete,
+    // Tenant permissions - ADDED THESE
+    canViewTenants: permissions.tenants.canView,
+    canCreateTenant: permissions.tenants.canCreate,
+    canEditTenant: permissions.tenants.canEdit,
+    canDeleteTenant: permissions.tenants.canDelete,
     // Payment specific permissions
     canRecordPayments: hasPermission(PermissionCode.RECORD_PAYMENTS),
     canPreviewPayments: hasPermission(PermissionCode.PREVIEW_PAYMENTS),

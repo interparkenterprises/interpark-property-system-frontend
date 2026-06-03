@@ -423,12 +423,13 @@ export default function TenantBillsPage() {
         // Update the bill in the bills state immediately
         updateBillAfterPayment(selectedBill.id, finalPaymentAmount);
         
-        // Also update related bill invoices if they exist
-        const relatedInvoices = billInvoices.filter(invoice => invoice.billId === selectedBill.id);
-        if (relatedInvoices.length > 0 && canViewBillInvoices) {
-          // Refetch bill invoices to ensure they're synced
+        // ✅ IMPORTANT: Refresh bill invoices to show the newly generated invoice
+        if (canViewBillInvoices) {
           await fetchBillInvoices();
         }
+        
+        // Also refresh bills to ensure everything is in sync
+        await fetchBills();
         
         setShowPayDialog(false);
         setSelectedBill(null);
@@ -552,7 +553,13 @@ export default function TenantBillsPage() {
           // Update the bill with the new total paid amount
           updateBillAfterPayment(selectedBillInvoice.billId, finalPaymentAmount);
         }
+        
+        // ✅ Refresh bills to ensure they're in sync
+        await fetchBills();
       }
+      
+      // ✅ Refresh bill invoices to ensure all data is up to date
+      await fetchBillInvoices();
       
       setShowPayDialog(false);
       setSelectedBillInvoice(null);
