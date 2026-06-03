@@ -11,6 +11,7 @@ interface ActionPermissions {
 }
 
 interface ModulePermissions {
+  employees: any;
   properties: ActionPermissions;
   units: ActionPermissions;
   tenants: ActionPermissions;
@@ -30,8 +31,6 @@ interface ModulePermissions {
   bills: ActionPermissions;
   billInvoices: ActionPermissions;
   demandLetters: ActionPermissions;
-  income: ActionPermissions;
-  employees: ActionPermissions;
 }
 
 export function usePermissions() {
@@ -49,6 +48,7 @@ export function usePermissions() {
     if (!auth || auth.isLoading) {
       return {
         properties: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
+        employees: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
         units: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
         tenants: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
         leads: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
@@ -67,8 +67,6 @@ export function usePermissions() {
         bills: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
         billInvoices: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
         demandLetters: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
-        income: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
-        employees: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
       };
     }
 
@@ -104,6 +102,13 @@ export function usePermissions() {
         canDelete: isAdmin || hasPermission(PermissionCode.DELETE_PROPERTY) || (isManager && hasManagedPropertyAccess),
         canExport: isAdmin || isManager || hasPermission(PermissionCode.VIEW_PROPERTIES) || hasManagedPropertyAccess,
       },
+      employees: makePerms(
+        PermissionCode.VIEW_EMPLOYEES,
+        PermissionCode.CREATE_EMPLOYEE,
+        PermissionCode.EDIT_EMPLOYEE,
+        PermissionCode.DELETE_EMPLOYEE,
+        PermissionCode.VIEW_EMPLOYEES
+      ),
       units: makePerms(
         PermissionCode.VIEW_UNITS,
         PermissionCode.CREATE_UNIT,
@@ -134,30 +139,30 @@ export function usePermissions() {
       ),
       offers: makePerms(
         PermissionCode.VIEW_OFFER_LETTERS,
-        PermissionCode.CREATE_OFFER_LETTER,
-        PermissionCode.EDIT_OFFER_LETTER,
-        PermissionCode.DELETE_OFFER_LETTER,
+        PermissionCode.CREATE_OFFER_LETTERS,
+        PermissionCode.EDIT_OFFER_LETTERS,
+        PermissionCode.DELETE_OFFER_LETTERS,
         PermissionCode.VIEW_OFFER_LETTERS
       ),
       invoices: makePerms(
         PermissionCode.VIEW_INVOICES,
-        PermissionCode.CREATE_INVOICE,
-        PermissionCode.EDIT_INVOICE_STATUS,
-        PermissionCode.DELETE_INVOICE,
-        PermissionCode.DOWNLOAD_INVOICE
+        PermissionCode.CREATE_INVOICES,
+        PermissionCode.EDIT_INVOICES,
+        PermissionCode.DELETE_INVOICES,
+        PermissionCode.DOWNLOAD_INVOICES
       ),
       payments: makePerms(
         PermissionCode.VIEW_PAYMENT_REPORTS,
-        PermissionCode.CREATE_PAYMENT_REPORT,
-        PermissionCode.EDIT_PAYMENT_REPORT,
-        PermissionCode.DELETE_PAYMENT_REPORT,
+        PermissionCode.RECORD_PAYMENTS,
+        PermissionCode.EDIT_PAYMENT_RECORDS,
+        PermissionCode.DELETE_PAYMENT_RECORDS,
         PermissionCode.DOWNLOAD_PAYMENT_RECEIPT
       ),
       commissions: makePerms(
         PermissionCode.VIEW_COMMISSIONS,
         PermissionCode.PROCESS_COMMISSIONS,
         PermissionCode.PROCESS_COMMISSIONS,
-        'DELETE_COMMISSION',
+        PermissionCode.PROCESS_COMMISSIONS,
         PermissionCode.VIEW_COMMISSIONS
       ),
       users: {
@@ -211,9 +216,9 @@ export function usePermissions() {
       ),
       bills: makePerms(
         PermissionCode.VIEW_BILLS,
-        PermissionCode.CREATE_BILL,
-        PermissionCode.EDIT_BILL,
-        PermissionCode.DELETE_BILL,
+        PermissionCode.CREATE_BILLS,
+        PermissionCode.EDIT_BILLS,
+        PermissionCode.DELETE_BILLS,
         PermissionCode.VIEW_BILLS
       ),
       billInvoices: makePerms(
@@ -229,20 +234,6 @@ export function usePermissions() {
         PermissionCode.EDIT_DEMAND_LETTER_STATUS,
         PermissionCode.DELETE_DEMAND_LETTER,
         PermissionCode.DOWNLOAD_DEMAND_LETTER
-      ),
-      income: makePerms(
-        PermissionCode.VIEW_INCOMES,
-        PermissionCode.CREATE_INCOME,
-        PermissionCode.EDIT_INCOME,
-        PermissionCode.DELETE_INCOME,
-        PermissionCode.VIEW_INCOMES
-      ),
-      employees: makePerms(
-        PermissionCode.VIEW_EMPLOYEES,
-        PermissionCode.CREATE_EMPLOYEE,
-        PermissionCode.EDIT_EMPLOYEE,
-        PermissionCode.DELETE_EMPLOYEE,
-        PermissionCode.VIEW_EMPLOYEES
       ),
     };
   }, [auth, accessiblePropertyIds]);
@@ -266,9 +257,6 @@ export function usePermissions() {
     }
     if (permissions.offers.canView) {
       navigation.push({ name: 'Offers', href: '/offers', icon: '📄' });
-    }
-    if (permissions.employees.canView) {
-      navigation.push({ name: 'Employees Info', href: '/employees', icon: '👥' });
     }
     if (permissions.bills.canView) {
       navigation.push({ name: 'Utility Bills', href: '/bills', icon: '💡' });
@@ -329,7 +317,6 @@ export function usePermissions() {
       canCreateOffer: false,
       canEditOffer: false,
       canDeleteOffer: false,
-      canViewIncome: false,
       canManageUsers: false,
       canManageRoles: false,
       canViewServiceProviders: false,
@@ -352,14 +339,6 @@ export function usePermissions() {
       canCreateDemandLetter: false,
       canEditDemandLetter: false,
       canDeleteDemandLetter: false,
-      canViewIncomeRecords: false,
-      canCreateIncomeRecord: false,
-      canEditIncomeRecord: false,
-      canDeleteIncomeRecord: false,
-      canViewEmployees: false,
-      canCreateEmployee: false,
-      canEditEmployee: false,
-      canDeleteEmployee: false,
     };
   }
 
@@ -424,56 +403,57 @@ export function usePermissions() {
     canAssignLandlord: canAssignLandlord(),
     canViewLandlordsForAssignment: canViewLandlordsForAssignment(),
     canCreateNewLandlord: canCreateNewLandlord(),
-    // FIXED: Removed (isAdmin || isManager) restriction - now based purely on permissions
+    // Lead permissions
     canViewLeads: permissions.leads.canView,
     canCreateLead: permissions.leads.canCreate,
     canEditLead: permissions.leads.canEdit,
     canDeleteLead: permissions.leads.canDelete,
+    // Landlord permissions
     canViewLandlords: permissions.landlords.canView,
     canCreateLandlord: permissions.landlords.canCreate,
     canEditLandlord: permissions.landlords.canEdit,
     canDeleteLandlord: permissions.landlords.canDelete,
+    // Offer Letter permissions
     canViewOffers: permissions.offers.canView,
     canCreateOffer: permissions.offers.canCreate,
     canEditOffer: permissions.offers.canEdit,
     canDeleteOffer: permissions.offers.canDelete,
-    canViewIncome: permissions.commissions.canView,
-    canManageUsers: permissions.users.canView,
+    // User Management permissions
+    canManageUsers: permissions.users.canView || permissions.users.canCreate,
     canManageRoles: permissions.roles.canView,
-    // Service Providers
+    // Service Provider permissions
     canViewServiceProviders: permissions.serviceProviders.canView,
     canCreateServiceProvider: permissions.serviceProviders.canCreate,
     canEditServiceProvider: permissions.serviceProviders.canEdit,
     canDeleteServiceProvider: permissions.serviceProviders.canDelete,
-    // Activations
+    // Activation permissions
     canViewActivations: permissions.activations.canView,
     canCreateActivation: permissions.activations.canCreate,
     canEditActivation: permissions.activations.canEdit,
     canDeleteActivation: permissions.activations.canDelete,
-    // Bills (Utility)
+    // Bill permissions
     canViewBills: permissions.bills.canView,
     canCreateBill: permissions.bills.canCreate,
     canEditBill: permissions.bills.canEdit,
     canDeleteBill: permissions.bills.canDelete,
-    // Bill Invoices
+    // Bill Invoice permissions
     canViewBillInvoices: permissions.billInvoices.canView,
     canCreateBillInvoice: permissions.billInvoices.canCreate,
     canEditBillInvoice: permissions.billInvoices.canEdit,
     canDeleteBillInvoice: permissions.billInvoices.canDelete,
-    // Demand Letters
+    // Demand Letter permissions
     canViewDemandLetters: permissions.demandLetters.canView,
     canCreateDemandLetter: permissions.demandLetters.canCreate,
     canEditDemandLetter: permissions.demandLetters.canEdit,
     canDeleteDemandLetter: permissions.demandLetters.canDelete,
-    // Income Records
-    canViewIncomeRecords: permissions.income.canView,
-    canCreateIncomeRecord: permissions.income.canCreate,
-    canEditIncomeRecord: permissions.income.canEdit,
-    canDeleteIncomeRecord: permissions.income.canDelete,
-    // Employee permissions
-    canViewEmployees: permissions.employees.canView,
-    canCreateEmployee: permissions.employees.canCreate,
-    canEditEmployee: permissions.employees.canEdit,
-    canDeleteEmployee: permissions.employees.canDelete,
+    // Payment specific permissions
+    canRecordPayments: hasPermission(PermissionCode.RECORD_PAYMENTS),
+    canPreviewPayments: hasPermission(PermissionCode.PREVIEW_PAYMENTS),
+    canViewArrears: hasPermission(PermissionCode.VIEW_ARREARS),
+    canDownloadPaymentReceipt: hasPermission(PermissionCode.DOWNLOAD_PAYMENT_RECEIPT),
+    // Download permissions
+    canDownloadInvoice: hasPermission(PermissionCode.DOWNLOAD_INVOICES),
+    canDownloadDemandLetter: hasPermission(PermissionCode.DOWNLOAD_DEMAND_LETTER),
+    canDownloadBillInvoice: hasPermission(PermissionCode.DOWNLOAD_BILL_INVOICE),
   };
 }

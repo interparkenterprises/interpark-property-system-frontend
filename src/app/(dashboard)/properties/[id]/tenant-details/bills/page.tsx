@@ -25,7 +25,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from 'sonner';
-//import { PermissionGuard } from '@/components/auth/PermissionGuard';
 import { useGlobalPermissions } from '@/app/providers/PermissionsProvider';
 import { PermissionCode } from '@/types';
 
@@ -50,7 +49,7 @@ export default function TenantBillsPage() {
   const router = useRouter();
   const tenantId = params.id as string;
   
-  // Permission hooks
+  // Permission hooks - using the centralized permission system
   const { 
     permissions,
     isAdmin, 
@@ -64,10 +63,9 @@ export default function TenantBillsPage() {
   // ==============================================
   const billsPageAccessPermissions = useMemo(() => [
     PermissionCode.VIEW_BILLS,
-    PermissionCode.VIEW_BILL_DETAILS,
-    PermissionCode.CREATE_BILL,
-    PermissionCode.EDIT_BILL,
-    PermissionCode.DELETE_BILL,
+    PermissionCode.CREATE_BILLS,
+    PermissionCode.EDIT_BILLS,
+    PermissionCode.DELETE_BILLS,
     PermissionCode.PAY_BILL,
     PermissionCode.VIEW_BILL_INVOICES,
     PermissionCode.CREATE_BILL_INVOICE,
@@ -89,24 +87,25 @@ export default function TenantBillsPage() {
 
   // ==============================================
   // PERMISSION CHECKS FOR SPECIFIC FEATURES
-  // ADMIN and MANAGER have full access
-  // USER has limited access based on their permissions
+  // Using centralized permissions from usePermissions hook
   // ==============================================
   
-  const canViewBills = isAdmin || isManager || hasPermission(PermissionCode.VIEW_BILLS);
-  const canViewBillDetails = isAdmin || isManager || hasPermission(PermissionCode.VIEW_BILL_DETAILS);
-  const canCreateBill = isAdmin || isManager || hasPermission(PermissionCode.CREATE_BILL);
-  const canEditBill = isAdmin || isManager || hasPermission(PermissionCode.EDIT_BILL);
-  const canDeleteBill = isAdmin || isManager || hasPermission(PermissionCode.DELETE_BILL);
+  const canViewBills = isAdmin || isManager || permissions.bills.canView;
+  const canCreateBill = isAdmin || isManager || permissions.bills.canCreate;
+  const canEditBill = isAdmin || isManager || permissions.bills.canEdit;
+  const canDeleteBill = isAdmin || isManager || permissions.bills.canDelete;
   const canPayBill = isAdmin || isManager || hasPermission(PermissionCode.PAY_BILL);
   const canRecordMeterReadings = isAdmin || isManager || hasPermission(PermissionCode.RECORD_METER_READINGS);
   
-  const canViewBillInvoices = isAdmin || isManager || hasPermission(PermissionCode.VIEW_BILL_INVOICES);
-  const canViewBillInvoiceDetails = isAdmin || isManager || hasPermission(PermissionCode.VIEW_BILL_INVOICE_DETAILS);
-  const canCreateBillInvoice = isAdmin || isManager || hasPermission(PermissionCode.CREATE_BILL_INVOICE);
-  const canRecordBillInvoicePayment = isAdmin || isManager || hasPermission(PermissionCode.RECORD_BILL_INVOICE_PAYMENT);
-  const canDeleteBillInvoice = isAdmin || isManager || hasPermission(PermissionCode.DELETE_BILL_INVOICE);
-  const canDownloadBillInvoice = isAdmin || isManager || hasPermission(PermissionCode.DOWNLOAD_BILL_INVOICE);
+  const canViewBillInvoices = isAdmin || isManager || permissions.billInvoices.canView;
+  const canCreateBillInvoice = isAdmin || isManager || permissions.billInvoices.canCreate;
+  const canRecordBillInvoicePayment = isAdmin || isManager || permissions.billInvoices.canEdit;
+  const canDeleteBillInvoice = isAdmin || isManager || permissions.billInvoices.canDelete;
+  const canDownloadBillInvoice = isAdmin || isManager || permissions.billInvoices.canExport;
+  
+  // Module-level access checks
+  const canAccessBillsModule = canAccessModule('bills');
+  const canAccessBillInvoicesModule = canAccessModule('billInvoices');
 
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [bills, setBills] = useState<Bill[]>([]);
@@ -455,7 +454,7 @@ export default function TenantBillsPage() {
   };
   
   const fetchLastBillInfo = async (type: BillType) => {
-    if (!canViewBillDetails && !canRecordMeterReadings) return;
+    if (!canViewBills && !canRecordMeterReadings) return;
     if (!tenantId) return;
     
     setLoadingLastBill(true);
@@ -888,13 +887,13 @@ export default function TenantBillsPage() {
           <div className="flex items-center gap-4 mt-2">
             <p className="text-gray-600">Manage water and electricity bills</p>
             <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getPaymentPolicyColor(tenant.paymentPolicy)}`}>
-              Payment Policy: MONTHLY
+              Payment Policy: {tenant.paymentPolicy}
             </span>
           </div>
         </div>
         <div className="flex gap-3">
-          {/* View Bill Invoices Button - ADMIN, MANAGER, or user with VIEW_BILL_INVOICES permission */}
-          {(isAdmin || isManager || hasPermission(PermissionCode.VIEW_BILL_INVOICES)) && (
+          {/* View Bill Invoices Button - Using centralized permission */}
+          {(isAdmin || isManager || permissions.billInvoices.canView) && (
             <Button
               onClick={() => setShowBillInvoicesDialog(true)}
               variant="outline"
@@ -907,13 +906,13 @@ export default function TenantBillsPage() {
             </Button>
           )}
           
-          {/* Create New Bill Button - ADMIN, MANAGER, or user with CREATE_BILL permission */}
-          {(isAdmin || isManager || hasPermission(PermissionCode.CREATE_BILL)) && (
+          {/* Create New Bill Button - Using centralized permission */}
+          {(isAdmin || isManager || permissions.bills.canCreate) && (
             <Button
               onClick={() => {
                 resetBillForm();
                 setShowCreateDialog(true);
-                if (canViewBillDetails || canRecordMeterReadings) {
+                if (canViewBills || canRecordMeterReadings) {
                   setTimeout(() => fetchLastBillInfo('WATER'), 0);
                 }
               }}
@@ -989,7 +988,7 @@ export default function TenantBillsPage() {
         <div className="p-6 border-b border-gray-200">
           <h2 className="text-xl font-bold text-heading-color">Bills History</h2>
           <p className="text-sm text-gray-600 mt-1">
-            Tenant Payment Policy: <span className="font-semibold">Monthly</span>
+            Tenant Payment Policy: <span className="font-semibold">{tenant.paymentPolicy}</span>
           </p>
         </div>
         
@@ -1017,7 +1016,7 @@ export default function TenantBillsPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
             <p className="text-gray-600">No bills found</p>
-            {(isAdmin || isManager || hasPermission(PermissionCode.CREATE_BILL)) && (
+            {canCreateBill && (
               <Button onClick={() => setShowCreateDialog(true)} className="mt-4">
                 Create Your First Bill
               </Button>
@@ -1031,7 +1030,7 @@ export default function TenantBillsPage() {
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Type</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Period</th>
-                    {(canViewBillDetails || isAdmin || isManager) && (
+                    {(canViewBills || isAdmin || isManager) && (
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Readings</th>
                     )}
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Units</th>
@@ -1075,7 +1074,7 @@ export default function TenantBillsPage() {
                             year: 'numeric',
                           })}
                         </td>
-                        {(canViewBillDetails || isAdmin || isManager) && (
+                        {(canViewBills || isAdmin || isManager) && (
                           <td className="px-6 py-4 whitespace-nowrap text-sm">
                             <div className="text-gray-600">Prev: {bill.previousReading}</div>
                             <div className="font-medium text-gray-900">Curr: {bill.currentReading}</div>
@@ -1195,7 +1194,7 @@ export default function TenantBillsPage() {
       </motion.div>
 
       {/* Create Bill Dialog */}
-      {(isAdmin || isManager || hasPermission(PermissionCode.CREATE_BILL)) && (
+      {canCreateBill && (
         <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
           <DialogContent className="sm:max-w-150 max-h-[90vh] overflow-y-auto">
             <DialogHeader>
@@ -1205,7 +1204,7 @@ export default function TenantBillsPage() {
               </DialogDescription>
               <div className="mt-2">
                 <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getPaymentPolicyColor(tenant.paymentPolicy)}`}>
-                  Payment Policy: MONTHLY
+                  Payment Policy: {tenant.paymentPolicy}
                 </span>
               </div>
             </DialogHeader>
@@ -1217,7 +1216,7 @@ export default function TenantBillsPage() {
                     value={billForm.type}
                     onValueChange={(value: BillType) => {
                       setBillForm({ ...billForm, type: value });
-                      if (canViewBillDetails || canRecordMeterReadings) {
+                      if (canViewBills || canRecordMeterReadings) {
                         fetchLastBillInfo(value);
                       }
                     }}
@@ -1292,7 +1291,7 @@ export default function TenantBillsPage() {
                     className="text-gray-900 placeholder:text-gray-500"
                   />
                   
-                  {lastBillInfo && (canViewBillDetails || canRecordMeterReadings) && (
+                  {lastBillInfo && (canViewBills || canRecordMeterReadings) && (
                     <div className="mt-2 p-3 bg-blue-50 rounded-lg border border-blue-100">
                       <p className="text-xs text-blue-800 font-medium mb-1">Last {billForm.type} Bill Information</p>
                       <div className="grid grid-cols-2 gap-2 text-xs text-blue-700">
@@ -1451,7 +1450,7 @@ export default function TenantBillsPage() {
       )}
 
       {/* Edit Bill Dialog */}
-      {(isAdmin || isManager || hasPermission(PermissionCode.EDIT_BILL)) && (
+      {canEditBill && (
         <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
           <DialogContent className="sm:max-w-150 max-h-[90vh] overflow-y-auto">
             <DialogHeader>
@@ -1772,7 +1771,7 @@ export default function TenantBillsPage() {
       </Dialog>
 
       {/* Generate Bill Invoice Dialog */}
-      {(isAdmin || isManager || hasPermission(PermissionCode.CREATE_BILL_INVOICE)) && (
+      {canCreateBillInvoice && (
         <Dialog open={showGenerateInvoiceDialog} onOpenChange={setShowGenerateInvoiceDialog}>
           <DialogContent className="sm:max-w-125">
             <DialogHeader>
@@ -1782,7 +1781,7 @@ export default function TenantBillsPage() {
               </DialogDescription>
               <div className="mt-2">
                 <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getPaymentPolicyColor(tenant.paymentPolicy)}`}>
-                  Payment Policy: MONTHLY
+                  Payment Policy: {tenant.paymentPolicy}
                 </span>
               </div>
             </DialogHeader>
@@ -1883,7 +1882,7 @@ export default function TenantBillsPage() {
       )}
 
       {/* Bill Invoices Dialog */}
-      {(isAdmin || isManager || hasPermission(PermissionCode.VIEW_BILL_INVOICES)) && (
+      {canViewBillInvoices && (
         <Dialog open={showBillInvoicesDialog} onOpenChange={setShowBillInvoicesDialog}>
           <DialogContent className="sm:max-w-200 max-h-[80vh] overflow-y-auto">
             <DialogHeader>
@@ -1893,7 +1892,7 @@ export default function TenantBillsPage() {
               </DialogDescription>
               <div className="mt-2">
                 <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getPaymentPolicyColor(tenant.paymentPolicy)}`}>
-                  Payment Policy: MONTHLY
+                  Payment Policy: {tenant.paymentPolicy}
                 </span>
               </div>
             </DialogHeader>

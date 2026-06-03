@@ -29,7 +29,6 @@ export default function Sidebar() {
     canViewLeads,
     canViewLandlords,
     canViewOffers,
-    canViewIncome,
     canManageUsers,
     canManageRoles
   } = useGlobalPermissions()
@@ -60,7 +59,6 @@ export default function Sidebar() {
     { 
       name: 'Employees Info', 
       href: '/employees',
-      requiredPermissions: ['VIEW_EMPLOYEES'],
       requiredRole: ['ADMIN', 'MANAGER'],
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -229,8 +227,6 @@ export default function Sidebar() {
           case 'VIEW_OFFER_LETTERS':
             return canViewOffers
           case 'VIEW_COMMISSIONS':
-          case 'VIEW_TENANT_FINANCIALS':
-            return canViewIncome
           case 'VIEW_EMPLOYEES':
             return permissions?.employees?.canView || false
           case 'MANAGE_USERS':
@@ -251,7 +247,7 @@ export default function Sidebar() {
   // Filter menu items based on access - memoized for performance
   const visibleMenuItems = useMemo(() => 
     allMenuItems.filter(shouldShowItem), 
-    [allMenuItems, isManagedUser, isAdmin, isManager, canViewProperties, canViewLeads, canViewLandlords, canViewOffers, canViewIncome, permissions?.employees?.canView]
+    [allMenuItems, isManagedUser, isAdmin, isManager, canViewProperties, canViewLeads, canViewLandlords, canViewOffers, permissions?.employees?.canView]
   )
   
   const visibleAdminManagerItems = useMemo(() => 

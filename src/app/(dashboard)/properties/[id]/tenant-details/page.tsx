@@ -29,7 +29,7 @@ export default function TenantDetailPage() {
   const params = useParams();
   const router = useRouter();
   
-  // Permission hooks
+  // Permission hooks - using the centralized permission system
   const { 
     permissions,
     isAdmin, 
@@ -47,14 +47,11 @@ export default function TenantDetailPage() {
     PermissionCode.VIEW_PAYMENT_REPORTS,
     PermissionCode.VIEW_BILL_INVOICES,
     PermissionCode.VIEW_DEMAND_LETTERS,
-    PermissionCode.VIEW_DEMAND_LETTER_DETAILS,
     PermissionCode.VIEW_OVERDUE_INVOICES,
-    PermissionCode.VIEW_PARTIAL_PAYMENTS,
     PermissionCode.RECORD_PAYMENTS,
-    PermissionCode.CREATE_INVOICE,
-    PermissionCode.CREATE_BALANCE_INVOICE,
-    PermissionCode.EDIT_INVOICE_PAYMENT_POLICY,
-    PermissionCode.DOWNLOAD_INVOICE,
+    PermissionCode.CREATE_INVOICES,
+    PermissionCode.CREATE_BILL_INVOICE,
+    PermissionCode.DOWNLOAD_INVOICES,
     PermissionCode.CREATE_DEMAND_LETTER,
     PermissionCode.SEND_DEMAND_LETTERS,
     PermissionCode.AUTO_GENERATE_DEMAND_LETTER,
@@ -77,27 +74,24 @@ export default function TenantDetailPage() {
   // PERMISSION CHECKS FOR SPECIFIC FEATURES
   // ADMIN and MANAGER have full access
   // USER has limited access based on their permissions
+  // Using centralized permission checks
   // ==============================================
   
   const canViewInvoices = isAdmin || isManager || 
     hasPermission(PermissionCode.VIEW_INVOICES) ||
-    hasPermission(PermissionCode.CREATE_INVOICE) ||
-    hasPermission(PermissionCode.CREATE_BALANCE_INVOICE) ||
-    hasPermission(PermissionCode.EDIT_INVOICE_PAYMENT_POLICY) ||
-    hasPermission(PermissionCode.DOWNLOAD_INVOICE) ||
-    hasPermission(PermissionCode.VIEW_PARTIAL_PAYMENTS);
+    hasPermission(PermissionCode.CREATE_INVOICES) ||
+    hasPermission(PermissionCode.DOWNLOAD_INVOICES);
     
-  const canCreateInvoices = isAdmin || isManager || hasPermission(PermissionCode.CREATE_INVOICE);
-  const canDeleteInvoices = isAdmin || isManager || hasPermission(PermissionCode.DELETE_INVOICE);
-  const canDownloadInvoices = isAdmin || isManager || hasPermission(PermissionCode.DOWNLOAD_INVOICE);
+  const canCreateInvoices = isAdmin || isManager || hasPermission(PermissionCode.CREATE_INVOICES);
+  const canDeleteInvoices = isAdmin || isManager || hasPermission(PermissionCode.DELETE_INVOICES);
+  const canDownloadInvoices = isAdmin || isManager || hasPermission(PermissionCode.DOWNLOAD_INVOICES);
   
   const canViewPayments = isAdmin || isManager ||
     hasPermission(PermissionCode.VIEW_PAYMENT_REPORTS) ||
-    hasPermission(PermissionCode.RECORD_PAYMENTS) ||
-    hasPermission(PermissionCode.VIEW_PARTIAL_PAYMENTS);
+    hasPermission(PermissionCode.RECORD_PAYMENTS);
     
   const canCreatePayments = isAdmin || isManager || hasPermission(PermissionCode.RECORD_PAYMENTS);
-  const canDeletePayments = isAdmin || isManager || hasPermission(PermissionCode.DELETE_PAYMENT_REPORT);
+  const canDeletePayments = isAdmin || isManager || hasPermission(PermissionCode.DELETE_PAYMENT_RECORDS);
   const canDownloadPaymentReports = isAdmin || isManager || hasPermission(PermissionCode.VIEW_PAYMENT_REPORTS);
   
   const canViewBillInvoices = isAdmin || isManager || hasPermission(PermissionCode.VIEW_BILL_INVOICES);
@@ -107,7 +101,6 @@ export default function TenantDetailPage() {
   
   const canViewDemandLetters = isAdmin || isManager ||
     hasPermission(PermissionCode.VIEW_DEMAND_LETTERS) ||
-    hasPermission(PermissionCode.VIEW_DEMAND_LETTER_DETAILS) ||
     hasPermission(PermissionCode.SEND_DEMAND_LETTERS) ||
     hasPermission(PermissionCode.AUTO_GENERATE_DEMAND_LETTER) ||
     hasPermission(PermissionCode.DOWNLOAD_DEMAND_LETTER);
@@ -119,6 +112,13 @@ export default function TenantDetailPage() {
   const canViewOverdueInvoices = isAdmin || isManager || hasPermission(PermissionCode.VIEW_OVERDUE_INVOICES);
   
   const canViewComprehensiveReport = isAdmin || isManager;
+  
+  // Also check module-level permissions from the centralized system
+  const canAccessTenantsModule = canAccessModule('tenants');
+  const canAccessInvoicesModule = canAccessModule('invoices');
+  const canAccessPaymentsModule = canAccessModule('payments');
+  const canAccessBillInvoicesModule = canAccessModule('billInvoices');
+  const canAccessDemandLettersModule = canAccessModule('demandLetters');
   
   // State declarations
   const [tenant, setTenant] = useState<Tenant | null>(null);
@@ -1142,7 +1142,7 @@ export default function TenantDetailPage() {
         {/* Action Buttons - Conditionally rendered based on permissions */}
         <div className="flex flex-wrap gap-3">
           {/* Generate Invoice Button - ADMIN, MANAGER, or user with CREATE_INVOICE permission */}
-          {(isAdmin || isManager || hasPermission(PermissionCode.CREATE_INVOICE)) && (
+          {(isAdmin || isManager || permissions.invoices.canCreate) && (
             <Button
               onClick={() => setShowInvoiceDialog(true)}
               className="px-6 py-3 bg-primary text-white hover:bg-primary/90 transition-all duration-300 shadow-md hover:shadow-lg rounded-lg flex items-center gap-2"
@@ -1155,7 +1155,7 @@ export default function TenantDetailPage() {
           )}
           
           {/* View Invoices Button - ADMIN, MANAGER, or user with VIEW_INVOICES permission */}
-          {(isAdmin || isManager || hasPermission(PermissionCode.VIEW_INVOICES)) && (
+          {(isAdmin || isManager || permissions.invoices.canView) && (
             <Button
               onClick={() => setShowInvoicesList(true)}
               variant="outline"
@@ -1169,7 +1169,7 @@ export default function TenantDetailPage() {
           )}
           
           {/* Record Payment Button - ADMIN, MANAGER, or user with RECORD_PAYMENTS permission */}
-          {(isAdmin || isManager || hasPermission(PermissionCode.RECORD_PAYMENTS)) && (
+          {(isAdmin || isManager || permissions.payments.canCreate) && (
             <Button
               onClick={() => setShowCreatePaymentDialog(true)}
               className="px-6 py-3 bg-blue-600 text-white hover:bg-blue-700 transition-all duration-300 shadow-md hover:shadow-lg rounded-lg flex items-center gap-2"
@@ -1182,7 +1182,7 @@ export default function TenantDetailPage() {
           )}
           
           {/* Payment Reports Button - ADMIN, MANAGER, or user with VIEW_PAYMENT_REPORTS permission */}
-          {(isAdmin || isManager || hasPermission(PermissionCode.VIEW_PAYMENT_REPORTS)) && (
+          {(isAdmin || isManager || permissions.payments.canView) && (
             <Button
               onClick={() => setShowPaymentReportsDialog(true)}
               variant="outline"
@@ -1201,7 +1201,7 @@ export default function TenantDetailPage() {
           )}
           
           {/* Bill Invoices Button - ADMIN, MANAGER, or user with VIEW_BILL_INVOICES permission */}
-          {(isAdmin || isManager || hasPermission(PermissionCode.VIEW_BILL_INVOICES)) && (
+          {(isAdmin || isManager || permissions.billInvoices.canView) && (
             <Button
               onClick={() => setShowBillInvoicesDialog(true)}
               variant="outline"
@@ -1227,7 +1227,7 @@ export default function TenantDetailPage() {
           </Button>
           
           {/* Demand Letter Button - ADMIN, MANAGER, or user with CREATE_DEMAND_LETTER permission */}
-          {(isAdmin || isManager || hasPermission(PermissionCode.CREATE_DEMAND_LETTER) || hasPermission(PermissionCode.AUTO_GENERATE_DEMAND_LETTER)) && (
+          {(isAdmin || isManager || permissions.demandLetters.canCreate) && (
             <Button
               onClick={() => setShowDemandLetterDialog(true)}
               variant="outline"
@@ -1241,7 +1241,7 @@ export default function TenantDetailPage() {
           )}
           
           {/* View Demand Letters Button - ADMIN, MANAGER, or user with VIEW_DEMAND_LETTERS permission */}
-          {(isAdmin || isManager || hasPermission(PermissionCode.VIEW_DEMAND_LETTERS)) && (
+          {(isAdmin || isManager || permissions.demandLetters.canView) && (
             <Button
               onClick={() => setShowDemandLettersListDialog(true)}
               variant="outline"
@@ -2550,7 +2550,7 @@ export default function TenantDetailPage() {
             <DialogDescription className="text-gray-700">
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                 <span className="text-sm sm:text-base">All payment reports for {tenant.fullName}</span>
-                {(isAdmin || isManager || hasPermission(PermissionCode.VIEW_PAYMENT_REPORTS)) && (
+                {(isAdmin || isManager || permissions.payments.canView) && (
                   <Button
                     onClick={handleDownloadPaymentReport}
                     disabled={generatingPDF || paymentReports.length === 0}
@@ -2639,7 +2639,7 @@ export default function TenantDetailPage() {
                       </div>
 
                       <div className="flex flex-row lg:flex-col gap-2 shrink-0 w-full lg:w-auto mt-2 lg:mt-0 pt-3 lg:pt-0 border-t lg:border-t-0 border-gray-100">
-                        {report.status === 'PARTIAL' && report.arrears > 0 && (isAdmin || isManager || hasPermission(PermissionCode.CREATE_INVOICE)) && (
+                        {report.status === 'PARTIAL' && report.arrears > 0 && (isAdmin || isManager || permissions.invoices.canCreate) && (
                           <Button
                             onClick={() => openPartialPaymentInvoiceDialog(report)}
                             size="sm"
@@ -2653,7 +2653,7 @@ export default function TenantDetailPage() {
                           </Button>
                         )}
 
-                        {(isAdmin || isManager || hasPermission(PermissionCode.RECORD_PAYMENTS)) && (
+                        {(isAdmin || isManager || permissions.payments.canDelete) && (
                           <Button
                             onClick={() => handleDeletePaymentReport(report.id, report.paymentPeriod)}
                             variant="outline"
@@ -2761,7 +2761,7 @@ export default function TenantDetailPage() {
             >
               Cancel
             </Button>
-            {(isAdmin || isManager || hasPermission(PermissionCode.CREATE_INVOICE)) && (
+            {(isAdmin || isManager || permissions.invoices.canCreate) && (
               <Button
                 onClick={handleGeneratePartialPaymentInvoice}
                 disabled={generatingPartialInvoice || !partialInvoiceForm.dueDate}
@@ -2793,7 +2793,7 @@ export default function TenantDetailPage() {
               <div className="flex items-center justify-between flex-wrap gap-3">
                 <span>All bill invoices for {tenant.fullName}</span>
                 <div className="flex gap-2">
-                  {(isAdmin || isManager || hasPermission(PermissionCode.VIEW_BILL_INVOICES)) && (
+                  {(isAdmin || isManager || permissions.billInvoices.canView) && (
                     <Button
                       onClick={handleDownloadBillPaymentReport}
                       disabled={generatingBillPDF || billInvoices.length === 0}
@@ -2977,7 +2977,7 @@ export default function TenantDetailPage() {
                     <p className="text-sm text-yellow-700">
                       The system will automatically fetch all overdue invoices for this tenant and calculate the total outstanding amount.
                     </p>
-                    {(isAdmin || isManager || hasPermission(PermissionCode.VIEW_OVERDUE_INVOICES)) && (
+                    {(isAdmin || isManager || permissions.demandLetters.canView) && (
                       <Button
                         onClick={handleViewOverdueInvoices}
                         variant="outline"
@@ -3051,7 +3051,7 @@ export default function TenantDetailPage() {
             >
               Cancel
             </Button>
-            {(isAdmin || isManager || hasPermission(PermissionCode.CREATE_DEMAND_LETTER) || hasPermission(PermissionCode.AUTO_GENERATE_DEMAND_LETTER)) && (
+            {(isAdmin || isManager || permissions.demandLetters.canCreate) && (
               <Button
                 onClick={handleGenerateDemandLetter}
                 disabled={generatingDemandLetter}
