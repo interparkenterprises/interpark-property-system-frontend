@@ -50,6 +50,26 @@ export const useAuth = () => {
 const permissionCache = new Map<string, boolean>();
 const propertiesCache = new Map<string, any>();
 
+// Helper functions for cookie management
+const setAuthCookie = (token: string) => {
+  if (typeof document !== 'undefined') {
+    // Set cookie that expires in 7 days
+    document.cookie = `token=${token}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax`;
+  }
+};
+
+const removeAuthCookie = () => {
+  if (typeof document !== 'undefined') {
+    document.cookie = 'token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+  }
+};
+
+const getAuthCookie = (): string | null => {
+  if (typeof document === 'undefined') return null;
+  const match = document.cookie.match(/token=([^;]+)/);
+  return match ? match[1] : null;
+};
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const router = useRouter();
   const [user, setUser] = useState<UserWithAccess | null>(null);
@@ -60,6 +80,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState(true);
   const [requiresPasswordChange, setRequiresPasswordChange] = useState(false);
   const initRef = useRef(false);
+  const initialCheckComplete = useRef(false);
 
   // Helper to convert accessibleProperties from API response to PropertyAccess format
   const convertToPropertyAccess = (accessibleProps: any[] | string[]): PropertyAccess[] => {
@@ -308,28 +329,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return baseUser;
   }, []);
 
-  // Optimized initialization - single API call for profile
+  // Optimized initialization - handles page refreshes properly
   useEffect(() => {
-    if (initRef.current) return;
-    initRef.current = true;
-
+    // Prevent double initialization on page refresh
+    if (initialCheckComplete.current) return;
+    
     const init = async () => {
-      const token = localStorage.getItem('token');
+      // Check both localStorage and cookie for token
+      const token = localStorage.getItem('token') || getAuthCookie();
+      
       if (!token) {
+        console.log('No token found, skipping auth initialization');
         setIsLoading(false);
+        initialCheckComplete.current = true;
         return;
       }
 
       try {
-        // Single API call to get profile with all necessary data
+        console.log('Initializing auth context, fetching profile...');
         const profile = await authAPI.getProfile();
         const fullUser = await buildUserWithAccess(profile);
         
         if (!fullUser.isEnabled) {
+          console.log('User account is disabled');
           router.push('/account-disabled');
           setIsLoading(false);
+          initialCheckComplete.current = true;
           return;
         }
+        
+        console.log('User loaded successfully:', { 
+          id: fullUser.id, 
+          role: fullUser.role, 
+          permissionsCount: fullUser.permissions?.length,
+          requiresPasswordChange: fullUser.requiresPasswordChange
+        });
         
         // Set all user data at once
         setUser(fullUser);
@@ -347,11 +381,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           });
         }
         
-      } catch (error) {
+        // If user needs to change password and is not already on change-password page
+        if (fullUser.requiresPasswordChange && typeof window !== 'undefined' && window.location.pathname !== '/change-password') {
+          console.log('User requires password change, redirecting...');
+          router.push('/change-password');
+        }
+        
+      } catch (error: any) {
         console.error('Auth init error:', error);
-        localStorage.removeItem('token');
+        // Only clear token if it's an authentication error (401) or "Not authorized" error
+        if (error?.response?.status === 401 || 
+            error?.message?.includes('Not authorized') ||
+            error?.message?.includes('no token')) {
+          console.log('Clearing invalid token');
+          localStorage.removeItem('token');
+          removeAuthCookie();
+          setUser(null);
+        }
       } finally {
         setIsLoading(false);
+        initialCheckComplete.current = true;
       }
     };
 
@@ -360,9 +409,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (email: string, password: string) => {
     try {
+      console.log('Attempting login for:', email);
       // First, login to get token
       const response = await authAPI.login(email, password);
+      
+      // Store token in both localStorage and cookie
       localStorage.setItem('token', response.token);
+      setAuthCookie(response.token);
       
       // CRITICAL FIX: Check if the login response directly has requiresPasswordChange
       const requiresChange = response.requiresPasswordChange === true;
@@ -400,11 +453,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
       }
 
+      console.log('Login successful, requiresPasswordChange:', fullUser.requiresPasswordChange);
+
       // Check if user needs to change password
       if (fullUser.requiresPasswordChange) {
         router.push('/change-password');
       } else {
-        router.push('/dashboard');
+        // Check if there's a stored redirect URL
+        const redirectUrl = sessionStorage.getItem('redirectAfterLogin');
+        if (redirectUrl && redirectUrl !== '/login' && redirectUrl !== '/unauthorized') {
+          sessionStorage.removeItem('redirectAfterLogin');
+          router.push(redirectUrl);
+        } else {
+          router.push('/dashboard');
+        }
       }
     } catch (error) {
       console.error('Login error:', error);
@@ -414,7 +476,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const register = async (name: string, email: string, password: string, role?: string) => {
     const response = await authAPI.register(name, email, password, role);
+    
+    // Store token in both localStorage and cookie
     localStorage.setItem('token', response.token);
+    setAuthCookie(response.token);
 
     const profile = await authAPI.getProfile();
     const fullUser = await buildUserWithAccess(profile);
@@ -429,24 +494,54 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     router.push('/dashboard');
   };
 
+  // Improved logout function that properly cleans up all state and storage
   const logout = () => {
-    localStorage.removeItem('token');
+    console.log('Logging out user');
+    
+    // Clear caches first
+    permissionCache.clear();
+    propertiesCache.clear();
+    
+    // Clear any stored redirect URLs
+    sessionStorage.removeItem('redirectAfterLogin');
+    
+    // Clear state BEFORE clearing token to prevent any API calls
     setUser(null);
     setPermissions([]);
     setAccessibleProperties([]);
     setIsEnabled(true);
     setRoleName(null);
     setRequiresPasswordChange(false);
-    permissionCache.clear();
-    propertiesCache.clear();
-    router.push('/login');
+    
+    // Clear both localStorage and cookie AFTER state is cleared
+    // Use try-catch to handle any potential errors
+    try {
+      localStorage.removeItem('token');
+    } catch (error) {
+      console.error('Error clearing localStorage:', error);
+    }
+    
+    try {
+      removeAuthCookie();
+    } catch (error) {
+      console.error('Error clearing cookie:', error);
+    }
+    
+    // Use router.push with a slight delay to ensure all cleanup is done
+    setTimeout(() => {
+      router.push('/login');
+    }, 0);
   };
 
   const refreshAccess = async () => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
+    const token = localStorage.getItem('token') || getAuthCookie();
+    if (!token) {
+      console.log('No token found, cannot refresh access');
+      return;
+    }
 
     try {
+      console.log('Refreshing user access...');
       const profile = await authAPI.getProfile();
       const fullUser = await buildUserWithAccess(profile);
       
@@ -474,6 +569,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
     } catch (err) {
       console.error('Refresh access failed:', err);
+      // If refresh fails due to auth error, logout
+      if (typeof err === 'object' && err !== null && 'response' in err) {
+        const resp = (err as any).response;
+        if (resp?.status === 401) {
+          logout();
+        }
+      }
       throw err;
     }
   };

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -12,6 +12,8 @@ import { PermissionGuard } from '@/components/auth/PermissionGuard';
 
 export default function PropertiesPage() {
   const router = useRouter();
+  const hasFetched = useRef(false);
+  const isMounted = useRef(true);
 
   const {
     user,
@@ -129,11 +131,19 @@ export default function PropertiesPage() {
       return;
     }
 
+    // Prevent multiple fetches
+    if (hasFetched.current) return;
+    hasFetched.current = true;
+
     try {
       setLoading(true);
       setError(null);
 
       const allProperties = await propertiesAPI.getAll();
+      
+      // Check if component is still mounted before updating state
+      if (!isMounted.current) return;
+      
       const safeProperties = Array.isArray(allProperties) ? allProperties : [];
 
       const filteredProperties = safeProperties.filter((property: Property) =>
@@ -143,14 +153,25 @@ export default function PropertiesPage() {
       setProperties(filteredProperties);
     } catch (error) {
       console.error('Error fetching properties:', error);
-      setError('Failed to load properties. Please try again later.');
+      if (isMounted.current) {
+        setError('Failed to load properties. Please try again later.');
+      }
     } finally {
-      setLoading(false);
+      if (isMounted.current) {
+        setLoading(false);
+      }
     }
   }, [canAccessPage, canViewThisProperty]);
 
+  // Reset the fetch ref when dependencies change
   useEffect(() => {
+    hasFetched.current = false;
     fetchProperties();
+
+    // Cleanup function to prevent state updates on unmounted component
+    return () => {
+      isMounted.current = false;
+    };
   }, [fetchProperties]);
 
   const handleView = (propertyId: string) => {
@@ -267,7 +288,10 @@ export default function PropertiesPage() {
           <h2 className="text-2xl font-bold text-gray-900">Error Loading Properties</h2>
           <p className="text-gray-600">{error}</p>
           <button
-            onClick={fetchProperties}
+            onClick={() => {
+              hasFetched.current = false;
+              fetchProperties();
+            }}
             className="px-6 py-2 bg-[#005478] text-white rounded-lg hover:bg-[#004267] transition-colors"
           >
             Try Again

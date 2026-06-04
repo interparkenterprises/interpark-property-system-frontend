@@ -140,14 +140,47 @@ export class ApiError extends Error {
   }
 }
 
-// Handle token expiration
+// Flag to prevent multiple redirects
+let isRedirecting = false;
+
+// Handle token expiration - DON'T auto-redirect, let the auth context handle it
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401 && typeof window !== 'undefined') {
-      localStorage.removeItem('token');
-      window.location.href = '/login';
+    // Skip token clearing for logout-related requests
+    const isLogoutRequest = error.config?.url?.includes('/logout');
+    
+    // Only redirect on 401 if we're not already on login page and not already redirecting
+    if (error.response?.status === 401 && typeof window !== 'undefined' && !isLogoutRequest) {
+      const isLoginPage = window.location.pathname === '/login';
+      const isAuthRoute = window.location.pathname === '/register' || 
+                         window.location.pathname === '/forgot-password' ||
+                         window.location.pathname === '/change-password';
+      
+      // Only clear token and redirect if not already on auth page and not already redirecting
+      if (!isLoginPage && !isAuthRoute && !isRedirecting) {
+        isRedirecting = true;
+        
+        // Clear token
+        localStorage.removeItem('token');
+        
+        // Clear cookie
+        document.cookie = 'token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+        
+        // Store current path for redirect after login
+        const currentPath = window.location.pathname;
+        sessionStorage.setItem('redirectAfterLogin', currentPath);
+        
+        // Redirect to login
+        window.location.href = '/login';
+        
+        // Reset redirect flag after a delay
+        setTimeout(() => {
+          isRedirecting = false;
+        }, 1000);
+      }
     }
+    
     return Promise.reject(error);
   }
 );

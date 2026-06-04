@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useRef } from 'react'
+import { useRouter, usePathname } from 'next/navigation'
+import { useAuth } from '@/context/AuthContext'
 import Header from '@/components/layout/Header'
 import Sidebar from '@/components/layout/Sidebar'
 
@@ -10,20 +11,50 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode
 }) {
-  const [token, setToken] = useState<string | null>(null)
+  const { isAuthenticated, isLoading, user, refreshUserData } = useAuth()
   const router = useRouter()
+  const pathname = usePathname()
+  const hasRefreshed = useRef(false)
+  const isRedirecting = useRef(false)
 
+  // Handle authentication check - only redirect once
   useEffect(() => {
-    const token = localStorage.getItem('token')
-    if (!token) {
-      router.push('/login')
-    } else {
-      setToken(token)
+    // Don't redirect while still loading or if already redirecting
+    if (!isLoading && !isRedirecting.current) {
+      if (!isAuthenticated) {
+        isRedirecting.current = true
+        // Store the attempted URL to redirect back after login
+        sessionStorage.setItem('redirectAfterLogin', pathname)
+        router.push('/login')
+      } else {
+        isRedirecting.current = false
+      }
     }
-  }, [router])
+  }, [isLoading, isAuthenticated, router, pathname])
 
-  if (!token) {
-    return <div>Loading...</div>
+  // Refresh user data only once after initial load, not on every route change
+  useEffect(() => {
+    if (isAuthenticated && !isLoading && !hasRefreshed.current) {
+      hasRefreshed.current = true
+      refreshUserData()
+    }
+  }, [isAuthenticated, isLoading, refreshUserData])
+
+  // Show proper loading state
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-slate-900">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#005478] mx-auto"></div>
+          <p className="mt-4 text-white">Loading your dashboard...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Don't render anything if not authenticated (will redirect)
+  if (!isAuthenticated) {
+    return null
   }
 
   return (
