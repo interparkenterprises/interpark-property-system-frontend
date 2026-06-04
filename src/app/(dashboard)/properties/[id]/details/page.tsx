@@ -678,7 +678,7 @@ export default function PropertyDetailInfoPage() {
               <div className="bg-linear-to-r from-primary to-primary/80 px-8 py-6 text-white">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h2 className="text-2xl font-bold mb-1">Export Payment Report</h2>
+                    <h2 className="text-2xl font-bold mb-1">Export Property Collection Statement</h2>
                     <p className="text-sm text-white/90">
                       Select sections to include in your export
                     </p>
@@ -2261,7 +2261,7 @@ export default function PropertyDetailInfoPage() {
                       />
                     </svg>
                   </div>
-                  <h2 className="text-2xl font-bold text-heading-color">Payment Report</h2>
+                  <h2 className="text-2xl font-bold text-heading-color">Property Collection Statement</h2>
                 </div>
                 <Button
                   onClick={handleOpenExportModal}
