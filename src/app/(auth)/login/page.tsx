@@ -15,29 +15,57 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [redirectTo, setRedirectTo] = useState('/dashboard')
+  const [mounted, setMounted] = useState(false)
+
+  // Mark component as mounted to handle client-side only code
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   // Get redirect URL from query params or session storage (client-side only)
   useEffect(() => {
+    if (!mounted) return
+    
     const redirect = searchParams.get('redirect')
     if (redirect) {
       setRedirectTo(redirect)
     } else {
       // Only access sessionStorage on the client side
-      const storedRedirect = sessionStorage.getItem('redirectAfterLogin')
-      if (storedRedirect) {
-        setRedirectTo(storedRedirect)
-        // Clear it after reading
-        sessionStorage.removeItem('redirectAfterLogin')
+      try {
+        const storedRedirect = sessionStorage.getItem('redirectAfterLogin')
+        if (storedRedirect) {
+          setRedirectTo(storedRedirect)
+          // Clear it after reading
+          sessionStorage.removeItem('redirectAfterLogin')
+        }
+      } catch (error) {
+        console.error('Error accessing sessionStorage:', error)
       }
     }
-  }, [searchParams])
+  }, [searchParams, mounted])
 
   // If already authenticated, redirect to the intended page
   useEffect(() => {
+    if (!mounted) return
+    
     if (isAuthenticated && !authLoading) {
       router.push(redirectTo)
     }
-  }, [isAuthenticated, authLoading, router, redirectTo])
+  }, [isAuthenticated, authLoading, router, redirectTo, mounted])
+
+  // Clear any stored redirect on mount if on login page
+  useEffect(() => {
+    if (!mounted) return
+    
+    try {
+      const storedRedirect = sessionStorage.getItem('redirectAfterLogin')
+      if (storedRedirect === '/login') {
+        sessionStorage.removeItem('redirectAfterLogin')
+      }
+    } catch (error) {
+      console.error('Error accessing sessionStorage:', error)
+    }
+  }, [mounted])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -51,6 +79,11 @@ export default function LoginPage() {
       setError(err?.message || 'An error occurred. Please try again.')
       setLoading(false)
     }
+  }
+
+  // Don't render anything during SSR to prevent hydration mismatches
+  if (!mounted) {
+    return null
   }
 
   // Show loading state while checking authentication

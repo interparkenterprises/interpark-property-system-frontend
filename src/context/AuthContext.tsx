@@ -339,31 +339,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const token = localStorage.getItem('token') || getAuthCookie();
       
       if (!token) {
-        console.log('No token found, skipping auth initialization');
         setIsLoading(false);
         initialCheckComplete.current = true;
         return;
       }
 
       try {
-        console.log('Initializing auth context, fetching profile...');
         const profile = await authAPI.getProfile();
         const fullUser = await buildUserWithAccess(profile);
         
         if (!fullUser.isEnabled) {
-          console.log('User account is disabled');
           router.push('/account-disabled');
           setIsLoading(false);
           initialCheckComplete.current = true;
           return;
         }
-        
-        console.log('User loaded successfully:', { 
-          id: fullUser.id, 
-          role: fullUser.role, 
-          permissionsCount: fullUser.permissions?.length,
-          requiresPasswordChange: fullUser.requiresPasswordChange
-        });
         
         // Set all user data at once
         setUser(fullUser);
@@ -383,17 +373,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         
         // If user needs to change password and is not already on change-password page
         if (fullUser.requiresPasswordChange && typeof window !== 'undefined' && window.location.pathname !== '/change-password') {
-          console.log('User requires password change, redirecting...');
           router.push('/change-password');
         }
         
       } catch (error: any) {
-        console.error('Auth init error:', error);
         // Only clear token if it's an authentication error (401) or "Not authorized" error
         if (error?.response?.status === 401 || 
             error?.message?.includes('Not authorized') ||
             error?.message?.includes('no token')) {
-          console.log('Clearing invalid token');
           localStorage.removeItem('token');
           removeAuthCookie();
           setUser(null);
@@ -409,7 +396,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (email: string, password: string) => {
     try {
-      console.log('Attempting login for:', email);
       // First, login to get token
       const response = await authAPI.login(email, password);
       
@@ -453,8 +439,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
       }
 
-      console.log('Login successful, requiresPasswordChange:', fullUser.requiresPasswordChange);
-
       // Check if user needs to change password
       if (fullUser.requiresPasswordChange) {
         router.push('/change-password');
@@ -469,7 +453,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       }
     } catch (error) {
-      console.error('Login error:', error);
       throw error;
     }
   };
@@ -496,8 +479,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Improved logout function that properly cleans up all state and storage
   const logout = () => {
-    console.log('Logging out user');
-    
     // Clear caches first
     permissionCache.clear();
     propertiesCache.clear();
@@ -518,13 +499,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       localStorage.removeItem('token');
     } catch (error) {
-      console.error('Error clearing localStorage:', error);
+      // Silently handle storage errors
     }
     
     try {
       removeAuthCookie();
     } catch (error) {
-      console.error('Error clearing cookie:', error);
+      // Silently handle cookie errors
     }
     
     // Use router.push with a slight delay to ensure all cleanup is done
@@ -536,12 +517,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const refreshAccess = async () => {
     const token = localStorage.getItem('token') || getAuthCookie();
     if (!token) {
-      console.log('No token found, cannot refresh access');
       return;
     }
 
     try {
-      console.log('Refreshing user access...');
       const profile = await authAPI.getProfile();
       const fullUser = await buildUserWithAccess(profile);
       
@@ -561,14 +540,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           permissionCache.set(perm, true);
         });
       }
-      
-      console.log('User access refreshed successfully', {
-        permissions: fullUser.permissions?.length,
-        properties: fullUser.propertyAccess?.length,
-        requiresPasswordChange: fullUser.requiresPasswordChange
-      });
     } catch (err) {
-      console.error('Refresh access failed:', err);
       // If refresh fails due to auth error, logout
       if (typeof err === 'object' && err !== null && 'response' in err) {
         const resp = (err as any).response;
