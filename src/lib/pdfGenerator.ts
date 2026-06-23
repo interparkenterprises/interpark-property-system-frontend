@@ -16,7 +16,129 @@ const companyInfo: CompanyInfo = {
   website: 'www.interparkenterprises.co.ke',
 };
 
-// Existing payment report PDF generation - FIXED VERSION
+// Helper function to safely get text from cell
+const getCellText = (cell: any): string => {
+  if (!cell || !cell.text) return '';
+  if (Array.isArray(cell.text)) {
+    return cell.text.join(' ');
+  }
+  return String(cell.text);
+};
+
+// Helper function to extract numeric value from formatted currency string
+const extractNumericValue = (text: string): number => {
+  if (!text) return 0;
+  const cleaned = text.replace(/[^0-9.]/g, '');
+  return parseFloat(cleaned) || 0;
+};
+
+// Helper function to group payment reports by period and consolidate
+const consolidatePaymentReports = (paymentReports: PaymentReport[]) => {
+  // Sort reports by date (oldest first)
+  const sorted = [...paymentReports].sort(
+    (a, b) => new Date(a.datePaid).getTime() - new Date(b.datePaid).getTime()
+  );
+
+  // Group by period
+  const periodGroups = new Map<string, PaymentReport[]>();
+  sorted.forEach(report => {
+    const periodKey = new Date(report.paymentPeriod).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short'
+    });
+    if (!periodGroups.has(periodKey)) {
+      periodGroups.set(periodKey, []);
+    }
+    periodGroups.get(periodKey)!.push(report);
+  });
+
+  // For each period, get the latest report (final state) and sum all payments
+  let consolidatedRent = 0;
+  let consolidatedServiceCharge = 0;
+  let consolidatedVat = 0;
+  let consolidatedTotalDue = 0;
+  let totalPaidAll = 0;
+  let consolidatedArrears = 0;
+  let periodCount = 0;
+
+  periodGroups.forEach((reports, periodKey) => {
+    // Get the most recent report for this period (final state)
+    const sortedByDate = reports.sort(
+      (a, b) => new Date(b.datePaid).getTime() - new Date(a.datePaid).getTime()
+    );
+    const latestReport = sortedByDate[0];
+
+    // Use the latest report's values as the consolidated amounts
+    consolidatedRent += latestReport.rent;
+    consolidatedServiceCharge += latestReport.serviceCharge || 0;
+    consolidatedVat += latestReport.vat || 0;
+    consolidatedTotalDue += latestReport.totalDue;
+    totalPaidAll += reports.reduce((sum, r) => sum + r.amountPaid, 0);
+    consolidatedArrears += latestReport.arrears;
+    periodCount++;
+  });
+
+  return {
+    consolidatedRent,
+    consolidatedServiceCharge,
+    consolidatedVat,
+    consolidatedTotalDue,
+    totalPaidAll,
+    consolidatedArrears,
+    periodCount
+  };
+};
+
+// Helper function to consolidate bill invoices by period
+const consolidateBillInvoices = (billInvoices: BillInvoice[]) => {
+  // Group by period (month/year of issue date)
+  const periodGroups = new Map<string, BillInvoice[]>();
+  billInvoices.forEach(invoice => {
+    const periodKey = new Date(invoice.issueDate).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short'
+    });
+    if (!periodGroups.has(periodKey)) {
+      periodGroups.set(periodKey, []);
+    }
+    periodGroups.get(periodKey)!.push(invoice);
+  });
+
+  let totalAmount = 0;
+  let totalVAT = 0;
+  let grandTotal = 0;
+  let totalPaid = 0;
+  let totalBalance = 0;
+  let totalUnits = 0;
+
+  periodGroups.forEach((invoices) => {
+    // For each period, use the latest invoice's amounts and sum all payments
+    const sortedByDate = invoices.sort(
+      (a, b) => new Date(b.issueDate).getTime() - new Date(a.issueDate).getTime()
+    );
+    const latestInvoice = sortedByDate[0];
+
+    totalAmount += latestInvoice.totalAmount;
+    totalVAT += latestInvoice.vatAmount || 0;
+    grandTotal += latestInvoice.grandTotal;
+    totalUnits += invoices.reduce((sum, inv) => sum + inv.units, 0);
+    totalPaid += invoices.reduce((sum, inv) => sum + inv.amountPaid, 0);
+    totalBalance += latestInvoice.balance;
+  });
+
+  return {
+    totalUnits,
+    totalAmount,
+    totalVAT,
+    grandTotal,
+    totalPaid,
+    totalBalance
+  };
+};
+
+// ============================================
+// PAYMENT REPORT PDF GENERATION
+// ============================================
 export const generatePaymentReportPDF = async (
   tenant: Tenant,
   paymentReports: PaymentReport[]
@@ -28,7 +150,7 @@ export const generatePaymentReportPDF = async (
   let yPosition = 20;
 
   try {
-    // Add company header - name only
+    // Add company header
     pdf.setFontSize(16);
     pdf.setFont('helvetica', 'bold');
     pdf.text(companyInfo.name, pageWidth / 2, yPosition, { align: 'center' });
@@ -171,72 +293,11 @@ export const generatePaymentReportPDF = async (
 
       const finalY = (pdf as any).lastAutoTable.finalY + 10;
 
-      // ============================================
-      // FIXED SUMMARY CALCULATION
-      // ============================================
-      
-      // Group reports by payment period to get unique periods
-      const periodGroups = new Map<string, {
-        reports: PaymentReport[];
-        finalRent: number;
-        finalServiceCharge: number;
-        finalVat: number;
-        finalTotalDue: number;
-        totalPaid: number;
-        finalArrears: number;
-        finalStatus: string;
-      }>();
-      sortedReports.forEach(report => {
-        const periodKey = new Date(report.paymentPeriod).toLocaleDateString('en-US', { 
-          year: 'numeric', 
-          month: 'short' 
-        });
-        if (!periodGroups.has(periodKey)) {
-          periodGroups.set(periodKey, {
-            reports: [],
-            // Track the final/consolidated amounts for this period
-            finalRent: 0,
-            finalServiceCharge: 0,
-            finalVat: 0,
-            finalTotalDue: 0,
-            totalPaid: 0,
-            finalArrears: 0,
-            finalStatus: 'UNPAID'
-          });
-        }
-        const group = periodGroups.get(periodKey);
-        if (group) {
-          group.reports.push(report);
-        }
-      });
-
-      // Calculate summary per period
-      let consolidatedRent = 0;
-      let consolidatedServiceCharge = 0;
-      let consolidatedVat = 0;
-      let consolidatedTotalDue = 0;
-      let totalPaidAll = 0;
-      let consolidatedArrears = 0;
-
-      periodGroups.forEach((group, periodKey) => {
-        // Get the most recent report for this period (final state)
-        const sortedByDate = group.reports.sort(
-          (a: PaymentReport, b: PaymentReport) => new Date(b.datePaid).getTime() - new Date(a.datePaid).getTime()
-        );
-        const latestReport = sortedByDate[0];
-        
-        // Use the latest report's values as the consolidated amounts
-        // This ensures we don't double-count
-        consolidatedRent += latestReport.rent;
-        consolidatedServiceCharge += latestReport.serviceCharge || 0;
-        consolidatedVat += latestReport.vat || 0;
-        consolidatedTotalDue += latestReport.totalDue;
-        totalPaidAll += group.reports.reduce((sum, r) => sum + r.amountPaid, 0);
-        consolidatedArrears += latestReport.arrears;
-      });
+      // Get consolidated summary
+      const summary = consolidatePaymentReports(paymentReports);
 
       // Check if we need a new page for the summary table
-      const summaryHeight = 60; // Estimated height for summary table
+      const summaryHeight = 60;
       const footerHeight = 25;
       
       if (finalY + summaryHeight > pageHeight - footerHeight) {
@@ -254,9 +315,9 @@ export const generatePaymentReportPDF = async (
 
       // Summary Table using consolidated values
       const summaryData = [
-        ['Total Rent:', `Ksh ${consolidatedRent.toLocaleString()}`, 'Total Due:', `Ksh ${consolidatedTotalDue.toLocaleString()}`],
-        ['Total Service Charge:', `Ksh ${consolidatedServiceCharge.toLocaleString()}`, 'Total Paid:', `Ksh ${totalPaidAll.toLocaleString()}`],
-        ['Total VAT:', `Ksh ${consolidatedVat.toLocaleString()}`, 'Total Arrears:', `Ksh ${consolidatedArrears.toLocaleString()}`],
+        ['Total Rent:', `Ksh ${summary.consolidatedRent.toLocaleString()}`, 'Total Due:', `Ksh ${summary.consolidatedTotalDue.toLocaleString()}`],
+        ['Total Service Charge:', `Ksh ${summary.consolidatedServiceCharge.toLocaleString()}`, 'Total Paid:', `Ksh ${summary.totalPaidAll.toLocaleString()}`],
+        ['Total VAT:', `Ksh ${summary.consolidatedVat.toLocaleString()}`, 'Total Arrears:', `Ksh ${summary.consolidatedArrears.toLocaleString()}`],
       ];
 
       autoTable(pdf, {
@@ -288,7 +349,8 @@ export const generatePaymentReportPDF = async (
             }
             // Total Arrears - Red (only show red if there are arrears)
             if (data.row.index === 2 && data.column.index === 3) {
-              const arrearsValue = parseFloat(data.cell.text.replace(/[^0-9.]/g, ''));
+              const cellText = getCellText(data.cell);
+              const arrearsValue = extractNumericValue(cellText);
               if (arrearsValue > 0) {
                 data.cell.styles.textColor = [255, 0, 0];
               } else {
@@ -312,7 +374,7 @@ export const generatePaymentReportPDF = async (
       yPosition += 20;
     }
 
-    // Add footer with company info - only on last page
+    // Add footer
     const totalPages = pdf.internal.pages.length;
     pdf.setPage(totalPages);
     
@@ -330,7 +392,9 @@ export const generatePaymentReportPDF = async (
   }
 };
 
-// NEW: Bill Invoice Report PDF Generation - Optimized for single page
+// ============================================
+// BILL INVOICE REPORT PDF GENERATION
+// ============================================
 export const generateBillInvoiceReportPDF = async (
   tenant: Tenant,
   billInvoices: BillInvoice[]
@@ -370,7 +434,7 @@ export const generateBillInvoiceReportPDF = async (
     );
     yPosition += 10;
 
-    // Tenant Information Box - more compact
+    // Tenant Information Box
     pdf.setFillColor(240, 240, 240);
     pdf.rect(margin, yPosition, pageWidth - (margin * 2), 30, 'F');
     
@@ -381,7 +445,6 @@ export const generateBillInvoiceReportPDF = async (
     pdf.setFontSize(9);
     let infoY = yPosition + 13;
     
-    // Left column
     pdf.setFont('helvetica', 'bold');
     pdf.text('Name:', margin + 5, infoY);
     pdf.setFont('helvetica', 'normal');
@@ -392,7 +455,6 @@ export const generateBillInvoiceReportPDF = async (
     pdf.setFont('helvetica', 'normal');
     pdf.text(tenant.contact || 'N/A', margin + 25, infoY + 6);
     
-    // Right column
     if (tenant.KRAPin) {
       pdf.setFont('helvetica', 'bold');
       pdf.text('KRA PIN:', pageWidth / 2, infoY);
@@ -413,9 +475,7 @@ export const generateBillInvoiceReportPDF = async (
     pdf.text('BILL PAYMENT HISTORY', margin, yPosition);
     yPosition += 5;
 
-    // Calculate available space for table before footer
     const footerHeight = 40;
-    const availableHeight = pageHeight - yPosition - footerHeight;
     
     if (billInvoices.length > 0) {
       const tableData = billInvoices.map((invoice) => [
@@ -433,7 +493,6 @@ export const generateBillInvoiceReportPDF = async (
         invoice.status,
       ]);
 
-      // Create the main table
       autoTable(pdf, {
         startY: yPosition,
         head: [
@@ -484,11 +543,8 @@ export const generateBillInvoiceReportPDF = async (
         margin: { top: yPosition, left: margin, right: margin },
         tableWidth: pageWidth - (margin * 2),
         pageBreak: 'auto',
-        // Prevent table from overlapping footer
         didDrawPage: function (data: any) {
-          // Check if we're getting too close to footer
           if (data.cursor && data.cursor.y > pageHeight - footerHeight - 20) {
-            // Add page if needed
             pdf.addPage();
             (this as any).settings.startY = margin;
           }
@@ -497,25 +553,17 @@ export const generateBillInvoiceReportPDF = async (
 
       const finalY = (pdf as any).lastAutoTable.finalY + 5;
       
-      // Calculate totals
-      const totalUnits = billInvoices.reduce((sum, inv) => sum + inv.units, 0);
-      const totalAmount = billInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0);
-      const totalVAT = billInvoices.reduce((sum, inv) => sum + (inv.vatAmount || 0), 0);
-      const grandTotal = billInvoices.reduce((sum, inv) => sum + inv.grandTotal, 0);
-      const totalPaid = billInvoices.reduce((sum, inv) => sum + inv.amountPaid, 0);
-      const totalBalance = billInvoices.reduce((sum, inv) => sum + inv.balance, 0);
+      // Get consolidated bill summary
+      const summary = consolidateBillInvoices(billInvoices);
 
-      // Create compact summary RIGHT AFTER the table (not on separate pages)
       const summaryY = Math.max(finalY, margin);
       
-      // Ensure summary doesn't overlap footer
       if (summaryY < pageHeight - footerHeight - 30) {
-        // Create a simple summary table integrated with the main table
         const summaryRows = [
-          ['Total Units:', totalUnits.toFixed(2), '', ''],
-          ['Total Amount:', `Ksh ${totalAmount.toLocaleString()}`, 'Total VAT:', `Ksh ${totalVAT.toLocaleString()}`],
-          ['Grand Total:', `Ksh ${grandTotal.toLocaleString()}`, 'Total Paid:', `Ksh ${totalPaid.toLocaleString()}`],
-          ['', '', 'Total Balance:', `Ksh ${totalBalance.toLocaleString()}`]
+          ['Total Units:', summary.totalUnits.toFixed(2), '', ''],
+          ['Total Amount:', `Ksh ${summary.totalAmount.toLocaleString()}`, 'Total VAT:', `Ksh ${summary.totalVAT.toLocaleString()}`],
+          ['Grand Total:', `Ksh ${summary.grandTotal.toLocaleString()}`, 'Total Paid:', `Ksh ${summary.totalPaid.toLocaleString()}`],
+          ['', '', 'Total Balance:', `Ksh ${summary.totalBalance.toLocaleString()}`]
         ];
 
         autoTable(pdf, {
@@ -538,16 +586,15 @@ export const generateBillInvoiceReportPDF = async (
           },
           margin: { left: margin, right: margin },
           tableWidth: pageWidth - (margin * 2),
-          // Color coding
           didParseCell: function (data: any) {
             if (data.section === 'body') {
-              // Total Paid
               if (data.row.index === 2 && data.column.index === 3) {
-                data.cell.styles.textColor = [0, 128, 0]; // Green
+                data.cell.styles.textColor = [0, 128, 0];
               }
-              // Total Balance
               if (data.row.index === 3 && data.column.index === 3) {
-                data.cell.styles.textColor = [255, 0, 0]; // Red
+                const cellText = getCellText(data.cell);
+                const balanceValue = extractNumericValue(cellText);
+                data.cell.styles.textColor = balanceValue > 0 ? [255, 0, 0] : [0, 128, 0];
               }
             }
           },
@@ -559,34 +606,25 @@ export const generateBillInvoiceReportPDF = async (
       pdf.text('No bill payment records found.', margin, yPosition);
     }
 
-    // Add detailed footer with company contact info
+    // Add footer
     const footerY = pageHeight - 30;
-    
-    // Footer separator line
     pdf.setDrawColor(200, 200, 200);
     pdf.line(margin, footerY - 5, pageWidth - margin, footerY - 5);
     
-    // Company contact information in footer
     pdf.setFontSize(8);
     pdf.setFont('helvetica', 'normal');
-    
-    // Contact info line
     pdf.text(
       `Phone: ${companyInfo.phone} | Email: ${companyInfo.email}`,
       pageWidth / 2,
       footerY,
       { align: 'center' }
     );
-    
-    // Website line
     pdf.text(
       companyInfo.website,
       pageWidth / 2,
       footerY + 5,
       { align: 'center' }
     );
-    
-    // Copyright line
     pdf.setFontSize(7);
     pdf.text(
       `© ${new Date().getFullYear()} ${companyInfo.name}`,
@@ -595,7 +633,6 @@ export const generateBillInvoiceReportPDF = async (
       { align: 'center' }
     );
     
-    // Save the PDF
     const fileName = `Bill_Payment_Report_${tenant.fullName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`;
     pdf.save(fileName);
   } catch (error) {
@@ -604,8 +641,9 @@ export const generateBillInvoiceReportPDF = async (
   }
 };
 
-
-// NEW: Comprehensive Report PDF Generation (Rent + Bills Combined)
+// ============================================
+// COMPREHENSIVE REPORT PDF GENERATION
+// ============================================
 export const generateComprehensiveReportPDF = async (
   tenant: Tenant,
   paymentReports: PaymentReport[],
@@ -619,7 +657,7 @@ export const generateComprehensiveReportPDF = async (
   let yPosition = 20;
 
   try {
-    // Add company header (name only now)
+    // Add company header
     pdf.setFontSize(16);
     pdf.setFont('helvetica', 'bold');
     pdf.text(companyInfo.name, pageWidth / 2, yPosition, { align: 'center' });
@@ -647,7 +685,7 @@ export const generateComprehensiveReportPDF = async (
     );
     yPosition += 15;
 
-    // Tenant Information Box - more compact
+    // Tenant Information Box
     pdf.setFillColor(240, 240, 240);
     pdf.rect(margin, yPosition, pageWidth - (margin * 2), 40, 'F');
     
@@ -659,7 +697,6 @@ export const generateComprehensiveReportPDF = async (
     pdf.setFont('helvetica', 'normal');
     let infoY = yPosition + 15;
     
-    // Two-column layout for tenant info
     pdf.setFont('helvetica', 'bold');
     pdf.text('Name:', margin + 5, infoY);
     pdf.setFont('helvetica', 'normal');
@@ -767,7 +804,6 @@ export const generateComprehensiveReportPDF = async (
         margin: { top: yPosition, left: margin, right: margin },
         tableWidth: pageWidth - (margin * 2),
         didDrawPage: function (data: any) {
-          // Check if we need to add page
           if (data.cursor && data.cursor.y > pageHeight - 80) {
             pdf.addPage();
             (this as any).settings.startY = margin;
@@ -784,11 +820,9 @@ export const generateComprehensiveReportPDF = async (
     }
 
     // === BILL PAYMENT SECTION ===
-    // Check if we have enough space for bill section title + at least some rows
     const spaceNeededForBillTitle = 30;
     const spaceNeededForBillTable = billInvoices.length > 0 ? Math.min(billInvoices.length * 8 + 30, 150) : 20;
     const spaceNeededForSummary = 60;
-    
     const totalSpaceNeeded = spaceNeededForBillTitle + spaceNeededForBillTable + spaceNeededForSummary;
     
     if (yPosition + totalSpaceNeeded > pageHeight - 40) {
@@ -863,10 +897,8 @@ export const generateComprehensiveReportPDF = async (
         },
         margin: { top: yPosition, left: margin, right: margin },
         tableWidth: pageWidth - (margin * 2),
-        // Keep bill table on same page if possible
         pageBreak: 'avoid',
         didDrawPage: function (data: any) {
-          // Only add page if absolutely necessary (table is very long)
           if (data.cursor && data.cursor.y > pageHeight - 100) {
             pdf.addPage();
             (this as any).settings.startY = margin;
@@ -883,7 +915,6 @@ export const generateComprehensiveReportPDF = async (
     }
 
     // === COMPREHENSIVE SUMMARY ===
-    // Ensure summary is on same page as bill table
     if (yPosition + 60 > pageHeight - 40) {
       pdf.addPage();
       yPosition = margin;
@@ -894,14 +925,17 @@ export const generateComprehensiveReportPDF = async (
     pdf.text('COMPREHENSIVE SUMMARY', margin, yPosition);
     yPosition += 8;
 
-    // Calculate totals
-    const rentTotal = paymentReports.reduce((sum, r) => sum + r.totalDue, 0);
-    const rentPaid = paymentReports.reduce((sum, r) => sum + r.amountPaid, 0);
-    const rentArrears = paymentReports.reduce((sum, r) => sum + r.arrears, 0);
+    // Calculate totals using consolidated data
+    const rentSummary = consolidatePaymentReports(paymentReports);
+    const billSummary = consolidateBillInvoices(billInvoices);
 
-    const billsTotal = billInvoices.reduce((sum, inv) => sum + inv.grandTotal, 0);
-    const billsPaid = billInvoices.reduce((sum, inv) => sum + inv.amountPaid, 0);
-    const billsBalance = billInvoices.reduce((sum, inv) => sum + inv.balance, 0);
+    const rentTotal = rentSummary.consolidatedTotalDue;
+    const rentPaid = rentSummary.totalPaidAll;
+    const rentArrears = rentSummary.consolidatedArrears;
+
+    const billsTotal = billSummary.grandTotal;
+    const billsPaid = billSummary.totalPaid;
+    const billsBalance = billSummary.totalBalance;
 
     const overallTotal = rentTotal + billsTotal;
     const overallPaid = rentPaid + billsPaid;
@@ -912,20 +946,6 @@ export const generateComprehensiveReportPDF = async (
       ['BILLS', `Ksh ${billsTotal.toLocaleString()}`, `Ksh ${billsPaid.toLocaleString()}`, `Ksh ${billsBalance.toLocaleString()}`],
       ['OVERALL', `Ksh ${overallTotal.toLocaleString()}`, `Ksh ${overallPaid.toLocaleString()}`, `Ksh ${overallBalance.toLocaleString()}`]
     ];
-
-    const didDrawCell = (data: any) => {
-      if (data.column.index === 1 && data.row.index === 2) {
-        data.cell.styles.fontStyle = 'bold';
-        data.cell.styles.fillColor = [41, 128, 185];
-        data.cell.styles.textColor = 255;
-      } else if (data.column.index === 2 && data.row.index === 2) {
-        data.cell.styles.fontStyle = 'bold';
-        data.cell.styles.textColor = [0, 128, 0];
-      } else if (data.column.index === 3 && data.row.index === 2) {
-        data.cell.styles.fontStyle = 'bold';
-        data.cell.styles.textColor = [255, 0, 0];
-      }
-    };
 
     autoTable(pdf, {
       startY: yPosition,
@@ -953,47 +973,50 @@ export const generateComprehensiveReportPDF = async (
       alternateRowStyles: {
         fillColor: [245, 245, 245],
       },
-      didDrawCell: didDrawCell,
+      didDrawCell: function (data: any) {
+        if (data.column.index === 1 && data.row.index === 2) {
+          data.cell.styles.fontStyle = 'bold';
+          data.cell.styles.fillColor = [41, 128, 185];
+          data.cell.styles.textColor = 255;
+        } else if (data.column.index === 2 && data.row.index === 2) {
+          data.cell.styles.fontStyle = 'bold';
+          data.cell.styles.textColor = [0, 128, 0];
+        } else if (data.column.index === 3 && data.row.index === 2) {
+          const cellText = getCellText(data.cell);
+          const balanceValue = extractNumericValue(cellText);
+          data.cell.styles.fontStyle = 'bold';
+          data.cell.styles.textColor = balanceValue > 0 ? [255, 0, 0] : [0, 128, 0];
+        }
+      },
       margin: { top: yPosition, left: margin, right: margin },
       tableWidth: pageWidth - (margin * 2),
     });
 
     yPosition = (pdf as any).lastAutoTable.finalY + 20;
 
-    // === ADD FOOTER ONLY ON LAST PAGE ===
+    // === ADD FOOTER ===
     const addFooter = (currentPdf: jsPDF) => {
       const currentPage = currentPdf.internal.pages.length;
-      
-      // Set to last page
       currentPdf.setPage(currentPage);
       
       const footerY = pageHeight - 20;
-      
-      // Footer separator line
       currentPdf.setDrawColor(200, 200, 200);
       currentPdf.line(margin, footerY - 25, pageWidth - margin, footerY - 25);
       
-      // Company contact information in footer
       currentPdf.setFontSize(9);
       currentPdf.setFont('helvetica', 'normal');
-      
-      // Contact info line
       currentPdf.text(
         `Phone: ${companyInfo.phone} | Email: ${companyInfo.email}`,
         pageWidth / 2,
         footerY - 15,
         { align: 'center' }
       );
-      
-      // Website line
       currentPdf.text(
         companyInfo.website,
         pageWidth / 2,
         footerY - 10,
         { align: 'center' }
       );
-      
-      // Copyright line
       currentPdf.setFontSize(8);
       currentPdf.text(
         `© ${new Date().getFullYear()} ${companyInfo.name}`,
@@ -1003,10 +1026,8 @@ export const generateComprehensiveReportPDF = async (
       );
     };
 
-    // Add footer only to last page
     addFooter(pdf);
     
-    // Save the PDF
     const fileName = `Comprehensive_Report_${tenant.fullName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`;
     pdf.save(fileName);
   } catch (error) {
