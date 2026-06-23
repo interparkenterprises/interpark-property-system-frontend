@@ -16,7 +16,7 @@ const companyInfo: CompanyInfo = {
   website: 'www.interparkenterprises.co.ke',
 };
 
-// Existing payment report PDF generation
+// Existing payment report PDF generation - FIXED VERSION
 export const generatePaymentReportPDF = async (
   tenant: Tenant,
   paymentReports: PaymentReport[]
@@ -108,7 +108,12 @@ export const generatePaymentReportPDF = async (
 
     // Payment Reports Table
     if (paymentReports.length > 0) {
-      const tableData = paymentReports.map((report) => [
+      // Sort reports by date (ascending)
+      const sortedReports = [...paymentReports].sort(
+        (a, b) => new Date(a.datePaid).getTime() - new Date(b.datePaid).getTime()
+      );
+
+      const tableData = sortedReports.map((report) => [
         new Date(report.paymentPeriod).toLocaleDateString('en-US', { year: 'numeric', month: 'short' }),
         new Date(report.datePaid).toLocaleDateString(),
         `Ksh ${report.rent.toLocaleString()}`,
@@ -164,15 +169,71 @@ export const generatePaymentReportPDF = async (
         tableWidth: pageWidth - (margin * 2),
       });
 
-      // Calculate totals
-      const totalRent = paymentReports.reduce((sum, r) => sum + r.rent, 0);
-      const totalServiceCharge = paymentReports.reduce((sum, r) => sum + (r.serviceCharge || 0), 0);
-      const totalVAT = paymentReports.reduce((sum, r) => sum + (r.vat || 0), 0);
-      const totalDue = paymentReports.reduce((sum, r) => sum + r.totalDue, 0);
-      const totalPaid = paymentReports.reduce((sum, r) => sum + r.amountPaid, 0);
-      const totalArrears = paymentReports.reduce((sum, r) => sum + r.arrears, 0);
-
       const finalY = (pdf as any).lastAutoTable.finalY + 10;
+
+      // ============================================
+      // FIXED SUMMARY CALCULATION
+      // ============================================
+      
+      // Group reports by payment period to get unique periods
+      const periodGroups = new Map<string, {
+        reports: PaymentReport[];
+        finalRent: number;
+        finalServiceCharge: number;
+        finalVat: number;
+        finalTotalDue: number;
+        totalPaid: number;
+        finalArrears: number;
+        finalStatus: string;
+      }>();
+      sortedReports.forEach(report => {
+        const periodKey = new Date(report.paymentPeriod).toLocaleDateString('en-US', { 
+          year: 'numeric', 
+          month: 'short' 
+        });
+        if (!periodGroups.has(periodKey)) {
+          periodGroups.set(periodKey, {
+            reports: [],
+            // Track the final/consolidated amounts for this period
+            finalRent: 0,
+            finalServiceCharge: 0,
+            finalVat: 0,
+            finalTotalDue: 0,
+            totalPaid: 0,
+            finalArrears: 0,
+            finalStatus: 'UNPAID'
+          });
+        }
+        const group = periodGroups.get(periodKey);
+        if (group) {
+          group.reports.push(report);
+        }
+      });
+
+      // Calculate summary per period
+      let consolidatedRent = 0;
+      let consolidatedServiceCharge = 0;
+      let consolidatedVat = 0;
+      let consolidatedTotalDue = 0;
+      let totalPaidAll = 0;
+      let consolidatedArrears = 0;
+
+      periodGroups.forEach((group, periodKey) => {
+        // Get the most recent report for this period (final state)
+        const sortedByDate = group.reports.sort(
+          (a: PaymentReport, b: PaymentReport) => new Date(b.datePaid).getTime() - new Date(a.datePaid).getTime()
+        );
+        const latestReport = sortedByDate[0];
+        
+        // Use the latest report's values as the consolidated amounts
+        // This ensures we don't double-count
+        consolidatedRent += latestReport.rent;
+        consolidatedServiceCharge += latestReport.serviceCharge || 0;
+        consolidatedVat += latestReport.vat || 0;
+        consolidatedTotalDue += latestReport.totalDue;
+        totalPaidAll += group.reports.reduce((sum, r) => sum + r.amountPaid, 0);
+        consolidatedArrears += latestReport.arrears;
+      });
 
       // Check if we need a new page for the summary table
       const summaryHeight = 60; // Estimated height for summary table
@@ -191,11 +252,11 @@ export const generatePaymentReportPDF = async (
       pdf.text('SUMMARY', margin, yPosition);
       yPosition += 6;
 
-      // Summary Table (converted from box to table format)
+      // Summary Table using consolidated values
       const summaryData = [
-        ['Total Rent:', `Ksh ${totalRent.toLocaleString()}`, 'Total Due:', `Ksh ${totalDue.toLocaleString()}`],
-        ['Total Service Charge:', `Ksh ${totalServiceCharge.toLocaleString()}`, 'Total Paid:', `Ksh ${totalPaid.toLocaleString()}`],
-        ['Total VAT:', `Ksh ${totalVAT.toLocaleString()}`, 'Total Arrears:', `Ksh ${totalArrears.toLocaleString()}`],
+        ['Total Rent:', `Ksh ${consolidatedRent.toLocaleString()}`, 'Total Due:', `Ksh ${consolidatedTotalDue.toLocaleString()}`],
+        ['Total Service Charge:', `Ksh ${consolidatedServiceCharge.toLocaleString()}`, 'Total Paid:', `Ksh ${totalPaidAll.toLocaleString()}`],
+        ['Total VAT:', `Ksh ${consolidatedVat.toLocaleString()}`, 'Total Arrears:', `Ksh ${consolidatedArrears.toLocaleString()}`],
       ];
 
       autoTable(pdf, {
@@ -218,7 +279,6 @@ export const generatePaymentReportPDF = async (
         },
         margin: { left: margin, right: margin },
         tableWidth: pageWidth - (margin * 2),
-        // Color coding for specific cells
         didParseCell: function (data: any) {
           if (data.section === 'body') {
             // Total Paid - Green
@@ -226,9 +286,14 @@ export const generatePaymentReportPDF = async (
               data.cell.styles.textColor = [0, 128, 0];
               data.cell.styles.fontStyle = 'bold';
             }
-            // Total Arrears - Red
+            // Total Arrears - Red (only show red if there are arrears)
             if (data.row.index === 2 && data.column.index === 3) {
-              data.cell.styles.textColor = [255, 0, 0];
+              const arrearsValue = parseFloat(data.cell.text.replace(/[^0-9.]/g, ''));
+              if (arrearsValue > 0) {
+                data.cell.styles.textColor = [255, 0, 0];
+              } else {
+                data.cell.styles.textColor = [0, 128, 0];
+              }
               data.cell.styles.fontStyle = 'bold';
             }
             // Total Due - Bold
