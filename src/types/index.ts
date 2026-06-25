@@ -410,13 +410,95 @@ export interface PaymentReport {
   receiptNumber?: string | null;
 }
 
-export interface PaymentPreview {
+export interface PaymentPreviewRent {
+  amount: number;
+  monthly: number;
+  vatType: VATType;
+  vatRate: number;
+  vatAmount: number;
+  monthlyVat: number;
+  totalWithVat: number;
+}
+
+export interface PaymentPreviewServiceCharge {
+  amount: number;
+  monthly: number;
+  exclusiveAmount: number;
+  monthlyExclusive: number;
+  inclusiveAmount: number;
+  monthlyInclusive: number;
+  vatType: VATType;
+  vatRate: number;
+  vatAmount: number;
+  monthlyVat: number;
+  hasVat: boolean;
+  type: ServiceChargeType | null;
+  percentage: number | null;
+  fixedAmount?: number | null;
+  perSqFtRate?: number | null;
+}
+
+export interface PaymentPreviewVatComponent {
+  amount: number;
+  monthly: number;
+  type: VATType;
+  rate: number;
+  hasVat: boolean;
+}
+
+export interface PaymentPreviewVat {
+  total: number;
+  monthlyTotal: number;
+  rent: PaymentPreviewVatComponent;
+  serviceCharge: PaymentPreviewVatComponent;
+}
+
+export interface PaymentPreviewMonthlyBreakdownRent {
+  amount: number;
+  vatAmount: number;
+  totalWithVat: number;
+}
+
+export interface PaymentPreviewMonthlyBreakdownServiceCharge {
+  amount: number;
+  exclusiveAmount: number;
+  inclusiveAmount: number;
+  vatAmount: number;
+  vatType: VATType;
+  hasVat: boolean;
+}
+
+export interface PaymentPreviewMonthlyBreakdownVat {
+  total: number;
   rent: number;
-  serviceCharge?: number;
-  vat?: number;
+  serviceCharge: number;
+  hasRentVat: boolean;
+  hasServiceChargeVat: boolean;
+}
+
+export interface PaymentPreviewMonthlyBreakdown {
+  month: string;
+  rent: PaymentPreviewMonthlyBreakdownRent;
+  serviceCharge: PaymentPreviewMonthlyBreakdownServiceCharge;
+  vat: PaymentPreviewMonthlyBreakdownVat;
   totalDue: number;
-  existingCredit?: number; // NEW
-  totalAvailable?: number; // NEW
+}
+
+export interface PaymentPreview {
+  paymentPolicy: PaymentPolicy;
+  periodMonths: number;
+  periodStart: string;
+  periodEnd: string;
+  paymentPeriodLabel: string;
+  monthlyEquivalent: number;
+  rent: PaymentPreviewRent;
+  serviceCharge: PaymentPreviewServiceCharge;
+  vat: PaymentPreviewVat;
+  totalDue: number;
+  monthlyBreakdown: PaymentPreviewMonthlyBreakdown[];
+  existingCredit: number;
+  netDueAfterCredit: number;
+  totalAvailable: number;
 }
 
 export interface CreatePaymentReportRequest {

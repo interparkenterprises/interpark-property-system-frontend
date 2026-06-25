@@ -383,6 +383,16 @@ export default function TenantDetailPage() {
   };
 
   const calculatePaymentAmounts = () => {
+    if (paymentPreview) {
+      return {
+        rent: paymentPreview.rent.amount,
+        serviceCharge: paymentPreview.serviceCharge.inclusiveAmount || paymentPreview.serviceCharge.amount,
+        vat: paymentPreview.vat.total,
+        totalDue: paymentPreview.totalDue,
+        monthlyEquivalent: paymentPreview.monthlyEquivalent
+      };
+    }
+
     if (!tenant) return { rent: 0, serviceCharge: 0, vat: 0, totalDue: 0, monthlyEquivalent: 0 };
 
     const monthlyRent = tenant.rent;
@@ -414,17 +424,10 @@ export default function TenantDetailPage() {
     const monthlyTotalDue = tenant.vatType === 'INCLUSIVE' ? monthlySubtotal : monthlySubtotal + monthlyVat;
 
     let multiplier = 1;
-    
     switch (tenant.paymentPolicy) {
-      case 'MONTHLY':
-        multiplier = 1;
-        break;
-      case 'QUARTERLY':
-        multiplier = 3;
-        break;
-      case 'ANNUAL':
-        multiplier = 12;
-        break;
+      case 'MONTHLY': multiplier = 1; break;
+      case 'QUARTERLY': multiplier = 3; break;
+      case 'ANNUAL': multiplier = 12; break;
     }
 
     const periodRent = monthlyRent * multiplier;
@@ -2022,6 +2025,7 @@ export default function TenantDetailPage() {
           
           <div className="flex-1 overflow-y-auto px-6 py-4">
             <div className="space-y-6">
+              {/* Payment Policy Header */}
               <div className="p-4 bg-linear-to-r from-purple-50 to-indigo-50 rounded-xl border border-purple-200">
                 <div className="flex items-center justify-between">
                   <div>
@@ -2043,6 +2047,7 @@ export default function TenantDetailPage() {
                 </p>
               </div>
 
+              {/* Payment Preview Section */}
               {paymentPreview && (
                 <motion.div 
                   initial={{ opacity: 0, y: -10 }}
@@ -2055,63 +2060,124 @@ export default function TenantDetailPage() {
                     </svg>
                     Payment Preview ({tenant.paymentPolicy})
                   </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
+                  
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+                    {/* Rent Card */}
                     <div className="p-3 bg-white rounded-lg shadow-sm">
-                      <p className="text-gray-600 font-medium">
+                      <p className="text-gray-600 font-medium text-xs">
                         {tenant.paymentPolicy === 'MONTHLY' && 'Monthly Rent'}
                         {tenant.paymentPolicy === 'QUARTERLY' && 'Quarterly Rent'}
                         {tenant.paymentPolicy === 'ANNUAL' && 'Annual Rent'}
                       </p>
-                      <p className="text-gray-900 font-bold text-lg">Ksh {paymentPreview.rent.toLocaleString()}</p>
+                      <p className="text-gray-900 font-bold text-base">Ksh {paymentPreview.rent.amount.toLocaleString()}</p>
+                      {paymentPreview.rent.vatType !== 'NOT_APPLICABLE' && (
+                        <div className="mt-1">
+                          <p className="text-xs text-gray-500">
+                            {paymentPreview.rent.vatType} ({paymentPreview.rent.vatRate}%)
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            VAT: Ksh {paymentPreview.rent.vatAmount.toLocaleString()}
+                          </p>
+                        </div>
+                      )}
                       {tenant.paymentPolicy !== 'MONTHLY' && (
                         <p className="text-xs text-gray-500 mt-1">
-                          (Based on Ksh {tenant.rent?.toLocaleString()}/month)
+                          (Ksh {tenant.rent?.toLocaleString()}/month)
                         </p>
                       )}
                     </div>
-                    {(paymentPreview.serviceCharge ?? 0) > 0 && (
-                      <div className="p-3 bg-white rounded-lg shadow-sm">
-                        <p className="text-gray-600 font-medium">Service Charge</p>
-                        <p className="text-gray-900 font-bold">Ksh {(paymentPreview.serviceCharge ?? 0).toLocaleString()}</p>
-                        {tenant.serviceCharge && (
-                          <p className="text-xs text-gray-500 mt-1">
-                            {tenant.serviceCharge.type === 'FIXED' && 'Fixed amount'}
-                            {tenant.serviceCharge.type === 'PERCENTAGE' && `${tenant.serviceCharge.percentage}% of rent`}
-                            {tenant.serviceCharge.type === 'PER_SQ_FT' && `Per sq ft (${tenant.unit?.sizeSqFt} sq ft)`}
+
+                    {/* Service Charge Card */}
+                    <div className="p-3 bg-white rounded-lg shadow-sm">
+                      <p className="text-gray-600 font-medium text-xs">Service Charge</p>
+                      {paymentPreview.serviceCharge.hasVat ? (
+                        <>
+                          <p className="text-gray-900 font-bold text-base">
+                            Ksh {paymentPreview.serviceCharge.inclusiveAmount.toLocaleString()}
                           </p>
-                        )}
-                      </div>
-                    )}
-                    {(paymentPreview.vat ?? 0) > 0 && (
-                      <div className="p-3 bg-white rounded-lg shadow-sm">
-                        <p className="text-gray-600 font-medium">VAT ({tenant.vatRate}%)</p>
-                        <p className="text-gray-900 font-bold">Ksh {(paymentPreview.vat ?? 0).toLocaleString()}</p>
-                        <p className="text-xs text-gray-500 mt-1">
-                          {tenant.vatType === 'INCLUSIVE' ? 'Inclusive of rent' : 'Exclusive of rent'}
+                          <div className="mt-1">
+                            <p className="text-xs text-gray-500">
+                              {paymentPreview.serviceCharge.vatType} ({paymentPreview.serviceCharge.vatRate}%)
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              VAT: Ksh {paymentPreview.serviceCharge.vatAmount.toLocaleString()}
+                            </p>
+                            <p className="text-xs text-gray-400">
+                              Excl. VAT: Ksh {paymentPreview.serviceCharge.exclusiveAmount.toLocaleString()}
+                            </p>
+                          </div>
+                        </>
+                      ) : (
+                        <p className="text-gray-900 font-bold text-base">
+                          Ksh {paymentPreview.serviceCharge.amount.toLocaleString()}
                         </p>
+                      )}
+                      {paymentPreview.serviceCharge.type === 'PERCENTAGE' && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          {paymentPreview.serviceCharge.percentage}% of rent
+                        </p>
+                      )}
+                      {paymentPreview.serviceCharge.type === 'FIXED' && (
+                        <p className="text-xs text-gray-500 mt-1">Fixed amount</p>
+                      )}
+                      {paymentPreview.serviceCharge.type === 'PER_SQ_FT' && (
+                        <p className="text-xs text-gray-500 mt-1">Per sq ft</p>
+                      )}
+                    </div>
+
+                    {/* VAT Breakdown Card */}
+                    <div className="p-3 bg-white rounded-lg shadow-sm">
+                      <p className="text-gray-600 font-medium text-xs">VAT Breakdown</p>
+                      <div className="space-y-1 mt-1">
+                        {paymentPreview.vat.rent.hasVat && (
+                          <div className="flex justify-between text-xs">
+                            <span className="text-gray-500">Rent VAT:</span>
+                            <span className="font-semibold text-gray-700">
+                              Ksh {paymentPreview.vat.rent.amount.toLocaleString()}
+                            </span>
+                          </div>
+                        )}
+                        {paymentPreview.vat.serviceCharge.hasVat && (
+                          <div className="flex justify-between text-xs">
+                            <span className="text-gray-500">SC VAT:</span>
+                            <span className="font-semibold text-gray-700">
+                              Ksh {paymentPreview.vat.serviceCharge.amount.toLocaleString()}
+                            </span>
+                          </div>
+                        )}
+                        <div className="flex justify-between text-xs font-bold border-t pt-1 mt-1">
+                          <span className="text-gray-600">Total VAT:</span>
+                          <span className="text-blue-700">Ksh {paymentPreview.vat.total.toLocaleString()}</span>
+                        </div>
                       </div>
-                    )}
+                    </div>
+
+                    {/* Total Due Card */}
                     <div className="p-3 bg-indigo-100 rounded-lg shadow-sm border-2 border-indigo-300">
-                      <p className="text-indigo-800 font-medium">
+                      <p className="text-indigo-800 font-medium text-xs">
                         Total {tenant.paymentPolicy === 'MONTHLY' ? 'Monthly' : tenant.paymentPolicy === 'QUARTERLY' ? 'Quarterly' : 'Annual'} Due
                       </p>
                       <p className="text-indigo-900 font-bold text-lg">Ksh {paymentPreview.totalDue.toLocaleString()}</p>
                     </div>
-                    {paymentPreview.existingCredit ? (
-                      <div className="p-3 bg-green-100 rounded-lg shadow-sm border border-green-300">
-                        <p className="text-green-800 font-medium">Credit Available</p>
+                  </div>
+
+                  {/* Credit Information */}
+                  {paymentPreview.existingCredit > 0 && (
+                    <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <div className="p-2 bg-green-100 rounded-lg border border-green-300">
+                        <p className="text-xs text-green-800 font-medium">Credit Available</p>
                         <p className="text-green-900 font-bold">Ksh {paymentPreview.existingCredit.toLocaleString()}</p>
                       </div>
-                    ) : null}
-                  </div>
-                  {paymentPreview.totalAvailable && (
-                    <div className="mt-3 p-2 bg-green-50 rounded text-sm text-green-800">
-                      <span className="font-semibold">Total Available for Payment:</span> Ksh {paymentPreview.totalAvailable.toLocaleString()}
+                      <div className="p-2 bg-green-50 rounded-lg border border-green-200">
+                        <p className="text-xs text-green-800 font-medium">Net Due After Credit</p>
+                        <p className="text-green-900 font-bold">Ksh {paymentPreview.netDueAfterCredit.toLocaleString()}</p>
+                      </div>
                     </div>
                   )}
                 </motion.div>
               )}
 
+              {/* Outstanding Invoices Section */}
               <div className="p-4 bg-orange-50 rounded-xl border border-orange-200">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-semibold text-gray-800">Outstanding Invoices</h3>
@@ -2258,6 +2324,7 @@ export default function TenantDetailPage() {
                 )}
               </div>
 
+              {/* Payment Options Section */}
               <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
                 <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
                   <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2317,6 +2384,7 @@ export default function TenantDetailPage() {
                 </div>
               </div>
 
+              {/* Payment Form Fields */}
               <div className="space-y-6">
                 <div className="space-y-2">
                   <Label htmlFor="paymentPeriod" className="text-sm font-semibold text-gray-800">

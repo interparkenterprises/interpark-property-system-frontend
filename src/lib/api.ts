@@ -662,16 +662,18 @@ export const paymentsAPI = {
     }
   },
 
-  previewPayment: async (tenantId: string): Promise<PaymentPreview> => {
+  previewPayment: async (tenantId: string, includeCredit: boolean = true): Promise<PaymentPreview> => {
     try {
-      const response = await api.get(`/payments/preview/${tenantId}`);
+      const response = await api.get(`/payments/preview/${tenantId}`, {
+        params: { includeCredit }
+      });
       
       // Extract data from response structure
       if (!response.data || !response.data.success) {
         throw new Error('Invalid response from server');
       }
 
-      return response.data.data;
+      return response.data.data as PaymentPreview;
     } catch (error: any) {
       console.error('Failed to preview payment:', error);
       const message =
