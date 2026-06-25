@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { Tenant, Unit, VATType } from '@/types';
+import { Tenant, Unit, VATType, EscalationFrequency } from '@/types';
 import { tenantsAPI, unitsAPI } from '@/lib/api';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -18,6 +18,8 @@ interface ServiceChargeFormData {
   fixedAmount?: number;
   percentage?: number;
   perSqFtRate?: number;
+  vatType: VATType; // NEW
+  vatRate: number; // NEW
 }
 
 interface TenantFormData {
@@ -30,7 +32,7 @@ interface TenantFormData {
   leaseTerm: string;
   rent: number;
   escalationRate: number;
-  escalationFrequency?: 'ANNUALLY' | 'BI_ANNUALLY';
+  escalationFrequency?: EscalationFrequency; // Updated to include BI_ENNIAL
   termStart: string;
   rentStart: string;
   deposit: number;
@@ -158,7 +160,9 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
             type: tenant.serviceCharge.type,
             fixedAmount: tenant.serviceCharge.fixedAmount || 0,
             percentage: tenant.serviceCharge.percentage || 0,
-            perSqFtRate: tenant.serviceCharge.perSqFtRate || 0
+            perSqFtRate: tenant.serviceCharge.perSqFtRate || 0,
+            vatType: tenant.serviceCharge.vatType || 'NOT_APPLICABLE', // NEW
+            vatRate: tenant.serviceCharge.vatRate || 0 // NEW
           } : undefined
         });
         
@@ -358,7 +362,9 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
           type: serviceChargeType,
           fixedAmount: 0,
           percentage: 0,
-          perSqFtRate: 0
+          perSqFtRate: 0,
+          vatType: 'NOT_APPLICABLE', // NEW
+          vatRate: 0 // NEW
         }
       };
     } else {
@@ -443,7 +449,9 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
             type: tenant.serviceCharge.type,
             fixedAmount: tenant.serviceCharge.fixedAmount || 0,
             percentage: tenant.serviceCharge.percentage || 0,
-            perSqFtRate: tenant.serviceCharge.perSqFtRate || 0
+            perSqFtRate: tenant.serviceCharge.perSqFtRate || 0,
+            vatType: tenant.serviceCharge.vatType || 'NOT_APPLICABLE',
+            vatRate: tenant.serviceCharge.vatRate || 0
           } : undefined
         });
         
@@ -492,6 +500,8 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
           fixedAmount: formData.serviceCharge.fixedAmount || 0,
           percentage: formData.serviceCharge.percentage || 0,
           perSqFtRate: formData.serviceCharge.perSqFtRate || 0,
+          vatType: formData.serviceCharge.vatType || 'NOT_APPLICABLE', // NEW
+          vatRate: formData.serviceCharge.vatRate || 0 // NEW
         };
       }
 
@@ -522,6 +532,11 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
       }
       if (!submitData.deposit || submitData.deposit < 0) {
         throw new Error('Valid deposit amount is required');
+      }
+
+      // Validate escalation frequency if escalation rate is set
+      if (submitData.escalationRate > 0 && !submitData.escalationFrequency) {
+        throw new Error('Escalation frequency is required when escalation rate is set');
       }
 
       // Validate email format if provided
@@ -594,6 +609,20 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
       currency: 'KES',
       minimumFractionDigits: 2
     }).format(amount);
+  };
+
+  // Helper function to get escalation frequency label
+  const getEscalationFrequencyLabel = (frequency: EscalationFrequency): string => {
+    switch (frequency) {
+      case 'ANNUALLY':
+        return 'Annually';
+      case 'BI_ANNUALLY':
+        return 'Bi-Annually (Every 6 months)';
+      case 'BI_ENNIAL':
+        return 'Bi-Ennial (Every 2 years)'; // NEW
+      default:
+        return frequency;
+    }
   };
 
   return (
@@ -816,8 +845,14 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
           >
             <option value="" className="text-gray-500">Select Frequency</option>
             <option value="ANNUALLY" className="text-gray-900">Annually</option>
-            <option value="BI_ANNUALLY" className="text-gray-900">Bi-Annually</option>
+            <option value="BI_ANNUALLY" className="text-gray-900">Bi-Annually (Every 6 months)</option>
+            <option value="BI_ENNIAL" className="text-gray-900">Bi-Ennial (Every 2 years)</option> {/* NEW */}
           </select>
+          {formData.escalationFrequency === 'BI_ENNIAL' && (
+            <p className="mt-1 text-xs text-blue-600">
+              Rent will escalate every 2 years at {formData.escalationRate}%
+            </p>
+          )}
         </div>
       )}
 
@@ -930,7 +965,7 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
         </select>
       </div>
 
-      {/* Service Charge Section */}
+      {/* Service Charge Section - UPDATED with VAT support */}
       <div className="border-t pt-4 mt-4">
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-lg font-medium text-gray-900">Service Charge</h3>
@@ -973,9 +1008,14 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 text-gray-900 disabled:bg-gray-100 disabled:cursor-not-allowed"
               >
                 <option value="FIXED">Fixed Amount</option>
-                <option value="PERCENTAGE">Percentage of Rent</option>
+                <option value="PERCENTAGE">Percentage of Rent (based on rent only)</option>
                 <option value="PER_SQ_FT">Per Square Foot</option>
               </select>
+              {formData.serviceCharge.type === 'PERCENTAGE' && (
+                <p className="mt-1 text-xs text-blue-600">
+                  Service charge percentage is calculated based on the rent amount only (excluding VAT)
+                </p>
+              )}
             </div>
 
             {formData.serviceCharge.type === 'FIXED' && (
@@ -1023,6 +1063,56 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
                 disabled={loading}
               />
             )}
+
+            {/* NEW: Service Charge VAT Configuration */}
+            <div className="border-t border-gray-200 pt-4 mt-4">
+              <h4 className="text-sm font-medium text-gray-700 mb-3">Service Charge VAT Configuration</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Service Charge VAT Type
+                  </label>
+                  <select
+                    name="vatType"
+                    value={formData.serviceCharge.vatType || 'NOT_APPLICABLE'}
+                    onChange={handleServiceChargeChange}
+                    disabled={loading}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 text-gray-900 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                  >
+                    <option value="NOT_APPLICABLE">Not Applicable</option>
+                    <option value="INCLUSIVE">VAT Inclusive</option>
+                    <option value="EXCLUSIVE">VAT Exclusive</option>
+                  </select>
+                </div>
+
+                {(formData.serviceCharge.vatType === 'INCLUSIVE' || formData.serviceCharge.vatType === 'EXCLUSIVE') && (
+                  <Input
+                    label="Service Charge VAT Rate (%)"
+                    name="vatRate"
+                    type="number"
+                    step="0.1"
+                    value={formData.serviceCharge.vatRate || 0}
+                    onChange={handleServiceChargeChange}
+                    min="0"
+                    max="100"
+                    placeholder="16.0"
+                    className="text-gray-900 placeholder:text-gray-500"
+                    disabled={loading}
+                  />
+                )}
+              </div>
+
+              {formData.serviceCharge.vatType !== 'NOT_APPLICABLE' && formData.serviceCharge.vatRate > 0 && (
+                <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                  <p className="text-sm text-blue-700">
+                    {formData.serviceCharge.vatType === 'INCLUSIVE' 
+                      ? `VAT of ${formData.serviceCharge.vatRate}% is included in the service charge amount.`
+                      : `VAT of ${formData.serviceCharge.vatRate}% will be added on top of the service charge amount.`
+                    }
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

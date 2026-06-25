@@ -158,7 +158,7 @@ export interface Unit {
 }
 
 export type PaymentPolicy = 'MONTHLY' | 'QUARTERLY' | 'ANNUAL';
-export type EscalationFrequency = 'ANNUALLY' | 'BI_ANNUALLY';
+export type EscalationFrequency = 'ANNUALLY' | 'BI_ANNUALLY' | 'BI_ENNIAL';
 export type VATType = 'INCLUSIVE' | 'EXCLUSIVE' | 'NOT_APPLICABLE';
 
 export type ServiceChargeType = 'FIXED' | 'PERCENTAGE' | 'PER_SQ_FT';
@@ -166,11 +166,12 @@ export type ServiceChargeType = 'FIXED' | 'PERCENTAGE' | 'PER_SQ_FT';
 export interface ServiceCharge {
   id: string;
   tenantId: string;
-  tenant?: Tenant;
   type: ServiceChargeType;
-  fixedAmount?: number;
-  percentage?: number;
-  perSqFtRate?: number;
+  fixedAmount?: number | null;
+  percentage?: number | null;
+  perSqFtRate?: number | null;
+  vatType: VATType; // NEW
+  vatRate: number; // NEW
   createdAt: string;
   updatedAt: string;
 }
@@ -193,7 +194,7 @@ export interface Tenant {
   deposit: number;
   vatRate?: number;
   vatType: VATType;
-  serviceCharge?: ServiceCharge;
+  serviceCharge?: ServiceCharge | null;
   paymentPolicy: PaymentPolicy;
   paymentReports?: PaymentReport[];
   incomes?: Income[];

@@ -12,7 +12,6 @@ import { PermissionGuard } from '@/components/auth/PermissionGuard';
 
 export default function PropertiesPage() {
   const router = useRouter();
-  const hasFetched = useRef(false);
   const isMounted = useRef(true);
 
   const {
@@ -131,10 +130,6 @@ export default function PropertiesPage() {
       return;
     }
 
-    // Prevent multiple fetches
-    if (hasFetched.current) return;
-    hasFetched.current = true;
-
     try {
       setLoading(true);
       setError(null);
@@ -163,9 +158,11 @@ export default function PropertiesPage() {
     }
   }, [canAccessPage, canViewThisProperty]);
 
-  // Reset the fetch ref when dependencies change
   useEffect(() => {
-    hasFetched.current = false;
+    // Set mounted flag
+    isMounted.current = true;
+    
+    // Fetch properties
     fetchProperties();
 
     // Cleanup function to prevent state updates on unmounted component
@@ -289,7 +286,6 @@ export default function PropertiesPage() {
           <p className="text-gray-600">{error}</p>
           <button
             onClick={() => {
-              hasFetched.current = false;
               fetchProperties();
             }}
             className="px-6 py-2 bg-[#005478] text-white rounded-lg hover:bg-[#004267] transition-colors"
