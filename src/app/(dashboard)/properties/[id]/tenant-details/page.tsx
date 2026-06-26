@@ -248,6 +248,51 @@ export default function TenantDetailPage() {
     }
   }, [showInvoiceDialog, tenant?.paymentSummary?.nextPayment?.dueDate]);
 
+  // Initialize payment period when dialog opens
+  useEffect(() => {
+    if (showCreatePaymentDialog && tenant && !paymentForm.paymentPeriod) {
+      const now = new Date();
+      if (tenant.paymentPolicy === 'MONTHLY') {
+        setPaymentForm(prev => ({
+          ...prev,
+          paymentPeriod: now.toISOString().slice(0, 7) // YYYY-MM
+        }));
+      } else if (tenant.paymentPolicy === 'QUARTERLY') {
+        const year = now.getFullYear();
+        const quarter = getCurrentQuarter();
+        setPaymentForm(prev => ({
+          ...prev,
+          paymentPeriod: `${year}-${quarter}`
+        }));
+      } else if (tenant.paymentPolicy === 'ANNUAL') {
+        setPaymentForm(prev => ({
+          ...prev,
+          paymentPeriod: now.getFullYear().toString()
+        }));
+      }
+    }
+  }, [showCreatePaymentDialog, tenant]);
+
+  // Helper functions for payment period handling
+  const getCurrentQuarter = () => {
+    const now = new Date();
+    const month = now.getMonth() + 1;
+    if (month <= 3) return 'Q1';
+    if (month <= 6) return 'Q2';
+    if (month <= 9) return 'Q3';
+    return 'Q4';
+  };
+
+  const getQuarterLabel = (quarter: string) => {
+    const labels: Record<string, string> = {
+      'Q1': 'Jan - Mar',
+      'Q2': 'Apr - Jun',
+      'Q3': 'Jul - Sep',
+      'Q4': 'Oct - Dec'
+    };
+    return labels[quarter] || quarter;
+  };
+
   const fetchTenant = async () => {
     try {
       const data = await tenantsAPI.getById(tenantId);
@@ -2384,23 +2429,157 @@ export default function TenantDetailPage() {
                 </div>
               </div>
 
-              {/* Payment Form Fields */}
+              {/* Payment Form Fields - UPDATED SECTION */}
               <div className="space-y-6">
                 <div className="space-y-2">
                   <Label htmlFor="paymentPeriod" className="text-sm font-semibold text-gray-800">
                     Payment Period <span className="text-red-500">*</span>
                   </Label>
-                  <Input
-                    id="paymentPeriod"
-                    type="month"
-                    value={paymentForm.paymentPeriod}
-                    onChange={(e) => setPaymentForm({ ...paymentForm, paymentPeriod: e.target.value })}
-                    className="w-full text-gray-900"
-                    required
-                  />
-                  <p className="text-xs text-gray-500">
-                    Select the {tenant.paymentPolicy === 'MONTHLY' ? 'month' : tenant.paymentPolicy === 'QUARTERLY' ? 'quarter start month' : 'year'} for this payment
-                  </p>
+                  
+                  {/* Monthly - Month picker */}
+                  {tenant.paymentPolicy === 'MONTHLY' && (
+                    <div>
+                      <Input
+                        id="paymentPeriod"
+                        type="month"
+                        value={paymentForm.paymentPeriod}
+                        onChange={(e) => setPaymentForm({ ...paymentForm, paymentPeriod: e.target.value })}
+                        className="w-full text-gray-900"
+                        required
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Select the month for this payment
+                      </p>
+                    </div>
+                  )}
+                  
+                  {/* Quarterly - Quarter selection with quick buttons */}
+                  {tenant.paymentPolicy === 'QUARTERLY' && (
+                    <div>
+                      <div className="grid grid-cols-2 gap-3 mb-3">
+                        <div>
+                          <Label htmlFor="quarterYear" className="text-xs text-gray-600">
+                            Year
+                          </Label>
+                          <select
+                            id="quarterYear"
+                            value={paymentForm.paymentPeriod ? paymentForm.paymentPeriod.split('-')[0] : new Date().getFullYear().toString()}
+                            onChange={(e) => {
+                              const year = e.target.value;
+                              const currentQuarter = paymentForm.paymentPeriod?.split('-')[1] || getCurrentQuarter();
+                              setPaymentForm({ ...paymentForm, paymentPeriod: `${year}-${currentQuarter}` });
+                            }}
+                            className="w-full p-2 border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          >
+                            {Array.from({ length: 5 }, (_, i) => {
+                              const year = new Date().getFullYear() + i - 1;
+                              return (
+                                <option key={year} value={year}>
+                                  {year}
+                                </option>
+                              );
+                            })}
+                          </select>
+                        </div>
+                        <div>
+                          <Label htmlFor="quarterSelect" className="text-xs text-gray-600">
+                            Quarter
+                          </Label>
+                          <select
+                            id="quarterSelect"
+                            value={paymentForm.paymentPeriod?.split('-')[1] || getCurrentQuarter()}
+                            onChange={(e) => {
+                              const quarter = e.target.value;
+                              const currentYear = paymentForm.paymentPeriod?.split('-')[0] || new Date().getFullYear().toString();
+                              setPaymentForm({ ...paymentForm, paymentPeriod: `${currentYear}-${quarter}` });
+                            }}
+                            className="w-full p-2 border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          >
+                            <option value="Q1">Q1 (Jan - Mar)</option>
+                            <option value="Q2">Q2 (Apr - Jun)</option>
+                            <option value="Q3">Q3 (Jul - Sep)</option>
+                            <option value="Q4">Q4 (Oct - Dec)</option>
+                          </select>
+                        </div>
+                      </div>
+                      
+                      {/* Quick quarter buttons */}
+                      <div className="flex gap-2 flex-wrap">
+                        {['Q1 (Jan-Mar)', 'Q2 (Apr-Jun)', 'Q3 (Jul-Sep)', 'Q4 (Oct-Dec)'].map((quarter, idx) => {
+                          const qValue = `Q${idx + 1}`;
+                          const year = paymentForm.paymentPeriod?.split('-')[0] || new Date().getFullYear().toString();
+                          const fullValue = `${year}-${qValue}`;
+                          return (
+                            <button
+                              key={qValue}
+                              type="button"
+                              onClick={() => setPaymentForm({ ...paymentForm, paymentPeriod: fullValue })}
+                              className={`px-3 py-1 text-xs rounded-full border transition-all ${
+                                paymentForm.paymentPeriod === fullValue
+                                  ? 'bg-blue-600 text-white border-blue-600'
+                                  : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400'
+                              }`}
+                            >
+                              {quarter}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <p className="text-xs text-gray-500 mt-2">
+                        Select the quarter for this payment
+                      </p>
+                    </div>
+                  )}
+                  
+                  {/* Annual - Year selection with quick buttons */}
+                  {tenant.paymentPolicy === 'ANNUAL' && (
+                    <div>
+                      <div>
+                        <Label htmlFor="annualYear" className="text-xs text-gray-600">
+                          Year
+                        </Label>
+                        <select
+                          id="annualYear"
+                          value={paymentForm.paymentPeriod}
+                          onChange={(e) => setPaymentForm({ ...paymentForm, paymentPeriod: e.target.value })}
+                          className="w-full p-2 border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          {Array.from({ length: 5 }, (_, i) => {
+                            const year = new Date().getFullYear() + i - 1;
+                            return (
+                              <option key={year} value={year.toString()}>
+                                {year}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      </div>
+                      
+                      {/* Quick year buttons */}
+                      <div className="flex gap-2 flex-wrap mt-3">
+                        {Array.from({ length: 5 }, (_, i) => {
+                          const year = new Date().getFullYear() + i - 1;
+                          return (
+                            <button
+                              key={year}
+                              type="button"
+                              onClick={() => setPaymentForm({ ...paymentForm, paymentPeriod: year.toString() })}
+                              className={`px-3 py-1 text-xs rounded-full border transition-all ${
+                                paymentForm.paymentPeriod === year.toString()
+                                  ? 'bg-blue-600 text-white border-blue-600'
+                                  : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400'
+                              }`}
+                            >
+                              {year}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <p className="text-xs text-gray-500 mt-2">
+                        Select the year for this payment
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-2">
