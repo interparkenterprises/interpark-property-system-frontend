@@ -248,49 +248,138 @@ export default function TenantDetailPage() {
     }
   }, [showInvoiceDialog, tenant?.paymentSummary?.nextPayment?.dueDate]);
 
-  // Initialize payment period when dialog opens
+  // Initialize payment period when dialog opens based on tenant's start date
   useEffect(() => {
     if (showCreatePaymentDialog && tenant && !paymentForm.paymentPeriod) {
-      const now = new Date();
-      if (tenant.paymentPolicy === 'MONTHLY') {
+      const currentPeriod = getCurrentPeriod(tenant.rentStart || '', tenant.paymentPolicy);
+      if (currentPeriod) {
         setPaymentForm(prev => ({
           ...prev,
-          paymentPeriod: now.toISOString().slice(0, 7) // YYYY-MM
-        }));
-      } else if (tenant.paymentPolicy === 'QUARTERLY') {
-        const year = now.getFullYear();
-        const quarter = getCurrentQuarter();
-        setPaymentForm(prev => ({
-          ...prev,
-          paymentPeriod: `${year}-${quarter}`
-        }));
-      } else if (tenant.paymentPolicy === 'ANNUAL') {
-        setPaymentForm(prev => ({
-          ...prev,
-          paymentPeriod: now.getFullYear().toString()
+          paymentPeriod: currentPeriod
         }));
       }
     }
   }, [showCreatePaymentDialog, tenant]);
 
-  // Helper functions for payment period handling
-  const getCurrentQuarter = () => {
+  // Helper functions for payment period handling based on tenant's start date
+  const getCurrentQuarter = (tenantStartDate?: string) => {
     const now = new Date();
-    const month = now.getMonth() + 1;
-    if (month <= 3) return 'Q1';
-    if (month <= 6) return 'Q2';
-    if (month <= 9) return 'Q3';
-    return 'Q4';
+    const startDate = tenantStartDate ? new Date(tenantStartDate) : now;
+    
+    // Calculate months from start date
+    const monthsDiff = (now.getFullYear() - startDate.getFullYear()) * 12 + 
+                      (now.getMonth() - startDate.getMonth());
+    
+    // Determine which quarter we're in based on months since start
+    const quarterIndex = Math.floor(monthsDiff / 3);
+    return {
+      quarter: `Q${quarterIndex + 1}`,
+      startMonth: startDate.getMonth(),
+      startYear: startDate.getFullYear(),
+      quarterIndex: quarterIndex
+    };
   };
 
-  const getQuarterLabel = (quarter: string) => {
-    const labels: Record<string, string> = {
-      'Q1': 'Jan - Mar',
-      'Q2': 'Apr - Jun',
-      'Q3': 'Jul - Sep',
-      'Q4': 'Oct - Dec'
+  const getQuarterMonths = (quarter: string, startDate?: Date) => {
+    const baseDate = startDate || new Date();
+    const quarterNum = parseInt(quarter.replace('Q', ''));
+    const startMonth = baseDate.getMonth();
+    const year = baseDate.getFullYear();
+    
+    // Calculate the actual start month for this quarter
+    const quarterStartMonth = (startMonth + (quarterNum - 1) * 3) % 12;
+    const quarterEndMonth = (startMonth + quarterNum * 3 - 1) % 12;
+    
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    
+    // Calculate year offset
+    const yearOffset = Math.floor((startMonth + (quarterNum - 1) * 3) / 12);
+    
+    return {
+      startMonth: monthNames[quarterStartMonth],
+      endMonth: monthNames[quarterEndMonth],
+      startYear: year + yearOffset,
+      endYear: year + Math.floor((startMonth + quarterNum * 3 - 1) / 12),
+      display: `${monthNames[quarterStartMonth]} - ${monthNames[quarterEndMonth]}`
     };
-    return labels[quarter] || quarter;
+  };
+
+  const getQuarterPeriods = (tenantStartDate: string, numQuarters: number = 8) => {
+    const startDate = new Date(tenantStartDate);
+    const periods = [];
+    
+    for (let i = 0; i < numQuarters; i++) {
+      const quarterStart = new Date(startDate);
+      quarterStart.setMonth(startDate.getMonth() + (i * 3));
+      
+      const quarterEnd = new Date(startDate);
+      quarterEnd.setMonth(startDate.getMonth() + ((i + 1) * 3) - 1);
+      
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      
+      periods.push({
+        quarter: `Q${i + 1}`,
+        startMonth: monthNames[quarterStart.getMonth()],
+        endMonth: monthNames[quarterEnd.getMonth()],
+        startYear: quarterStart.getFullYear(),
+        endYear: quarterEnd.getFullYear(),
+        display: `${monthNames[quarterStart.getMonth()]} ${quarterStart.getFullYear()} - ${monthNames[quarterEnd.getMonth()]} ${quarterEnd.getFullYear()}`,
+        startDate: quarterStart,
+        endDate: quarterEnd,
+        value: `${quarterStart.getFullYear()}-Q${i + 1}`
+      });
+    }
+    
+    return periods;
+  };
+
+  const getAnnualPeriods = (tenantStartDate: string, numYears: number = 5) => {
+    const startDate = new Date(tenantStartDate);
+    const periods = [];
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    
+    for (let i = 0; i < numYears; i++) {
+      const yearStart = new Date(startDate);
+      yearStart.setFullYear(startDate.getFullYear() + i);
+      
+      const yearEnd = new Date(startDate);
+      yearEnd.setFullYear(startDate.getFullYear() + i + 1);
+      yearEnd.setMonth(yearEnd.getMonth() - 1);
+      
+      periods.push({
+        year: yearStart.getFullYear(),
+        display: `${monthNames[yearStart.getMonth()]} ${yearStart.getFullYear()} - ${monthNames[yearEnd.getMonth()]} ${yearEnd.getFullYear()}`,
+        startDate: yearStart,
+        endDate: yearEnd,
+        value: yearStart.getFullYear().toString()
+      });
+    }
+    
+    return periods;
+  };
+
+  const getCurrentPeriod = (tenantStartDate: string, paymentPolicy: string) => {
+    const now = new Date();
+    const startDate = new Date(tenantStartDate);
+    
+    if (paymentPolicy === 'MONTHLY') {
+      return now.toISOString().slice(0, 7); // YYYY-MM
+    } else if (paymentPolicy === 'QUARTERLY') {
+      const monthsDiff = (now.getFullYear() - startDate.getFullYear()) * 12 + 
+                        (now.getMonth() - startDate.getMonth());
+      const quarterIndex = Math.floor(monthsDiff / 3);
+      const yearOffset = Math.floor((startDate.getMonth() + quarterIndex * 3) / 12);
+      const year = startDate.getFullYear() + yearOffset;
+      return `${year}-Q${quarterIndex + 1}`;
+    } else if (paymentPolicy === 'ANNUAL') {
+      const yearsDiff = now.getFullYear() - startDate.getFullYear();
+      // Check if we're past the anniversary date this year
+      const currentYearAnniversary = new Date(now.getFullYear(), startDate.getMonth(), startDate.getDate());
+      const yearOffset = now >= currentYearAnniversary ? 0 : 1;
+      return (now.getFullYear() - yearOffset).toString();
+    }
+    
+    return '';
   };
 
   const fetchTenant = async () => {
@@ -2090,6 +2179,11 @@ export default function TenantDetailPage() {
                   {tenant.paymentPolicy === 'QUARTERLY' && 'Payment due every 3 months'}
                   {tenant.paymentPolicy === 'ANNUAL' && 'Payment due once per year'}
                 </p>
+                {tenant.rentStart && (
+                  <p className="text-xs text-purple-600 mt-1">
+                    Rent start date: {new Date(tenant.rentStart).toLocaleDateString()}
+                  </p>
+                )}
               </div>
 
               {/* Payment Preview Section */}
@@ -2429,12 +2523,27 @@ export default function TenantDetailPage() {
                 </div>
               </div>
 
-              {/* Payment Form Fields - UPDATED SECTION */}
+              {/* Payment Form Fields - DYNAMIC BASED ON PAYMENT POLICY */}
               <div className="space-y-6">
                 <div className="space-y-2">
                   <Label htmlFor="paymentPeriod" className="text-sm font-semibold text-gray-800">
                     Payment Period <span className="text-red-500">*</span>
                   </Label>
+                  
+                  {/* Current Period Indicator */}
+                  {tenant.rentStart && (
+                    <div className="p-3 bg-green-50 border border-green-200 rounded-lg mb-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                        <p className="text-sm text-green-800">
+                          <span className="font-semibold">Current {tenant.paymentPolicy} Period:</span>{' '}
+                          {tenant.paymentPolicy === 'MONTHLY' && new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                          {tenant.paymentPolicy === 'QUARTERLY' && getQuarterPeriods(tenant.rentStart, 1)[0]?.display}
+                          {tenant.paymentPolicy === 'ANNUAL' && getAnnualPeriods(tenant.rentStart, 1)[0]?.display}
+                        </p>
+                      </div>
+                    </div>
+                  )}
                   
                   {/* Monthly - Month picker */}
                   {tenant.paymentPolicy === 'MONTHLY' && (
@@ -2453,41 +2562,36 @@ export default function TenantDetailPage() {
                     </div>
                   )}
                   
-                  {/* Quarterly - Quarter selection with quick buttons */}
-                  {tenant.paymentPolicy === 'QUARTERLY' && (
+                  {/* Quarterly - Quarter selection based on tenant's start date */}
+                  {tenant.paymentPolicy === 'QUARTERLY' && tenant.rentStart && (
                     <div>
                       <div className="grid grid-cols-2 gap-3 mb-3">
                         <div>
-                          <Label htmlFor="quarterYear" className="text-xs text-gray-600">
+                          <Label className="text-xs text-gray-600">
                             Year
                           </Label>
                           <select
-                            id="quarterYear"
-                            value={paymentForm.paymentPeriod ? paymentForm.paymentPeriod.split('-')[0] : new Date().getFullYear().toString()}
+                            value={paymentForm.paymentPeriod ? paymentForm.paymentPeriod.split('-')[0] : ''}
                             onChange={(e) => {
                               const year = e.target.value;
-                              const currentQuarter = paymentForm.paymentPeriod?.split('-')[1] || getCurrentQuarter();
+                              const currentQuarter = paymentForm.paymentPeriod?.split('-')[1] || 'Q1';
                               setPaymentForm({ ...paymentForm, paymentPeriod: `${year}-${currentQuarter}` });
                             }}
                             className="w-full p-2 border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                           >
-                            {Array.from({ length: 5 }, (_, i) => {
-                              const year = new Date().getFullYear() + i - 1;
-                              return (
-                                <option key={year} value={year}>
-                                  {year}
-                                </option>
-                              );
-                            })}
+                            {getQuarterPeriods(tenant.rentStart, 8).map((period, index) => (
+                              <option key={index} value={period.startYear}>
+                                {period.startYear} ({period.display})
+                              </option>
+                            ))}
                           </select>
                         </div>
                         <div>
-                          <Label htmlFor="quarterSelect" className="text-xs text-gray-600">
+                          <Label className="text-xs text-gray-600">
                             Quarter
                           </Label>
                           <select
-                            id="quarterSelect"
-                            value={paymentForm.paymentPeriod?.split('-')[1] || getCurrentQuarter()}
+                            value={paymentForm.paymentPeriod?.split('-')[1] || 'Q1'}
                             onChange={(e) => {
                               const quarter = e.target.value;
                               const currentYear = paymentForm.paymentPeriod?.split('-')[0] || new Date().getFullYear().toString();
@@ -2495,88 +2599,77 @@ export default function TenantDetailPage() {
                             }}
                             className="w-full p-2 border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                           >
-                            <option value="Q1">Q1 (Jan - Mar)</option>
-                            <option value="Q2">Q2 (Apr - Jun)</option>
-                            <option value="Q3">Q3 (Jul - Sep)</option>
-                            <option value="Q4">Q4 (Oct - Dec)</option>
+                            {getQuarterPeriods(tenant.rentStart, 8).map((period, index) => (
+                              <option key={index} value={period.quarter}>
+                                {period.quarter} ({period.display})
+                              </option>
+                            ))}
                           </select>
                         </div>
                       </div>
                       
-                      {/* Quick quarter buttons */}
+                      {/* Quick quarter buttons based on tenant's start date */}
                       <div className="flex gap-2 flex-wrap">
-                        {['Q1 (Jan-Mar)', 'Q2 (Apr-Jun)', 'Q3 (Jul-Sep)', 'Q4 (Oct-Dec)'].map((quarter, idx) => {
-                          const qValue = `Q${idx + 1}`;
-                          const year = paymentForm.paymentPeriod?.split('-')[0] || new Date().getFullYear().toString();
-                          const fullValue = `${year}-${qValue}`;
-                          return (
-                            <button
-                              key={qValue}
-                              type="button"
-                              onClick={() => setPaymentForm({ ...paymentForm, paymentPeriod: fullValue })}
-                              className={`px-3 py-1 text-xs rounded-full border transition-all ${
-                                paymentForm.paymentPeriod === fullValue
-                                  ? 'bg-blue-600 text-white border-blue-600'
-                                  : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400'
-                              }`}
-                            >
-                              {quarter}
-                            </button>
-                          );
-                        })}
+                        {getQuarterPeriods(tenant.rentStart, 4).map((period, index) => (
+                          <button
+                            key={index}
+                            type="button"
+                            onClick={() => setPaymentForm({ ...paymentForm, paymentPeriod: period.value })}
+                            className={`px-3 py-1 text-xs rounded-full border transition-all ${
+                              paymentForm.paymentPeriod === period.value
+                                ? 'bg-blue-600 text-white border-blue-600'
+                                : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400'
+                            }`}
+                          >
+                            {period.quarter} ({period.display})
+                          </button>
+                        ))}
                       </div>
                       <p className="text-xs text-gray-500 mt-2">
-                        Select the quarter for this payment
+                        Quarters are calculated from rent start date: {new Date(tenant.rentStart).toLocaleDateString()}
                       </p>
                     </div>
                   )}
                   
-                  {/* Annual - Year selection with quick buttons */}
-                  {tenant.paymentPolicy === 'ANNUAL' && (
+                  {/* Annual - Year selection based on tenant's start date */}
+                  {tenant.paymentPolicy === 'ANNUAL' && tenant.rentStart && (
                     <div>
                       <div>
-                        <Label htmlFor="annualYear" className="text-xs text-gray-600">
+                        <Label className="text-xs text-gray-600">
                           Year
                         </Label>
                         <select
-                          id="annualYear"
                           value={paymentForm.paymentPeriod}
                           onChange={(e) => setPaymentForm({ ...paymentForm, paymentPeriod: e.target.value })}
                           className="w-full p-2 border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                         >
-                          {Array.from({ length: 5 }, (_, i) => {
-                            const year = new Date().getFullYear() + i - 1;
-                            return (
-                              <option key={year} value={year.toString()}>
-                                {year}
-                              </option>
-                            );
-                          })}
+                          {getAnnualPeriods(tenant.rentStart, 5).map((period, index) => (
+                            <option key={index} value={period.value}>
+                              {period.display}
+                            </option>
+                          ))}
                         </select>
                       </div>
                       
-                      {/* Quick year buttons */}
+                      {/* Quick year buttons based on tenant's start date */}
                       <div className="flex gap-2 flex-wrap mt-3">
-                        {Array.from({ length: 5 }, (_, i) => {
-                          const year = new Date().getFullYear() + i - 1;
-                          return (
-                            <button
-                              key={year}
-                              type="button"
-                              onClick={() => setPaymentForm({ ...paymentForm, paymentPeriod: year.toString() })}
-                              className={`px-3 py-1 text-xs rounded-full border transition-all ${
-                                paymentForm.paymentPeriod === year.toString()
-                                  ? 'bg-blue-600 text-white border-blue-600'
-                                  : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400'
-                              }`}
-                            >
-                              {year}
-                            </button>
-                          );
-                        })}
+                        {getAnnualPeriods(tenant.rentStart, 5).map((period, index) => (
+                          <button
+                            key={index}
+                            type="button"
+                            onClick={() => setPaymentForm({ ...paymentForm, paymentPeriod: period.value })}
+                            className={`px-3 py-1 text-xs rounded-full border transition-all ${
+                              paymentForm.paymentPeriod === period.value
+                                ? 'bg-blue-600 text-white border-blue-600'
+                                : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400'
+                            }`}
+                          >
+                            {period.display}
+                          </button>
+                        ))}
                       </div>
                       <p className="text-xs text-gray-500 mt-2">
-                        Select the year for this payment
+                        Years are calculated from rent start date: {new Date(tenant.rentStart).toLocaleDateString()}
                       </p>
                     </div>
                   )}
