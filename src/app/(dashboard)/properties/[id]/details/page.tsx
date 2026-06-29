@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button';
 import { exportArrearsToPDF } from '@/lib/arrearsPdfGenerator';
 import { exportPropertyToExcel, ExportSection } from '@/lib/excelGenerator';
 import { exportOverduesToPDF } from '@/lib/overduesPdfGenerator';
+import { exportUpcomingPaymentsToExcel } from '@/lib/excelUpcomingPaymentsGenerator';
 
 type TabType = 'income' | 'commissions' | 'payments' | 'arrears' | 'overdues' | 'UpcomingPayments' | 'rentReport' | 'billsReport';
 
@@ -160,6 +161,7 @@ export default function PropertyDetailInfoPage() {
   // Export loading states
   const [exportingRentReport, setExportingRentReport] = useState(false);
   const [exportingBillsReport, setExportingBillsReport] = useState(false);
+  const [exportingUpcomingPayments, setExportingUpcomingPayments] = useState(false);
 
   const propertyId = params.id as string;
 
@@ -366,6 +368,44 @@ export default function PropertyDetailInfoPage() {
       alert('Failed to export bills report');
     } finally {
       setExportingBillsReport(false);
+    }
+  };
+  // Export Upcoming Payments to Excel
+  const handleExportUpcomingPayments = async () => {
+    if (!nextPaymentsData || !property) {
+      alert('No upcoming payments data to export');
+      return;
+    }
+
+    setExportingUpcomingPayments(true);
+
+    try {
+      const { buffer, filename } = await exportUpcomingPaymentsToExcel(nextPaymentsData, {
+        propertyName: property.name,
+        exportDate: new Date().toLocaleDateString(),
+      });
+
+      // Create blob and download
+      // Ensure buffer is converted to a Uint8Array for Blob (fixes TS Buffer/ArrayBuffer mismatch)
+      const blobData = buffer instanceof ArrayBuffer ? new Uint8Array(buffer) : new Uint8Array(buffer as any);
+      const blob = new Blob([blobData], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      alert('Upcoming payments report exported successfully!');
+    } catch (error) {
+      console.error('Error exporting upcoming payments:', error);
+      alert('Failed to export upcoming payments report. Please try again.');
+    } finally {
+      setExportingUpcomingPayments(false);
     }
   };
 
@@ -2519,6 +2559,55 @@ export default function PropertyDetailInfoPage() {
                     </p>
                   </div>
                 </div>
+                
+                {/* Export Button */}
+                {nextPaymentsData && nextPaymentsData.payments.filter(p => !p.payment.isOverdue).length > 0 && (
+                  <Button
+                    onClick={handleExportUpcomingPayments}
+                    disabled={exportingUpcomingPayments}
+                    className="px-6 py-2.5 bg-blue-600 text-white hover:bg-blue-700 transition-all duration-300 shadow-md rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <span className="flex items-center gap-2">
+                      {exportingUpcomingPayments ? (
+                        <>
+                          <motion.svg
+                            animate={{ rotate: 360 }}
+                            transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                            className="w-5 h-5"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                            />
+                          </motion.svg>
+                          Exporting...
+                        </>
+                      ) : (
+                        <>
+                          <svg
+                            className="w-5 h-5"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                            />
+                          </svg>
+                          Export to Excel
+                        </>
+                      )}
+                    </span>
+                  </Button>
+                )}
               </div>
 
               {nextPaymentsLoading ? (
@@ -2666,7 +2755,11 @@ export default function PropertyDetailInfoPage() {
                                 <div className="grid grid-cols-2 gap-3 mb-3">
                                   <div className="bg-gray-50 rounded-lg p-2">
                                     <div className="text-xs text-gray-500">Days Until Due</div>
-                                    <div className="text-lg font-bold text-green-600">
+                                    <div className={`text-lg font-bold ${
+                                      payment.payment.daysUntilDue <= 3 ? 'text-red-600' :
+                                      payment.payment.daysUntilDue <= 7 ? 'text-orange-600' :
+                                      'text-green-600'
+                                    }`}>
                                       {payment.payment.daysUntilDue} days
                                     </div>
                                   </div>
