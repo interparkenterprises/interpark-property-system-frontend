@@ -4,15 +4,26 @@ import { NextPaymentsResponse, NextPaymentItem } from '@/types';
 interface ExportOptions {
   propertyName: string;
   exportDate?: string;
+  dateFrom?: string;
+  dateTo?: string;
 }
 
 export async function exportUpcomingPaymentsToExcel(
   data: NextPaymentsResponse,
-  options: ExportOptions
+  options: ExportOptions,
+  filteredPayments?: NextPaymentItem[] // Add optional filtered payments
 ): Promise<{ buffer: Buffer; filename: string }> {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'Property Management System';
   workbook.created = new Date();
+
+  // Determine which payments to use
+  const paymentsToExport = filteredPayments || data.payments.filter((p) => !p.payment.isOverdue);
+  
+  // Sort by days until due (closest first)
+  const sortedPayments = [...paymentsToExport].sort(
+    (a, b) => a.payment.daysUntilDue - b.payment.daysUntilDue
+  );
 
   // Create main sheet
   const sheet = workbook.addWorksheet('Upcoming Payments', {
@@ -83,14 +94,6 @@ export async function exportUpcomingPaymentsToExcel(
       right: { style: 'thin', color: { argb: 'FFB0B0B0' } },
     };
   });
-
-  // Filter to only future payments (not overdue)
-  const futurePayments = data.payments.filter((p) => !p.payment.isOverdue);
-
-  // Sort by days until due (closest first)
-  const sortedPayments = [...futurePayments].sort(
-    (a, b) => a.payment.daysUntilDue - b.payment.daysUntilDue
-  );
 
   // Add data rows
   sortedPayments.forEach((payment: NextPaymentItem, index: number) => {
@@ -217,26 +220,38 @@ export async function exportUpcomingPaymentsToExcel(
     vertical: 'middle',
   };
 
+  // Calculate filtered totals
+  const filteredTotalAmount = sortedPayments.reduce((sum, p) => sum + p.payment.amount.total, 0);
+
   // Add summary data
   const summaryData = [
     ['Property Name', options.propertyName],
     ['Export Date', options.exportDate || new Date().toLocaleDateString()],
-    ['Total Tenants', data.summary.total],
-    ['Upcoming Payments', data.summary.upcoming],
-    ['Overdue Payments', data.summary.overdue],
-    ['Total Upcoming Amount', `Ksh ${data.summary.amounts.upcoming.toLocaleString()}`],
-    ['Total Outstanding Amount', `Ksh ${data.summary.amounts.outstanding.toLocaleString()}`],
+    ['Date Range:', options.dateFrom && options.dateTo ? `${options.dateFrom} to ${options.dateTo}` : 
+      options.dateFrom ? `From ${options.dateFrom}` : 
+      options.dateTo ? `To ${options.dateTo}` : 
+      'All upcoming payments'],
     [''],
-    ['Payment Policy Breakdown:'],
+    ['Filtered Results:', ''],
+    [`  Total Tenants in Filter`, sortedPayments.length],
+    [`  Total Amount in Filter`, `Ksh ${filteredTotalAmount.toLocaleString()}`],
+    [''],
+    ['All Data Summary:', ''],
+    ['Total Tenants (All)', data.summary.total],
+    ['Upcoming Payments (All)', data.summary.upcoming],
+    ['Overdue Payments (All)', data.summary.overdue],
+    ['Total Upcoming Amount (All)', `Ksh ${data.summary.amounts.upcoming.toLocaleString()}`],
+    ['Total Outstanding Amount (All)', `Ksh ${data.summary.amounts.outstanding.toLocaleString()}`],
+    [''],
+    ['Payment Policy Breakdown (All):'],
     [`  Monthly`, data.summary.byPolicy.MONTHLY],
     [`  Quarterly`, data.summary.byPolicy.QUARTERLY],
     [`  Annual`, data.summary.byPolicy.ANNUAL],
     [''],
-    ['Status Summary:'],
-    [`  Total Future Payments`, futurePayments.length],
-    [`  Due Within 7 Days`, futurePayments.filter((p) => p.payment.daysUntilDue <= 7).length],
-    [`  Due Within 14 Days`, futurePayments.filter((p) => p.payment.daysUntilDue <= 14).length],
-    [`  Due Within 30 Days`, futurePayments.filter((p) => p.payment.daysUntilDue <= 30).length],
+    ['Status Summary (Filtered):'],
+    [`  Due Within 7 Days`, sortedPayments.filter((p) => p.payment.daysUntilDue <= 7 && p.payment.daysUntilDue > 0).length],
+    [`  Due Within 14 Days`, sortedPayments.filter((p) => p.payment.daysUntilDue <= 14 && p.payment.daysUntilDue > 0).length],
+    [`  Due Within 30 Days`, sortedPayments.filter((p) => p.payment.daysUntilDue <= 30 && p.payment.daysUntilDue > 0).length],
   ];
 
   summaryData.forEach(([metric, value], index) => {
@@ -298,9 +313,18 @@ export async function exportUpcomingPaymentsToExcel(
   // Generate buffer
   const buffer = await workbook.xlsx.writeBuffer();
 
-  // Generate filename
+  // Generate filename with date range
+  let dateRange = '';
+  if (options.dateFrom && options.dateTo) {
+    dateRange = `_${options.dateFrom}_to_${options.dateTo}`;
+  } else if (options.dateFrom) {
+    dateRange = `_from_${options.dateFrom}`;
+  } else if (options.dateTo) {
+    dateRange = `_to_${options.dateTo}`;
+  }
+  
   const timestamp = new Date().toISOString().split('T')[0];
-  const filename = `Upcoming_Payments_${options.propertyName.replace(/\s+/g, '_')}_${timestamp}.xlsx`;
+  const filename = `Upcoming_Payments_${options.propertyName.replace(/\s+/g, '_')}${dateRange}_${timestamp}.xlsx`;
 
   return {
     buffer: Buffer.from(buffer),
