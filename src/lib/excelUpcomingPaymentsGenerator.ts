@@ -97,6 +97,9 @@ export async function exportUpcomingPaymentsToExcel(
 
   // Add data rows
   sortedPayments.forEach((payment: NextPaymentItem, index: number) => {
+    // Calculate total VAT from the payment amount (vatOnRent + vatOnServiceCharge)
+    const totalVAT = (payment.payment.amount.vatOnRent || 0) + (payment.payment.amount.vatOnServiceCharge || 0);
+    
     const row = sheet.addRow({
       index: index + 1,
       tenantName: payment.name,
@@ -109,7 +112,7 @@ export async function exportUpcomingPaymentsToExcel(
       daysUntilDue: payment.payment.daysUntilDue,
       rentAmount: payment.payment.amount.rent,
       serviceCharge: payment.payment.amount.serviceCharge,
-      vat: payment.payment.amount.vat,
+      vat: totalVAT, // Use calculated total VAT
       totalAmount: payment.payment.amount.total,
       email: payment.contact.email || 'N/A',
       phone: payment.contact.phone || 'N/A',
@@ -176,7 +179,7 @@ export async function exportUpcomingPaymentsToExcel(
         };
         cell.numFmt = '#,##0.00';
       } else if (col === 10 || col === 11 || col === 12) {
-        // Amount columns - format as currency
+        // Amount columns - format as currency (Rent, Service Charge, VAT)
         cell.numFmt = '#,##0.00';
       }
 
@@ -222,6 +225,9 @@ export async function exportUpcomingPaymentsToExcel(
 
   // Calculate filtered totals
   const filteredTotalAmount = sortedPayments.reduce((sum, p) => sum + p.payment.amount.total, 0);
+  const filteredTotalVAT = sortedPayments.reduce((sum, p) => {
+    return sum + (p.payment.amount.vatOnRent || 0) + (p.payment.amount.vatOnServiceCharge || 0);
+  }, 0);
 
   // Add summary data
   const summaryData = [
@@ -235,6 +241,7 @@ export async function exportUpcomingPaymentsToExcel(
     ['Filtered Results:', ''],
     [`  Total Tenants in Filter`, sortedPayments.length],
     [`  Total Amount in Filter`, `Ksh ${filteredTotalAmount.toLocaleString()}`],
+    [`  Total VAT in Filter`, `Ksh ${filteredTotalVAT.toLocaleString()}`],
     [''],
     ['All Data Summary:', ''],
     ['Total Tenants (All)', data.summary.total],

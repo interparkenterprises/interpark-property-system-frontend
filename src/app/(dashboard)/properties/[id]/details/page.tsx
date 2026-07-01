@@ -199,27 +199,58 @@ export default function PropertyDetailInfoPage() {
     }
   }, [activeTab]);
 
-  // Add this useEffect to filter payments when date range changes
+  // Update the useEffect that filters payments
   useEffect(() => {
     if (nextPaymentsData?.payments) {
       const futurePayments = nextPaymentsData.payments.filter(p => !p.payment.isOverdue);
       
       let filtered = [...futurePayments];
       
-      // Apply date filters
+      // Apply date filters with proper date handling
       if (upcomingDateFrom) {
         const fromDate = new Date(upcomingDateFrom);
+        fromDate.setHours(0, 0, 0, 0);
+        
         filtered = filtered.filter(p => {
+          // Parse the due date string (format: "7/3/2026" or "7/12/2026")
+          const dueDateParts = p.payment.dueDate.split('/');
+          if (dueDateParts.length === 3) {
+            // Assuming dueDate is in MM/DD/YYYY format
+            const dueDate = new Date(
+              parseInt(dueDateParts[2]), // year
+              parseInt(dueDateParts[0]) - 1, // month (0-indexed)
+              parseInt(dueDateParts[1]) // day
+            );
+            dueDate.setHours(0, 0, 0, 0);
+            return dueDate >= fromDate;
+          }
+          // Fallback to direct comparison if format is different
           const dueDate = new Date(p.payment.dueDate);
+          dueDate.setHours(0, 0, 0, 0);
           return dueDate >= fromDate;
         });
       }
       
       if (upcomingDateTo) {
         const toDate = new Date(upcomingDateTo);
-        toDate.setHours(23, 59, 59, 999); // End of day
+        toDate.setHours(23, 59, 59, 999);
+        
         filtered = filtered.filter(p => {
+          // Parse the due date string (format: "7/3/2026" or "7/12/2026")
+          const dueDateParts = p.payment.dueDate.split('/');
+          if (dueDateParts.length === 3) {
+            // Assuming dueDate is in MM/DD/YYYY format
+            const dueDate = new Date(
+              parseInt(dueDateParts[2]), // year
+              parseInt(dueDateParts[0]) - 1, // month (0-indexed)
+              parseInt(dueDateParts[1]) // day
+            );
+            dueDate.setHours(0, 0, 0, 0);
+            return dueDate <= toDate;
+          }
+          // Fallback to direct comparison if format is different
           const dueDate = new Date(p.payment.dueDate);
+          dueDate.setHours(0, 0, 0, 0);
           return dueDate <= toDate;
         });
       }

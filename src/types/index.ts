@@ -323,6 +323,8 @@ export interface NextPaymentAmount {
   serviceCharge: number;
   vat: number;
   total: number;
+  vatOnRent?: number;
+  vatOnServiceCharge?: number;
 }
 
 export interface NextPaymentDetails {
