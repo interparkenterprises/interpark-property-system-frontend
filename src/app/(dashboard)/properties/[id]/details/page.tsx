@@ -18,7 +18,7 @@ import { Button } from '@/components/ui/button';
 import { exportArrearsToPDF } from '@/lib/arrearsPdfGenerator';
 import { exportPropertyToExcel, ExportSection } from '@/lib/excelGenerator';
 import { exportOverduesToPDF } from '@/lib/overduesPdfGenerator';
-import { exportUpcomingPaymentsToExcel } from '@/lib/excelUpcomingPaymentsGenerator';
+//import { exportUpcomingPaymentsToExcel } from '@/lib/excelUpcomingPaymentsGenerator';
 
 type TabType = 'income' | 'commissions' | 'payments' | 'arrears' | 'overdues' | 'UpcomingPayments' | 'rentReport' | 'billsReport';
 
@@ -321,7 +321,7 @@ export default function PropertyDetailInfoPage() {
     }
   };
 
-  // Fetch Rent Report
+  // Update the fetchRentReport function
   const fetchRentReport = async () => {
     setRentReportLoading(true);
     try {
@@ -333,6 +333,7 @@ export default function PropertyDetailInfoPage() {
       if (rentReportFilters.limit) params.limit = rentReportFilters.limit;
       
       const response = await paymentsAPI.getPropertyRentPaymentReport(propertyId, params);
+      // The response is already the full API response with { success, data }
       setRentReportData(response.data);
     } catch (error) {
       console.error('Error fetching rent report:', error);
@@ -364,7 +365,7 @@ export default function PropertyDetailInfoPage() {
     }
   };
 
-  // Export Rent Report to Excel
+  // Update the handleExportRentReport function
   const handleExportRentReport = async () => {
     if (!rentReportData) {
       alert('No rent report data to export');
@@ -374,13 +375,25 @@ export default function PropertyDetailInfoPage() {
     setExportingRentReport(true);
     try {
       const { exportRentReportToExcel } = await import('@/lib/excelRentReportGenerator');
-      const { buffer, filename } = await exportRentReportToExcel(rentReportData, {
+      
+      // Ensure we have the correct data structure
+      const reportData = {
+        ...rentReportData,
+        // Make sure property info is properly structured
+        property: rentReportData.property || {
+          id: propertyId,
+          name: property?.name || 'Unknown Property',
+          address: property?.address || ''
+        }
+      };
+      
+      const { buffer, filename } = await exportRentReportToExcel(reportData, {
         periodFrom: rentReportFilters.dateFrom,
         periodTo: rentReportFilters.dateTo,
         status: rentReportFilters.status
       });
       
-      // Create blob from buffer (ensure it's a Uint8Array/ArrayBuffer for Blob)
+      // Create blob from buffer
       const uint8Array = buffer instanceof ArrayBuffer ? new Uint8Array(buffer) : new Uint8Array(buffer as any);
       const blob = new Blob([uint8Array], {
         type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -389,7 +402,9 @@ export default function PropertyDetailInfoPage() {
       const link = document.createElement('a');
       link.href = url;
       link.download = filename;
+      document.body.appendChild(link);
       link.click();
+      document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
       
       alert('Rent report exported successfully!');

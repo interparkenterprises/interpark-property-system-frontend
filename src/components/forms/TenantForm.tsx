@@ -492,17 +492,28 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
         paymentPolicy: formData.paymentPolicy,
       };
 
-      // Add service charge to the main create/update request if it exists
-      if (formData.serviceCharge && hasServiceChargeValue()) {
-        // Transform ServiceChargeFormData to match backend expected format
-        submitData.serviceCharge = {
-          type: formData.serviceCharge.type,
-          fixedAmount: formData.serviceCharge.fixedAmount || 0,
-          percentage: formData.serviceCharge.percentage || 0,
-          perSqFtRate: formData.serviceCharge.perSqFtRate || 0,
-          vatType: formData.serviceCharge.vatType || 'NOT_APPLICABLE', // NEW
-          vatRate: formData.serviceCharge.vatRate || 0 // NEW
-        };
+      // Handle service charge properly
+      if (formData.serviceCharge) {
+        // Check if service charge has any meaningful value
+        const hasValue = hasServiceChargeValue();
+        
+        if (hasValue) {
+          // Service charge exists and has values - send it
+          submitData.serviceCharge = {
+            type: formData.serviceCharge.type,
+            fixedAmount: formData.serviceCharge.fixedAmount || 0,
+            percentage: formData.serviceCharge.percentage || 0,
+            perSqFtRate: formData.serviceCharge.perSqFtRate || 0,
+            vatType: formData.serviceCharge.vatType || 'NOT_APPLICABLE',
+            vatRate: formData.serviceCharge.vatRate || 0
+          };
+        } else {
+          // Service charge exists but has no values - remove it
+          submitData.serviceCharge = null;
+        }
+      } else {
+        // No service charge at all - ensure it's removed
+        submitData.serviceCharge = null;
       }
 
       // Validate required fields
@@ -551,6 +562,41 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
       const selectedUnitObj = units.find(u => u.id === submitData.unitId);
       if (selectedUnitObj && selectedUnitObj.propertyId !== propertyId) {
         throw new Error('Selected unit does not belong to this property');
+      }
+
+      // Validate VAT fields
+      if (submitData.vatType === 'INCLUSIVE' || submitData.vatType === 'EXCLUSIVE') {
+        if (!submitData.vatRate || submitData.vatRate <= 0) {
+          throw new Error('VAT rate is required when VAT type is Inclusive or Exclusive');
+        }
+        if (submitData.vatRate > 100) {
+          throw new Error('VAT rate cannot exceed 100%');
+        }
+      }
+
+      // Validate service charge fields if present
+      if (submitData.serviceCharge && typeof submitData.serviceCharge === 'object') {
+        const { type, vatType, vatRate } = submitData.serviceCharge;
+        
+        if (type === 'FIXED' && submitData.serviceCharge.fixedAmount <= 0) {
+          throw new Error('Fixed amount must be greater than 0');
+        }
+        if (type === 'PERCENTAGE' && (submitData.serviceCharge.percentage <= 0 || submitData.serviceCharge.percentage > 100)) {
+          throw new Error('Percentage must be between 1 and 100');
+        }
+        if (type === 'PER_SQ_FT' && submitData.serviceCharge.perSqFtRate <= 0) {
+          throw new Error('Rate per square foot must be greater than 0');
+        }
+        
+        // Validate service charge VAT
+        if (vatType === 'INCLUSIVE' || vatType === 'EXCLUSIVE') {
+          if (!vatRate || vatRate <= 0) {
+            throw new Error('Service charge VAT rate is required when VAT type is Inclusive or Exclusive');
+          }
+          if (vatRate > 100) {
+            throw new Error('Service charge VAT rate cannot exceed 100%');
+          }
+        }
       }
 
       if (tenant) {

@@ -634,7 +634,9 @@ export interface PropertyRentPaymentReportResponse {
       outstandingBalance: number;
       arrears: number;
       lastPaymentDate: string | null;
-      paymentStatus: PaymentStatus;
+      paymentStatus: string;
+      invoiceCount?: number;
+      invoiceStatuses?: string[];
     }>;
     paymentReports: Array<{
       id: string;
@@ -644,7 +646,7 @@ export interface PropertyRentPaymentReportResponse {
       expectedAmount: number;
       amountPaid: number;
       arrears: number;
-      status: PaymentStatus;
+      status: string;
       invoiceCount: number;
       datePaid: string;
     }>;

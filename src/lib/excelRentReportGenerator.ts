@@ -38,6 +38,8 @@ export interface RentReportData {
     arrears: number;
     lastPaymentDate: string | null;
     paymentStatus: string;
+    invoiceCount?: number;
+    invoiceStatuses?: string[];
   }>;
   paymentReports: Array<{
     id: string;
@@ -68,7 +70,7 @@ const applyHeaderStyle = (cell: ExcelJS.Cell) => {
   cell.fill = {
     type: 'pattern',
     pattern: 'solid',
-    fgColor: { argb: 'FF2E7D32' } // Green
+    fgColor: { argb: 'FF2E7D32' }
   };
   cell.font = { color: { argb: 'FFFFFFFF' }, bold: true, size: 12 };
   cell.alignment = { horizontal: 'center', vertical: 'middle' };
@@ -108,6 +110,12 @@ const applyPositiveStyle = (cell: ExcelJS.Cell) => {
 
 const applyNegativeStyle = (cell: ExcelJS.Cell) => {
   cell.font = { color: { argb: 'FFD32F2F' }, bold: true };
+  cell.numFmt = '#,##0.00';
+  cell.alignment = { horizontal: 'right', vertical: 'middle' };
+};
+
+const applyCreditStyle = (cell: ExcelJS.Cell) => {
+  cell.font = { color: { argb: 'FF1976D2' }, bold: true };
   cell.numFmt = '#,##0.00';
   cell.alignment = { horizontal: 'right', vertical: 'middle' };
 };
@@ -225,7 +233,7 @@ export async function exportRentReportToExcel(
       };
     } else if (typeof row[1] === 'number') {
       applyNumberStyle(colBCell);
-      if (row[0] === 'Total Arrears (Ksh)' || row[0] === 'Overdue Tenants') {
+      if (row[0] === 'Total Arrears (Ksh)') {
         applyNegativeStyle(colBCell);
       } else if (row[0] === 'Total Rent Collected (Ksh)') {
         applyPositiveStyle(colBCell);
@@ -291,13 +299,13 @@ export async function exportRentReportToExcel(
       pageSetup: { paperSize: 9, orientation: 'landscape' }
     });
     
-    outstandingSheet.mergeCells('A1:I1');
+    outstandingSheet.mergeCells('A1:J1');
     const outstandingTitle = outstandingSheet.getCell('A1');
     outstandingTitle.value = 'TENANT OUTSTANDING BALANCES';
     applyTitleStyle(outstandingTitle);
     outstandingSheet.getRow(1).height = 25;
     
-    const headers = ['Tenant Name', 'Unit Number', 'Unit Type', 'Expected Total (Ksh)', 'Paid Total (Ksh)', 'Outstanding Balance (Ksh)', 'Arrears (Ksh)', 'Last Payment Date', 'Payment Status'];
+    const headers = ['Tenant Name', 'Unit Number', 'Unit Type', 'Expected Total (Ksh)', 'Paid Total (Ksh)', 'Outstanding Balance (Ksh)', 'Arrears (Ksh)', 'Last Payment Date', 'Payment Status', 'Invoice Count'];
     const headerRow = outstandingSheet.getRow(3);
     headers.forEach((header, idx) => {
       const cell = headerRow.getCell(idx + 1);
@@ -318,14 +326,23 @@ export async function exportRentReportToExcel(
       outstandingSheet.getCell(`G${rowNum}`).value = tenant.arrears;
       outstandingSheet.getCell(`H${rowNum}`).value = tenant.lastPaymentDate ? new Date(tenant.lastPaymentDate).toLocaleDateString() : 'No payments';
       outstandingSheet.getCell(`I${rowNum}`).value = tenant.paymentStatus;
+      outstandingSheet.getCell(`J${rowNum}`).value = tenant.invoiceCount || 0;
       
       applyNumberStyle(outstandingSheet.getCell(`D${rowNum}`));
       applyNumberStyle(outstandingSheet.getCell(`E${rowNum}`));
+      
+      // Handle outstanding balance - if positive = arrears, if negative = credit
       if (tenant.outstandingBalance > 0) {
         applyNegativeStyle(outstandingSheet.getCell(`F${rowNum}`));
-        applyNegativeStyle(outstandingSheet.getCell(`G${rowNum}`));
+      } else if (tenant.outstandingBalance < 0) {
+        applyCreditStyle(outstandingSheet.getCell(`F${rowNum}`));
       } else {
         applyNumberStyle(outstandingSheet.getCell(`F${rowNum}`));
+      }
+      
+      if (tenant.arrears > 0) {
+        applyNegativeStyle(outstandingSheet.getCell(`G${rowNum}`));
+      } else {
         applyNumberStyle(outstandingSheet.getCell(`G${rowNum}`));
       }
       
@@ -335,12 +352,14 @@ export async function exportRentReportToExcel(
         statusCell.font = { color: { argb: 'FF2E7D32' }, bold: true };
       } else if (tenant.paymentStatus === 'PARTIAL') {
         statusCell.font = { color: { argb: 'FFF57C00' }, bold: true };
+      } else if (tenant.paymentStatus === 'CREDIT') {
+        statusCell.font = { color: { argb: 'FF1976D2' }, bold: true };
       } else {
         statusCell.font = { color: { argb: 'FFD32F2F' }, bold: true };
       }
     });
     
-    const colWidths = [25, 12, 15, 18, 18, 18, 18, 18, 15];
+    const colWidths = [25, 12, 15, 18, 18, 18, 18, 18, 15, 14];
     colWidths.forEach((width, idx) => {
       outstandingSheet.getColumn(idx + 1).width = width;
     });
@@ -352,13 +371,13 @@ export async function exportRentReportToExcel(
       pageSetup: { paperSize: 9, orientation: 'landscape' }
     });
     
-    paymentsSheet.mergeCells('A1:I1');
+    paymentsSheet.mergeCells('A1:J1');
     const paymentsTitle = paymentsSheet.getCell('A1');
     paymentsTitle.value = 'PAYMENT REPORTS DETAILS';
     applyTitleStyle(paymentsTitle);
     paymentsSheet.getRow(1).height = 25;
     
-    const headers = ['Tenant Name', 'Unit Number', 'Payment Period', 'Expected Amount (Ksh)', 'Amount Paid (Ksh)', 'Arrears (Ksh)', 'Status', 'Invoice Count', 'Date Paid'];
+    const headers = ['Tenant Name', 'Unit Number', 'Payment Period', 'Expected Amount (Ksh)', 'Amount Paid (Ksh)', 'Arrears (Ksh)', 'Status', 'Invoice Count', 'Date Paid', 'Note'];
     const headerRow = paymentsSheet.getRow(3);
     headers.forEach((header, idx) => {
       const cell = headerRow.getCell(idx + 1);
@@ -372,17 +391,75 @@ export async function exportRentReportToExcel(
       
       paymentsSheet.getCell(`A${rowNum}`).value = report.tenantName;
       paymentsSheet.getCell(`B${rowNum}`).value = report.unitNo;
-      paymentsSheet.getCell(`C${rowNum}`).value = report.paymentPeriod;
-      paymentsSheet.getCell(`D${rowNum}`).value = report.expectedAmount;
-      paymentsSheet.getCell(`E${rowNum}`).value = report.amountPaid;
-      paymentsSheet.getCell(`F${rowNum}`).value = report.arrears;
+      
+      // Format payment period
+      let periodDisplay = report.paymentPeriod;
+      try {
+        const date = new Date(report.paymentPeriod);
+        if (!isNaN(date.getTime())) {
+          periodDisplay = date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+        }
+      } catch (e) {
+        // Keep original if parsing fails
+      }
+      paymentsSheet.getCell(`C${rowNum}`).value = periodDisplay;
+      
+      // For CREDIT status, expected amount should be the actual rent amount, not 0
+      // The backend sends expectedAmount: 0 for CREDIT, but we can calculate from the rent
+      // For now, use the value from the API, but note it might be 0
+      const expectedAmount = report.expectedAmount;
+      const amountPaid = report.amountPaid;
+      const arrears = report.arrears;
+      
+      paymentsSheet.getCell(`D${rowNum}`).value = expectedAmount;
+      paymentsSheet.getCell(`E${rowNum}`).value = amountPaid;
+      paymentsSheet.getCell(`F${rowNum}`).value = arrears;
       paymentsSheet.getCell(`G${rowNum}`).value = report.status;
       paymentsSheet.getCell(`H${rowNum}`).value = report.invoiceCount;
-      paymentsSheet.getCell(`I${rowNum}`).value = report.datePaid ? new Date(report.datePaid).toLocaleDateString() : '-';
+      
+      // Format date paid
+      let datePaidDisplay = report.datePaid;
+      if (report.datePaid) {
+        try {
+          const date = new Date(report.datePaid);
+          if (!isNaN(date.getTime())) {
+            datePaidDisplay = date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+          }
+        } catch (e) {
+          // Keep original
+        }
+      }
+      paymentsSheet.getCell(`I${rowNum}`).value = datePaidDisplay || '-';
+      
+      // Add note for CREDIT status
+      let note = '';
+      if (report.status === 'CREDIT') {
+        note = `Overpayment/Credit: Ksh ${amountPaid.toLocaleString()}`;
+      } else if (report.arrears > 0 && report.amountPaid > 0) {
+        note = `Partial payment: Ksh ${report.amountPaid.toLocaleString()} paid, Ksh ${report.arrears.toLocaleString()} remaining`;
+      } else if (report.arrears === 0 && report.amountPaid > 0 && report.status === 'PAID') {
+        note = 'Fully paid';
+      }
+      paymentsSheet.getCell(`J${rowNum}`).value = note;
       
       applyNumberStyle(paymentsSheet.getCell(`D${rowNum}`));
       applyNumberStyle(paymentsSheet.getCell(`E${rowNum}`));
-      if (report.arrears > 0) {
+      
+      // For CREDIT status, show the amount paid as a credit (positive number)
+      if (report.status === 'CREDIT') {
+        // Show credit amount in a different style
+        const paidCell = paymentsSheet.getCell(`E${rowNum}`);
+        paidCell.font = { color: { argb: 'FF1976D2' }, bold: true };
+        
+        // Arrears for credit should be 0 or negative (overpayment)
+        if (report.arrears === 0) {
+          paymentsSheet.getCell(`F${rowNum}`).value = 0;
+        } else if (report.arrears < 0) {
+          applyCreditStyle(paymentsSheet.getCell(`F${rowNum}`));
+        } else {
+          applyNumberStyle(paymentsSheet.getCell(`F${rowNum}`));
+        }
+      } else if (report.arrears > 0) {
         applyNegativeStyle(paymentsSheet.getCell(`F${rowNum}`));
       } else {
         applyNumberStyle(paymentsSheet.getCell(`F${rowNum}`));
@@ -396,15 +473,29 @@ export async function exportRentReportToExcel(
         statusCell.font = { color: { argb: 'FFF57C00' }, bold: true };
       } else if (report.status === 'PREPAID') {
         statusCell.font = { color: { argb: 'FF2196F3' }, bold: true };
+      } else if (report.status === 'CREDIT') {
+        statusCell.font = { color: { argb: 'FF1976D2' }, bold: true };
+        // Add background highlight for credit
+        statusCell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFE3F2FD' }
+        };
       } else {
         statusCell.font = { color: { argb: 'FFD32F2F' }, bold: true };
       }
     });
     
-    const colWidths = [25, 12, 18, 18, 18, 18, 15, 12, 15];
+    const colWidths = [25, 12, 18, 18, 18, 18, 15, 12, 15, 30];
     colWidths.forEach((width, idx) => {
       paymentsSheet.getColumn(idx + 1).width = width;
     });
+    
+    // Auto-filter for better usability
+    paymentsSheet.autoFilter = {
+      from: 'A3',
+      to: 'J3'
+    };
   }
 
   // Write workbook to buffer
