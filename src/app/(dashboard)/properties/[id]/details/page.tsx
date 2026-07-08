@@ -18,7 +18,9 @@ import { Button } from '@/components/ui/button';
 import { exportArrearsToPDF } from '@/lib/arrearsPdfGenerator';
 import { exportPropertyToExcel, ExportSection } from '@/lib/excelGenerator';
 import { exportOverduesToPDF } from '@/lib/overduesPdfGenerator';
-//import { exportUpcomingPaymentsToExcel } from '@/lib/excelUpcomingPaymentsGenerator';
+import { usePermissions } from '@/hooks/usePermission';
+import { PermissionCode } from '@/types';
+import { PermissionGuard } from '@/components/auth/PermissionGuard';
 
 type TabType = 'income' | 'commissions' | 'payments' | 'arrears' | 'overdues' | 'UpcomingPayments' | 'rentReport' | 'billsReport';
 
@@ -104,6 +106,15 @@ type GroupedArrears = {
 export default function PropertyDetailInfoPage() {
   const params = useParams();
   const router = useRouter();
+  const {
+    hasPermission,
+    isAdmin,
+    isManager,
+    canViewProperty,
+    permissions,
+    canViewCommissions,
+  } = usePermissions();
+  
   const [property, setProperty] = useState<Property | null>(null);
   const [arrearsData, setArrearsData] = useState<ArrearsResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -168,6 +179,62 @@ export default function PropertyDetailInfoPage() {
 
   const propertyId = params.id as string;
 
+  // Define which tabs are accessible based on permissions
+  const accessibleTabs = useMemo(() => {
+    const tabs: { id: TabType; label: string; icon: string; accessible: boolean }[] = [
+      {
+        id: 'income',
+        label: 'Income Details',
+        icon: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
+        accessible: isAdmin || isManager || hasPermission(PermissionCode.VIEW_TENANT_FINANCIALS) || hasPermission(PermissionCode.VIEW_PAYMENT_REPORTS)
+      },
+      {
+        id: 'commissions',
+        label: 'Commissions',
+        icon: 'M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z',
+        accessible: isAdmin || isManager || hasPermission(PermissionCode.VIEW_COMMISSIONS)
+      },
+      {
+        id: 'arrears',
+        label: 'Arrears',
+        icon: 'M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
+        accessible: isAdmin || isManager || hasPermission(PermissionCode.VIEW_ARREARS) || hasPermission(PermissionCode.VIEW_TENANT_FINANCIALS)
+      },
+      {
+        id: 'overdues',
+        label: 'Overdues',
+        icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z',
+        accessible: isAdmin || isManager || hasPermission(PermissionCode.VIEW_OVERDUE_INVOICES) || hasPermission(PermissionCode.VIEW_TENANT_FINANCIALS)
+      },
+      {
+        id: 'payments',
+        label: 'Property Statement',
+        icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
+        accessible: isAdmin || isManager || hasPermission(PermissionCode.VIEW_PAYMENT_REPORTS)
+      },
+      {
+        id: 'UpcomingPayments',
+        label: 'Upcoming Payments',
+        icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z',
+        accessible: isAdmin || isManager || hasPermission(PermissionCode.PREVIEW_PAYMENTS) || hasPermission(PermissionCode.VIEW_TENANT_FINANCIALS)
+      },
+      {
+        id: 'rentReport',
+        label: 'Rent Report',
+        icon: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
+        accessible: isAdmin || isManager || hasPermission(PermissionCode.VIEW_PAYMENT_REPORTS)
+      },
+      {
+        id: 'billsReport',
+        label: 'Bills Report',
+        icon: 'M13 10V3L4 14h7v7l9-11h-7z',
+        accessible: isAdmin || isManager || hasPermission(PermissionCode.VIEW_BILL_INVOICES)
+      },
+    ];
+    
+    return tabs.filter(tab => tab.accessible);
+  }, [isAdmin, isManager, hasPermission]);
+
   useEffect(() => {
     fetchPropertyDetails();
   }, [propertyId]);
@@ -198,6 +265,23 @@ export default function PropertyDetailInfoPage() {
       fetchBillsReport();
     }
   }, [activeTab]);
+
+  // Set default tab to first accessible tab
+  useEffect(() => {
+    if (accessibleTabs.length > 0) {
+      const currentTabAccessible = accessibleTabs.some(tab => tab.id === activeTab);
+      if (!currentTabAccessible) {
+        setActiveTab(accessibleTabs[0].id);
+      }
+    }
+  }, [accessibleTabs, activeTab]);
+
+  // Check if user can access this property
+  useEffect(() => {
+    if (!loading && property && !canViewProperty(propertyId)) {
+      router.push('/unauthorized');
+    }
+  }, [loading, property, propertyId, canViewProperty, router]);
 
   // Update the useEffect that filters payments
   useEffect(() => {
@@ -782,6 +866,26 @@ const clearUpcomingFilters = () => {
     );
   }
 
+  // Permission check for the entire page
+  if (!canViewProperty(propertyId)) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="flex flex-col items-center justify-center min-h-[60vh] text-center"
+      >
+        <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mb-4">
+          <svg className="w-10 h-10 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+        </div>
+        <h2 className="text-2xl font-bold text-heading-color mb-2">Access Denied</h2>
+        <p className="text-gray-600 mb-6">You don't have permission to view this property's financial details.</p>
+        <Button onClick={handleBack}>Back to Property</Button>
+      </motion.div>
+    );
+  }
+
   const groupedIncome = groupIncomeByTenant();
   const groupedArrears = groupArrearsByTenant();
 
@@ -1091,329 +1195,156 @@ const clearUpcomingFilters = () => {
         <div className="text-sm text-white/80">Financial Details & Reports</div>
       </motion.div>
 
-      {/* Stats Cards */}
-      <motion.div
-        variants={itemVariants}
-        className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"
-      >
+      {/* Stats Cards - Only show if user has financial permissions */}
+      {(isAdmin || isManager || hasPermission(PermissionCode.VIEW_TENANT_FINANCIALS)) && (
         <motion.div
-          whileHover={{ y: -4, scale: 1.02 }}
-          className="bg-linear-to-br from-green-500 to-green-600 rounded-xl p-6 text-white shadow-lg"
+          variants={itemVariants}
+          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"
         >
-          <div className="flex items-center justify-between mb-3">
-            <div className="w-12 h-12 bg-white/20 rounded-lg flex items-center justify-center backdrop-blur-sm">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
+          <motion.div
+            whileHover={{ y: -4, scale: 1.02 }}
+            className="bg-linear-to-br from-green-500 to-green-600 rounded-xl p-6 text-white shadow-lg"
+          >
+            <div className="flex items-center justify-between mb-3">
+              <div className="w-12 h-12 bg-white/20 rounded-lg flex items-center justify-center backdrop-blur-sm">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
+              </div>
             </div>
-          </div>
-          <p className="text-sm font-medium text-white/80 mb-1">Total Collection</p>
-          <p className="text-3xl font-bold">Ksh {totals.totalIncome.toLocaleString()}</p>
-        </motion.div>
+            <p className="text-sm font-medium text-white/80 mb-1">Total Collection</p>
+            <p className="text-3xl font-bold">Ksh {totals.totalIncome.toLocaleString()}</p>
+          </motion.div>
 
-        <motion.div
-          whileHover={{ y: -4, scale: 1.02 }}
-          className="bg-linear-to-br from-blue-500 to-blue-600 rounded-xl p-6 text-white shadow-lg"
-        >
-          <div className="flex items-center justify-between mb-3">
-            <div className="w-12 h-12 bg-white/20 rounded-lg flex items-center justify-center backdrop-blur-sm">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"
-                />
-              </svg>
-            </div>
-          </div>
-          <p className="text-sm font-medium text-white/80 mb-1">Total Commissions</p>
-          <p className="text-3xl font-bold">Ksh {totals.totalCommissions.toLocaleString()}</p>
-        </motion.div>
-
-        <motion.div
-          whileHover={{ y: -4, scale: 1.02 }}
-          className="bg-linear-to-br from-yellow-500 to-yellow-600 rounded-xl p-6 text-white shadow-lg"
-        >
-          <div className="flex items-center justify-between mb-3">
-            <div className="w-12 h-12 bg-white/20 rounded-lg flex items-center justify-center backdrop-blur-sm">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-            </div>
-          </div>
-          <p className="text-sm font-medium text-white/80 mb-1">Pending Commissions</p>
-          <p className="text-3xl font-bold">Ksh {totals.pendingCommissions.toLocaleString()}</p>
-        </motion.div>
-
-        <motion.div
-          whileHover={{ y: -4, scale: 1.02 }}
-          className="bg-linear-to-br from-purple-500 to-purple-600 rounded-xl p-6 text-white shadow-lg"
-        >
-          <div className="flex items-center justify-between mb-3">
-            <div className="w-12 h-12 bg-white/20 rounded-lg flex items-center justify-center backdrop-blur-sm">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-            </div>
-          </div>
-          <p className="text-sm font-medium text-white/80 mb-1">Paid Commissions</p>
-          <p className="text-3xl font-bold">Ksh {totals.paidCommissions.toLocaleString()}</p>
-        </motion.div>
-      </motion.div>
-
-      {/* Tabs Navigation */}
-      <motion.div
-        variants={itemVariants}
-        className="bg-white rounded-xl shadow-sm border border-gray-200 p-2"
-      >
-        <div className="flex gap-2 overflow-x-auto">
-          {[
-            {
-              id: 'income',
-              label: 'Income Details',
-              icon: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
-            },
-            {
-              id: 'commissions',
-              label: 'Commissions',
-              icon: 'M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z',
-            },
-            {
-              id: 'arrears',
-              label: 'Arrears',
-              icon: 'M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
-            },
-            {
-              id: 'overdues',
-              label: 'Overdues',
-              icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z',
-            },
-            {
-              id: 'payments',
-              label: 'Property Statement',
-              icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z',
-            },
-            {
-              id: 'UpcomingPayments',
-              label: 'Upcoming Payments',
-              icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z',
-            },
-            {
-              id: 'rentReport',
-              label: 'Rent Report',
-              icon: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
-            },
-            {
-              id: 'billsReport',
-              label: 'Bills Report',
-              icon: 'M13 10V3L4 14h7v7l9-11h-7z',
-            },
-          ].map((tab) => (
-            <motion.button
-              key={tab.id}
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => setActiveTab(tab.id as TabType)}
-              className={`flex items-center justify-center gap-2 px-6 py-3 rounded-lg font-semibold transition-all duration-300 whitespace-nowrap ${
-                activeTab === tab.id
-                  ? 'bg-primary text-white shadow-md'
-                  : 'text-gray-600 hover:bg-gray-100'
-              }`}
+          {/* Commissions Stats Card - Only show if user has commission view permission */}
+          {(isAdmin || isManager || hasPermission(PermissionCode.VIEW_COMMISSIONS)) && (
+            <motion.div
+              whileHover={{ y: -4, scale: 1.02 }}
+              className="bg-linear-to-br from-blue-500 to-blue-600 rounded-xl p-6 text-white shadow-lg"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={tab.icon} />
-              </svg>
-              {tab.label}
-            </motion.button>
-          ))}
-        </div>
-      </motion.div>
+              <div className="flex items-center justify-between mb-3">
+                <div className="w-12 h-12 bg-white/20 rounded-lg flex items-center justify-center backdrop-blur-sm">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"
+                    />
+                  </svg>
+                </div>
+              </div>
+              <p className="text-sm font-medium text-white/80 mb-1">Total Commissions</p>
+              <p className="text-3xl font-bold">Ksh {totals.totalCommissions.toLocaleString()}</p>
+            </motion.div>
+          )}
+
+          {/* Pending Commissions Stats Card - Only show if user has commission view permission */}
+          {(isAdmin || isManager || hasPermission(PermissionCode.VIEW_COMMISSIONS)) && (
+            <motion.div
+              whileHover={{ y: -4, scale: 1.02 }}
+              className="bg-linear-to-br from-yellow-500 to-yellow-600 rounded-xl p-6 text-white shadow-lg"
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div className="w-12 h-12 bg-white/20 rounded-lg flex items-center justify-center backdrop-blur-sm">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                </div>
+              </div>
+              <p className="text-sm font-medium text-white/80 mb-1">Pending Commissions</p>
+              <p className="text-3xl font-bold">Ksh {totals.pendingCommissions.toLocaleString()}</p>
+            </motion.div>
+          )}
+
+          {/* Paid Commissions Stats Card - Only show if user has commission view permission */}
+          {(isAdmin || isManager || hasPermission(PermissionCode.VIEW_COMMISSIONS)) && (
+            <motion.div
+              whileHover={{ y: -4, scale: 1.02 }}
+              className="bg-linear-to-br from-purple-500 to-purple-600 rounded-xl p-6 text-white shadow-lg"
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div className="w-12 h-12 bg-white/20 rounded-lg flex items-center justify-center backdrop-blur-sm">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                </div>
+              </div>
+              <p className="text-sm font-medium text-white/80 mb-1">Paid Commissions</p>
+              <p className="text-3xl font-bold">Ksh {totals.paidCommissions.toLocaleString()}</p>
+            </motion.div>
+          )}
+        </motion.div>
+      )}
+
+      {/* Tabs Navigation - Only show accessible tabs */}
+      {accessibleTabs.length > 0 && (
+        <motion.div
+          variants={itemVariants}
+          className="bg-white rounded-xl shadow-sm border border-gray-200 p-2"
+        >
+          <div className="flex gap-2 overflow-x-auto">
+            {accessibleTabs.map((tab) => (
+              <motion.button
+                key={tab.id}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center justify-center gap-2 px-6 py-3 rounded-lg font-semibold transition-all duration-300 whitespace-nowrap ${
+                  activeTab === tab.id
+                    ? 'bg-primary text-white shadow-md'
+                    : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={tab.icon} />
+                </svg>
+                {tab.label}
+              </motion.button>
+            ))}
+          </div>
+        </motion.div>
+      )}
 
       {/* Tab Content */}
       <motion.div key={activeTab} variants={tabVariants} initial="hidden" animate="visible" exit="exit">
         {/* INCOME TAB - Grouped by Tenant */}
         {activeTab === 'income' && (
-          <div className="space-y-6">
-            <motion.div
-              variants={itemVariants}
-              className="bg-white rounded-2xl p-8 shadow-lg border border-gray-200"
-            >
-              <div className="flex items-center gap-3 mb-6">
-                <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-                  <svg
-                    className="w-6 h-6 text-green-600"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
-                  </svg>
-                </div>
-                <div>
-                  <h2 className="text-2xl font-bold text-heading-color">Income by Tenant</h2>
-                  <p className="text-sm text-gray-600 mt-1">
-                    {groupedIncome.length} tenant{groupedIncome.length !== 1 ? 's' : ''} with income records
-                  </p>
-                </div>
+          <PermissionGuard permissions={[PermissionCode.VIEW_TENANT_FINANCIALS, PermissionCode.VIEW_PAYMENT_REPORTS]} fallback={
+            <div className="bg-white rounded-2xl p-8 shadow-lg border border-gray-200 text-center">
+              <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-10 h-10 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
               </div>
-
-              {groupedIncome.length > 0 ? (
-                <div className="space-y-4">
-                  {groupedIncome.map((group, index) => (
-                    <motion.div
-                      key={group.tenantId}
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: index * 0.05 }}
-                      className="border-2 border-gray-200 rounded-xl overflow-hidden hover:border-primary/30 transition-colors"
-                    >
-                      {/* Tenant Header - Clickable */}
-                      <button
-                        onClick={() => setExpandedIncomeTenant(
-                          expandedIncomeTenant === group.tenantId ? null : group.tenantId
-                        )}
-                        className="w-full flex items-center justify-between p-5 bg-gray-50/50 hover:bg-gray-100/50 transition-colors text-left"
-                      >
-                        <div className="flex items-center gap-4">
-                          <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
-                            <span className="text-lg font-bold text-green-700">
-                              {group.tenantName.charAt(0).toUpperCase()}
-                            </span>
-                          </div>
-                          <div>
-                            <h3 className="text-lg font-bold text-gray-900">{group.tenantName}</h3>
-                            <div className="flex items-center gap-3 text-sm text-gray-600 mt-1">
-                              <span className="flex items-center gap-1">
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-                                </svg>
-                                {group.unitName}
-                              </span>
-                              <span>•</span>
-                              <span>{group.incomes.length} payment{group.incomes.length !== 1 ? 's' : ''}</span>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-4">
-                          <div className="text-right">
-                            <p className="text-sm text-gray-600">Total Paid</p>
-                            <p className="text-xl font-bold text-green-600">
-                              Ksh {group.totalAmount.toLocaleString()}
-                            </p>
-                          </div>
-                          <motion.div
-                            animate={{ rotate: expandedIncomeTenant === group.tenantId ? 180 : 0 }}
-                            transition={{ duration: 0.2 }}
-                            className="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-sm"
-                          >
-                            <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                            </svg>
-                          </motion.div>
-                        </div>
-                      </button>
-
-                      {/* Expandable Income Details */}
-                      <AnimatePresence>
-                        {expandedIncomeTenant === group.tenantId && (
-                          <motion.div
-                            initial={{ height: 0, opacity: 0 }}
-                            animate={{ height: 'auto', opacity: 1 }}
-                            exit={{ height: 0, opacity: 0 }}
-                            transition={{ duration: 0.3 }}
-                            className="overflow-hidden"
-                          >
-                            <div className="p-5 bg-white border-t border-gray-200">
-                              <h4 className="text-sm font-semibold text-gray-700 mb-4 uppercase tracking-wide">
-                                Payment History
-                              </h4>
-                              <div className="overflow-x-auto">
-                                <table className="w-full">
-                                  <thead>
-                                    <tr className="border-b border-gray-200">
-                                      <th className="text-left py-3 px-4 font-semibold text-gray-700 text-sm">Date</th>
-                                      <th className="text-left py-3 px-4 font-semibold text-gray-700 text-sm">Amount</th>
-                                      <th className="text-left py-3 px-4 font-semibold text-gray-700 text-sm">Frequency</th>
-                                      <th className="text-left py-3 px-4 font-semibold text-gray-700 text-sm">Invoice #</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {group.incomes.map((income, idx) => (
-                                      <motion.tr
-                                        key={income.id}
-                                        initial={{ opacity: 0, x: -10 }}
-                                        animate={{ opacity: 1, x: 0 }}
-                                        transition={{ delay: idx * 0.03 }}
-                                        className="border-b border-gray-100 last:border-0 hover:bg-gray-50"
-                                      >
-                                        <td className="py-3 px-4 text-gray-900">
-                                          {new Date(income.createdAt).toLocaleDateString('en-US', {
-                                            year: 'numeric',
-                                            month: 'short',
-                                            day: 'numeric',
-                                          })}
-                                        </td>
-                                        <td className="py-3 px-4">
-                                          <span className="font-semibold text-green-600">
-                                            Ksh {income.amount.toLocaleString()}
-                                          </span>
-                                        </td>
-                                        <td className="py-3 px-4">
-                                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
-                                            {income.frequency}
-                                          </span>
-                                        </td>
-                                        <td className="py-3 px-4 text-sm text-gray-600">
-                                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">
-                                            Recorded
-                                          </span>
-                                        </td>
-                                      </motion.tr>
-                                    ))}
-                                  </tbody>
-                                  <tfoot>
-                                    <tr className="bg-green-50/50 font-semibold">
-                                      <td className="py-3 px-4 text-gray-900">Total</td>
-                                      <td className="py-3 px-4 text-green-700" colSpan={3}>
-                                        Ksh {group.totalAmount.toLocaleString()}
-                                      </td>
-                                    </tr>
-                                  </tfoot>
-                                </table>
-                              </div>
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </motion.div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-12">
-                  <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+              <h3 className="text-xl font-bold text-gray-900 mb-2">Access Denied</h3>
+              <p className="text-gray-600">You don't have permission to view income details.</p>
+            </div>
+          }>
+            <div className="space-y-6">
+              <motion.div
+                variants={itemVariants}
+                className="bg-white rounded-2xl p-8 shadow-lg border border-gray-200"
+              >
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
                     <svg
-                      className="w-8 h-8 text-gray-400"
+                      className="w-6 h-6 text-green-600"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
@@ -1426,127 +1357,192 @@ const clearUpcomingFilters = () => {
                       />
                     </svg>
                   </div>
-                  <p className="text-gray-900 font-medium">No income records found</p>
+                  <div>
+                    <h2 className="text-2xl font-bold text-heading-color">Income by Tenant</h2>
+                    <p className="text-sm text-gray-600 mt-1">
+                      {groupedIncome.length} tenant{groupedIncome.length !== 1 ? 's' : ''} with income records
+                    </p>
+                  </div>
                 </div>
-              )}
-            </motion.div>
-          </div>
+
+                {groupedIncome.length > 0 ? (
+                  <div className="space-y-4">
+                    {groupedIncome.map((group, index) => (
+                      <motion.div
+                        key={group.tenantId}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: index * 0.05 }}
+                        className="border-2 border-gray-200 rounded-xl overflow-hidden hover:border-primary/30 transition-colors"
+                      >
+                        {/* Tenant Header - Clickable */}
+                        <button
+                          onClick={() => setExpandedIncomeTenant(
+                            expandedIncomeTenant === group.tenantId ? null : group.tenantId
+                          )}
+                          className="w-full flex items-center justify-between p-5 bg-gray-50/50 hover:bg-gray-100/50 transition-colors text-left"
+                        >
+                          <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+                              <span className="text-lg font-bold text-green-700">
+                                {group.tenantName.charAt(0).toUpperCase()}
+                              </span>
+                            </div>
+                            <div>
+                              <h3 className="text-lg font-bold text-gray-900">{group.tenantName}</h3>
+                              <div className="flex items-center gap-3 text-sm text-gray-600 mt-1">
+                                <span className="flex items-center gap-1">
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                                  </svg>
+                                  {group.unitName}
+                                </span>
+                                <span>•</span>
+                                <span>{group.incomes.length} payment{group.incomes.length !== 1 ? 's' : ''}</span>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-4">
+                            <div className="text-right">
+                              <p className="text-sm text-gray-600">Total Paid</p>
+                              <p className="text-xl font-bold text-green-600">
+                                Ksh {group.totalAmount.toLocaleString()}
+                              </p>
+                            </div>
+                            <motion.div
+                              animate={{ rotate: expandedIncomeTenant === group.tenantId ? 180 : 0 }}
+                              transition={{ duration: 0.2 }}
+                              className="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-sm"
+                            >
+                              <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                              </svg>
+                            </motion.div>
+                          </div>
+                        </button>
+
+                        {/* Expandable Income Details */}
+                        <AnimatePresence>
+                          {expandedIncomeTenant === group.tenantId && (
+                            <motion.div
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: 'auto', opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              transition={{ duration: 0.3 }}
+                              className="overflow-hidden"
+                            >
+                              <div className="p-5 bg-white border-t border-gray-200">
+                                <h4 className="text-sm font-semibold text-gray-700 mb-4 uppercase tracking-wide">
+                                  Payment History
+                                </h4>
+                                <div className="overflow-x-auto">
+                                  <table className="w-full">
+                                    <thead>
+                                      <tr className="border-b border-gray-200">
+                                        <th className="text-left py-3 px-4 font-semibold text-gray-700 text-sm">Date</th>
+                                        <th className="text-left py-3 px-4 font-semibold text-gray-700 text-sm">Amount</th>
+                                        <th className="text-left py-3 px-4 font-semibold text-gray-700 text-sm">Frequency</th>
+                                        <th className="text-left py-3 px-4 font-semibold text-gray-700 text-sm">Invoice #</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {group.incomes.map((income, idx) => (
+                                        <motion.tr
+                                          key={income.id}
+                                          initial={{ opacity: 0, x: -10 }}
+                                          animate={{ opacity: 1, x: 0 }}
+                                          transition={{ delay: idx * 0.03 }}
+                                          className="border-b border-gray-100 last:border-0 hover:bg-gray-50"
+                                        >
+                                          <td className="py-3 px-4 text-gray-900">
+                                            {new Date(income.createdAt).toLocaleDateString('en-US', {
+                                              year: 'numeric',
+                                              month: 'short',
+                                              day: 'numeric',
+                                            })}
+                                          </td>
+                                          <td className="py-3 px-4">
+                                            <span className="font-semibold text-green-600">
+                                              Ksh {income.amount.toLocaleString()}
+                                            </span>
+                                          </td>
+                                          <td className="py-3 px-4">
+                                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
+                                              {income.frequency}
+                                            </span>
+                                          </td>
+                                          <td className="py-3 px-4 text-sm text-gray-600">
+                                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">
+                                              Recorded
+                                            </span>
+                                          </td>
+                                        </motion.tr>
+                                      ))}
+                                    </tbody>
+                                    <tfoot>
+                                      <tr className="bg-green-50/50 font-semibold">
+                                        <td className="py-3 px-4 text-gray-900">Total</td>
+                                        <td className="py-3 px-4 text-green-700" colSpan={3}>
+                                          Ksh {group.totalAmount.toLocaleString()}
+                                        </td>
+                                      </tr>
+                                    </tfoot>
+                                  </table>
+                                </div>
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </motion.div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-12">
+                    <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+                      <svg
+                        className="w-8 h-8 text-gray-400"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                        />
+                      </svg>
+                    </div>
+                    <p className="text-gray-900 font-medium">No income records found</p>
+                  </div>
+                )}
+              </motion.div>
+            </div>
+          </PermissionGuard>
         )}
 
+        {/* COMMISSIONS TAB - Only accessible with VIEW_COMMISSIONS permission */}
         {activeTab === 'commissions' && (
-          <div className="space-y-6">
-            <motion.div
-              variants={itemVariants}
-              className="bg-white rounded-2xl p-8 shadow-lg border border-gray-200"
-            >
-              <div className="flex items-center gap-3 mb-6">
-                <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                  <svg
-                    className="w-6 h-6 text-blue-600"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"
-                    />
-                  </svg>
-                </div>
-                <h2 className="text-2xl font-bold text-heading-color">Commission Records</h2>
+          <PermissionGuard permission={PermissionCode.VIEW_COMMISSIONS} fallback={
+            <div className="bg-white rounded-2xl p-8 shadow-lg border border-gray-200 text-center">
+              <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-10 h-10 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
               </div>
-
-              {property.commissions && property.commissions.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b-2 border-gray-200">
-                        <th className="text-left py-4 px-4 font-semibold text-gray-900">Period</th>
-                        <th className="text-left py-4 px-4 font-semibold text-gray-900">Manager</th>
-                        <th className="text-left py-4 px-4 font-semibold text-gray-900">Income</th>
-                        <th className="text-left py-4 px-4 font-semibold text-gray-900">Rate</th>
-                        <th className="text-left py-4 px-4 font-semibold text-gray-900">
-                          Commission
-                        </th>
-                        <th className="text-left py-4 px-4 font-semibold text-gray-900">Status</th>
-                        <th className="text-left py-4 px-4 font-semibold text-gray-900">
-                          Paid Date
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {property.commissions.map((commission, index) => (
-                        <motion.tr
-                          key={commission.id}
-                          initial={{ opacity: 0, x: -20 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ delay: index * 0.05 }}
-                          className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
-                        >
-                          <td className="py-4 px-4 text-gray-900">
-                            <div className="text-sm">
-                              {new Date(commission.periodStart).toLocaleDateString('en-US', {
-                                month: 'short',
-                                day: 'numeric',
-                              })}
-                              {' - '}
-                              {new Date(commission.periodEnd).toLocaleDateString('en-US', {
-                                month: 'short',
-                                day: 'numeric',
-                                year: 'numeric',
-                              })}
-                            </div>
-                          </td>
-                          <td className="py-4 px-4">
-                            <div className="font-medium text-gray-900">
-                              {property.manager?.name || 'N/A'}
-                            </div>
-                          </td>
-                          <td className="py-4 px-4">
-                            <span className="font-medium text-gray-900">
-                              Ksh {commission.incomeAmount.toLocaleString()}
-                            </span>
-                          </td>
-                          <td className="py-4 px-4">
-                            <span className="text-gray-900">{commission.commissionFee}%</span>
-                          </td>
-                          <td className="py-4 px-4">
-                            <span className="font-bold text-blue-600">
-                              Ksh {commission.commissionAmount.toLocaleString()}
-                            </span>
-                          </td>
-                          <td className="py-4 px-4">
-                            <span
-                              className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${
-                                commission.status === 'PAID'
-                                  ? 'bg-green-100 text-green-700'
-                                  : 'bg-yellow-100 text-yellow-700'
-                              }`}
-                            >
-                              {commission.status}
-                            </span>
-                          </td>
-                          <td className="py-4 px-4 text-gray-900">
-                            {commission.paidDate
-                              ? new Date(commission.paidDate).toLocaleDateString('en-US', {
-                                  year: 'numeric',
-                                  month: 'short',
-                                  day: 'numeric',
-                                })
-                              : '-'}
-                          </td>
-                        </motion.tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <div className="text-center py-12">
-                  <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+              <h3 className="text-xl font-bold text-gray-900 mb-2">Access Denied</h3>
+              <p className="text-gray-600">You don't have permission to view commission records.</p>
+            </div>
+          }>
+            <div className="space-y-6">
+              <motion.div
+                variants={itemVariants}
+                className="bg-white rounded-2xl p-8 shadow-lg border border-gray-200"
+              >
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
                     <svg
-                      className="w-8 h-8 text-gray-400"
+                      className="w-6 h-6 text-blue-600"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
@@ -1559,710 +1555,323 @@ const clearUpcomingFilters = () => {
                       />
                     </svg>
                   </div>
-                  <p className="text-gray-900 font-medium">No commission records found</p>
+                  <h2 className="text-2xl font-bold text-heading-color">Commission Records</h2>
                 </div>
-              )}
-            </motion.div>
-          </div>
+
+                {property.commissions && property.commissions.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b-2 border-gray-200">
+                          <th className="text-left py-4 px-4 font-semibold text-gray-900">Period</th>
+                          <th className="text-left py-4 px-4 font-semibold text-gray-900">Manager</th>
+                          <th className="text-left py-4 px-4 font-semibold text-gray-900">Income</th>
+                          <th className="text-left py-4 px-4 font-semibold text-gray-900">Rate</th>
+                          <th className="text-left py-4 px-4 font-semibold text-gray-900">
+                            Commission
+                          </th>
+                          <th className="text-left py-4 px-4 font-semibold text-gray-900">Status</th>
+                          <th className="text-left py-4 px-4 font-semibold text-gray-900">
+                            Paid Date
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {property.commissions.map((commission, index) => (
+                          <motion.tr
+                            key={commission.id}
+                            initial={{ opacity: 0, x: -20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: index * 0.05 }}
+                            className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
+                          >
+                            <td className="py-4 px-4 text-gray-900">
+                              <div className="text-sm">
+                                {new Date(commission.periodStart).toLocaleDateString('en-US', {
+                                  month: 'short',
+                                  day: 'numeric',
+                                })}
+                                {' - '}
+                                {new Date(commission.periodEnd).toLocaleDateString('en-US', {
+                                  month: 'short',
+                                  day: 'numeric',
+                                  year: 'numeric',
+                                })}
+                              </div>
+                            </td>
+                            <td className="py-4 px-4">
+                              <div className="font-medium text-gray-900">
+                                {property.manager?.name || 'N/A'}
+                              </div>
+                            </td>
+                            <td className="py-4 px-4">
+                              <span className="font-medium text-gray-900">
+                                Ksh {commission.incomeAmount.toLocaleString()}
+                              </span>
+                            </td>
+                            <td className="py-4 px-4">
+                              <span className="text-gray-900">{commission.commissionFee}%</span>
+                            </td>
+                            <td className="py-4 px-4">
+                              <span className="font-bold text-blue-600">
+                                Ksh {commission.commissionAmount.toLocaleString()}
+                              </span>
+                            </td>
+                            <td className="py-4 px-4">
+                              <span
+                                className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${
+                                  commission.status === 'PAID'
+                                    ? 'bg-green-100 text-green-700'
+                                    : 'bg-yellow-100 text-yellow-700'
+                                }`}
+                              >
+                                {commission.status}
+                              </span>
+                            </td>
+                            <td className="py-4 px-4 text-gray-900">
+                              {commission.paidDate
+                                ? new Date(commission.paidDate).toLocaleDateString('en-US', {
+                                    year: 'numeric',
+                                    month: 'short',
+                                    day: 'numeric',
+                                  })
+                                : '-'}
+                            </td>
+                          </motion.tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="text-center py-12">
+                    <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+                      <svg
+                        className="w-8 h-8 text-gray-400"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"
+                        />
+                      </svg>
+                    </div>
+                    <p className="text-gray-900 font-medium">No commission records found</p>
+                  </div>
+                )}
+              </motion.div>
+            </div>
+          </PermissionGuard>
         )}
 
         {/* ARREARS TAB - Grouped by Tenant */}
         {activeTab === 'arrears' && (
-          <div className="space-y-6">
-            <motion.div
-              variants={itemVariants}
-              className="bg-white rounded-2xl p-8 shadow-lg border border-gray-200"
-            >
-              <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
-                    <svg
-                      className="w-6 h-6 text-red-600"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                      />
-                    </svg>
-                  </div>
-                  <div>
-                    <h2 className="text-2xl font-bold text-heading-color">Arrears by Tenant</h2>
-                    <p className="text-sm text-gray-600 mt-1">
-                      {groupedArrears.length} tenant{groupedArrears.length !== 1 ? 's' : ''} with outstanding balances
-                    </p>
-                  </div>
-                </div>
-                {arrearsData && arrearsData.arrears.length > 0 && (
-                  <Button
-                    onClick={handleExportArrearsToPDF}
-                    disabled={exportingArrearsPdf}
-                    className="px-6 py-2.5 bg-red-600 text-white hover:bg-red-700 transition-all duration-300 shadow-md rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <span className="flex items-center gap-2">
-                      {exportingArrearsPdf ? (
-                        <>
-                          <motion.svg
-                            animate={{ rotate: 360 }}
-                            transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                            className="w-5 h-5"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                            />
-                          </motion.svg>
-                          Exporting...
-                        </>
-                      ) : (
-                        <>
-                          <svg
-                            className="w-5 h-5"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"
-                            />
-                          </svg>
-                          Export PDF
-                        </>
-                      )}
-                    </span>
-                  </Button>
-                )}
+          <PermissionGuard permissions={[PermissionCode.VIEW_ARREARS, PermissionCode.VIEW_TENANT_FINANCIALS]} fallback={
+            <div className="bg-white rounded-2xl p-8 shadow-lg border border-gray-200 text-center">
+              <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-10 h-10 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
               </div>
-
-              {arrearsLoading ? (
-                <div className="flex items-center justify-center py-12">
-                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center">
-                    <div className="relative w-12 h-12 mx-auto mb-4">
-                      <motion.div
-                        className="absolute inset-0 border-4 border-primary/20 rounded-full"
-                        animate={{ scale: [1, 1.2, 1] }}
-                        transition={{ duration: 1.5, repeat: Infinity }}
-                      />
-                      <motion.div
-                        className="absolute inset-0 border-4 border-t-primary border-r-transparent border-b-transparent border-l-transparent rounded-full"
-                        animate={{ rotate: 360 }}
-                        transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                      />
+              <h3 className="text-xl font-bold text-gray-900 mb-2">Access Denied</h3>
+              <p className="text-gray-600">You don't have permission to view arrears data.</p>
+            </div>
+          }>
+            <div className="space-y-6">
+              <motion.div
+                variants={itemVariants}
+                className="bg-white rounded-2xl p-8 shadow-lg border border-gray-200"
+              >
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
+                      <svg
+                        className="w-6 h-6 text-red-600"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                        />
+                      </svg>
                     </div>
-                    <p className="text-gray-600 font-medium">Loading arrears data...</p>
-                  </motion.div>
-                </div>
-              ) : arrearsData ? (
-                <>
-                  {/* Summary Cards */}
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-                    <div className="bg-linear-to-br from-red-50 to-red-100 rounded-xl p-6 border border-red-200">
-                      <div className="text-sm font-medium text-red-700 mb-2">Total Arrears</div>
-                      <div className="text-2xl font-bold text-red-900">
-                        Ksh {arrearsData.summary.totalArrears.toLocaleString()}
-                      </div>
-                    </div>
-                    <div className="bg-linear-to-br from-blue-50 to-blue-100 rounded-xl p-6 border border-blue-200">
-                      <div className="text-sm font-medium text-blue-700 mb-2">Total Expected</div>
-                      <div className="text-2xl font-bold text-blue-900">
-                        Ksh {arrearsData.summary.totalExpected.toLocaleString()}
-                      </div>
-                    </div>
-                    <div className="bg-linear-to-br from-green-50 to-green-100 rounded-xl p-6 border border-green-200">
-                      <div className="text-sm font-medium text-green-700 mb-2">Total Paid</div>
-                      <div className="text-2xl font-bold text-green-900">
-                        Ksh {arrearsData.summary.totalPaid.toLocaleString()}
-                      </div>
-                    </div>
-                    <div className="bg-linear-to-br from-gray-50 to-gray-100 rounded-xl p-6 border border-gray-200">
-                      <div className="text-sm font-medium text-gray-700 mb-2">Total Items</div>
-                      <div className="text-2xl font-bold text-gray-900">
-                        {arrearsData.summary.itemCount}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Grouped Arrears by Tenant */}
-                  {groupedArrears.length > 0 ? (
-                    <div className="space-y-4">
-                      {groupedArrears.map((group, index) => (
-                        <motion.div
-                          key={group.tenantId}
-                          initial={{ opacity: 0, y: 20 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: index * 0.05 }}
-                          className="border-2 border-gray-200 rounded-xl overflow-hidden hover:border-red/30 transition-colors"
-                        >
-                          {/* Tenant Header - Clickable */}
-                          <button
-                            onClick={() => setExpandedArrearsTenant(
-                              expandedArrearsTenant === group.tenantId ? null : group.tenantId
-                            )}
-                            className="w-full flex items-center justify-between p-5 bg-red-50/30 hover:bg-red-50/50 transition-colors text-left"
-                          >
-                            <div className="flex items-center gap-4">
-                              <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
-                                <span className="text-lg font-bold text-red-700">
-                                  {group.tenantName.charAt(0).toUpperCase()}
-                                </span>
-                              </div>
-                              <div>
-                                <h3 className="text-lg font-bold text-gray-900">{group.tenantName}</h3>
-                                <div className="flex items-center gap-3 text-sm text-gray-600 mt-1">
-                                  <span className="flex items-center gap-1">
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-                                    </svg>
-                                    {group.unitName}
-                                  </span>
-                                  <span>•</span>
-                                  <span>{group.items.length} outstanding {group.items.length !== 1 ? 'invoices' : 'invoice'}</span>
-                                </div>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-6">
-                              <div className="text-right">
-                                <p className="text-xs text-gray-600 mb-1">Paid: 
-                                  <span className="text-green-600 font-medium ml-1">
-                                    Ksh {group.totalPaid.toLocaleString()}
-                                  </span>
-                                </p>
-                                <p className="text-sm text-gray-600">Balance: 
-                                  <span className="text-red-600 font-bold text-lg ml-1">
-                                    Ksh {group.totalArrears.toLocaleString()}
-                                  </span>
-                                </p>
-                              </div>
-                              <motion.div
-                                animate={{ rotate: expandedArrearsTenant === group.tenantId ? 180 : 0 }}
-                                transition={{ duration: 0.2 }}
-                                className="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-sm"
-                              >
-                                <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                </svg>
-                              </motion.div>
-                            </div>
-                          </button>
-
-                          {/* Expandable Arrears Details */}
-                          <AnimatePresence>
-                            {expandedArrearsTenant === group.tenantId && (
-                              <motion.div
-                                initial={{ height: 0, opacity: 0 }}
-                                animate={{ height: 'auto', opacity: 1 }}
-                                exit={{ height: 0, opacity: 0 }}
-                                transition={{ duration: 0.3 }}
-                                className="overflow-hidden"
-                              >
-                                <div className="p-5 bg-white border-t border-gray-200">
-                                  <h4 className="text-sm font-semibold text-gray-700 mb-4 uppercase tracking-wide">
-                                    Outstanding Invoices
-                                  </h4>
-                                  <div className="overflow-x-auto">
-                                    <table className="w-full">
-                                      <thead>
-                                        <tr className="border-b border-gray-200">
-                                          <th className="text-left py-3 px-4 font-semibold text-gray-700 text-sm">Invoice #</th>
-                                          <th className="text-left py-3 px-4 font-semibold text-gray-700 text-sm">Type</th>
-                                          <th className="text-left py-3 px-4 font-semibold text-gray-700 text-sm">Expected</th>
-                                          <th className="text-left py-3 px-4 font-semibold text-gray-700 text-sm">Paid</th>
-                                          <th className="text-left py-3 px-4 font-semibold text-gray-700 text-sm">Balance</th>
-                                          <th className="text-left py-3 px-4 font-semibold text-gray-700 text-sm">Status</th>
-                                        </tr>
-                                      </thead>
-                                      <tbody>
-                                        {group.items.map((item, idx) => (
-                                          <motion.tr
-                                            key={item.id}
-                                            initial={{ opacity: 0, x: -10 }}
-                                            animate={{ opacity: 1, x: 0 }}
-                                            transition={{ delay: idx * 0.03 }}
-                                            className="border-b border-gray-100 last:border-0 hover:bg-gray-50"
-                                          >
-                                            <td className="py-3 px-4 font-mono text-sm text-gray-900">
-                                              {item.invoiceNumber}
-                                            </td>
-                                            <td className="py-3 px-4">
-                                              <span
-                                                className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
-                                                  item.invoiceType === 'RENT'
-                                                    ? 'bg-blue-100 text-blue-700'
-                                                    : 'bg-purple-100 text-purple-700'
-                                                }`}
-                                              >
-                                                {item.invoiceType === 'RENT' ? 'Rent' : item.billType}
-                                              </span>
-                                            </td>
-                                            <td className="py-3 px-4 text-gray-900">
-                                              Ksh {item.expectedAmount?.toLocaleString() || '-'}
-                                            </td>
-                                            <td className="py-3 px-4">
-                                              <span className="text-green-600 font-medium">
-                                                Ksh {item.paidAmount.toLocaleString()}
-                                              </span>
-                                            </td>
-                                            <td className="py-3 px-4">
-                                              <span className="font-bold text-red-600">
-                                                Ksh {item.balance.toLocaleString()}
-                                              </span>
-                                            </td>
-                                            <td className="py-3 px-4">
-                                              <span
-                                                className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${
-                                                  item.status === 'UNPAID'
-                                                    ? 'bg-red-100 text-red-700'
-                                                    : 'bg-yellow-100 text-yellow-700'
-                                                }`}
-                                              >
-                                                {item.status === 'UNPAID' ? 'Unpaid' : 'Partial'}
-                                              </span>
-                                            </td>
-                                          </motion.tr>
-                                        ))}
-                                      </tbody>
-                                      <tfoot>
-                                        <tr className="bg-red-50/50 font-semibold">
-                                          <td className="py-3 px-4 text-gray-900" colSpan={2}>Total Balance</td>
-                                          <td className="py-3 px-4 text-gray-700">
-                                            Ksh {group.items.reduce((sum, item) => sum + (item.expectedAmount || 0), 0).toLocaleString()}
-                                          </td>
-                                          <td className="py-3 px-4 text-green-700">
-                                            Ksh {group.totalPaid.toLocaleString()}
-                                          </td>
-                                          <td className="py-3 px-4 text-red-700" colSpan={2}>
-                                            Ksh {group.totalArrears.toLocaleString()}
-                                          </td>
-                                         </tr>
-                                      </tfoot>
-                                    </table>
-                                  </div>
-                                </div>
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </motion.div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="text-center py-12">
-                      <div className="w-16 h-16 mx-auto mb-4 bg-green-100 rounded-full flex items-center justify-center">
-                        <svg
-                          className="w-8 h-8 text-green-600"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                          />
-                        </svg>
-                      </div>
-                      <p className="text-gray-900 font-medium text-lg">No Arrears Found</p>
-                      <p className="text-gray-600 mt-2">
-                        All tenants are up to date with their payments!
+                    <div>
+                      <h2 className="text-2xl font-bold text-heading-color">Arrears by Tenant</h2>
+                      <p className="text-sm text-gray-600 mt-1">
+                        {groupedArrears.length} tenant{groupedArrears.length !== 1 ? 's' : ''} with outstanding balances
                       </p>
                     </div>
+                  </div>
+                  {arrearsData && arrearsData.arrears.length > 0 && (
+                    <Button
+                      onClick={handleExportArrearsToPDF}
+                      disabled={exportingArrearsPdf}
+                      className="px-6 py-2.5 bg-red-600 text-white hover:bg-red-700 transition-all duration-300 shadow-md rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <span className="flex items-center gap-2">
+                        {exportingArrearsPdf ? (
+                          <>
+                            <motion.svg
+                              animate={{ rotate: 360 }}
+                              transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                              className="w-5 h-5"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                              />
+                            </motion.svg>
+                            Exporting...
+                          </>
+                        ) : (
+                          <>
+                            <svg
+                              className="w-5 h-5"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"
+                              />
+                            </svg>
+                            Export PDF
+                          </>
+                        )}
+                      </span>
+                    </Button>
                   )}
-                </>
-              ) : (
-                <div className="text-center py-12">
-                  <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
-                    <svg
-                      className="w-8 h-8 text-gray-400"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                      />
-                    </svg>
-                  </div>
-                  <p className="text-gray-900 font-medium">Failed to load arrears data</p>
-                  <Button onClick={fetchArrearsData} className="mt-4">
-                    Retry
-                  </Button>
                 </div>
-              )}
-            </motion.div>
-          </div>
-        )}
 
-        {/* OVERDUES TAB - With Filters and PDF Export */}
-        {activeTab === 'overdues' && (
-          <div className="space-y-6">
-            <motion.div
-              variants={itemVariants}
-              className="bg-white rounded-2xl p-8 shadow-lg border border-gray-200"
-            >
-              <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center">
-                    <svg
-                      className="w-6 h-6 text-orange-600"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                      />
-                    </svg>
-                  </div>
-                  <div>
-                    <h2 className="text-2xl font-bold text-heading-color">Overdue Tenants</h2>
-                    <p className="text-sm text-gray-600 mt-1">
-                      {filteredOverdueTenants.length} tenant{filteredOverdueTenants.length !== 1 ? 's' : ''} overdue for this property
-                    </p>
-                  </div>
-                </div>
-                
-                {/* Export PDF Button */}
-                {(filteredOverdueTenants.length > 0 || overdueData) && (
-                  <Button
-                    onClick={handleExportOverduesToPDF}
-                    disabled={exportingOverduesPdf}
-                    className="px-6 py-2.5 bg-red-600 text-white hover:bg-red-700 transition-all duration-300 shadow-md rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <span className="flex items-center gap-2">
-                      {exportingOverduesPdf ? (
-                        <>
-                          <motion.svg
-                            animate={{ rotate: 360 }}
-                            transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                            className="w-5 h-5"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                            />
-                          </motion.svg>
-                          Exporting...
-                        </>
-                      ) : (
-                        <>
-                          <svg
-                            className="w-5 h-5"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"
-                            />
-                          </svg>
-                          Export PDF
-                        </>
-                      )}
-                    </span>
-                  </Button>
-                )}
-              </div>
-
-              {/* Filter Buttons */}
-              <div className="mb-6">
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    onClick={() => setOverdueFilter('all')}
-                    className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
-                      overdueFilter === 'all'
-                        ? 'bg-red-600 text-white shadow-md'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                  >
-                    All Overdues
-                  </button>
-                  <button
-                    onClick={() => setOverdueFilter('7')}
-                    className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
-                      overdueFilter === '7'
-                        ? 'bg-red-600 text-white shadow-md'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                  >
-                    7 Days (1 Week)
-                  </button>
-                  <button
-                    onClick={() => setOverdueFilter('14')}
-                    className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
-                      overdueFilter === '14'
-                        ? 'bg-red-600 text-white shadow-md'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                  >
-                    14 Days
-                  </button>
-                  <button
-                    onClick={() => setOverdueFilter('30')}
-                    className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
-                      overdueFilter === '30'
-                        ? 'bg-red-600 text-white shadow-md'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                  >
-                    30 Days (1 Month)
-                  </button>
-                  <button
-                    onClick={() => setOverdueFilter('60')}
-                    className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
-                      overdueFilter === '60'
-                        ? 'bg-red-600 text-white shadow-md'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                  >
-                    60 Days (2 Months)
-                  </button>
-                  <button
-                    onClick={() => setOverdueFilter('90')}
-                    className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
-                      overdueFilter === '90'
-                        ? 'bg-red-600 text-white shadow-md'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                  >
-                    90 Days (3 Months)
-                  </button>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setOverdueFilter('custom')}
-                      className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
-                        overdueFilter === 'custom'
-                          ? 'bg-red-600 text-white shadow-md'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
-                    >
-                      Custom Days
-                    </button>
-                    {overdueFilter === 'custom' && (
-                      <>
-                        <input
-                          type="number"
-                          value={overdueCustomDays}
-                          onChange={(e) => setOverdueCustomDays(parseInt(e.target.value) || 0)}
-                          placeholder="Enter days"
-                          min="1"
-                          className="w-32 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                {arrearsLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center">
+                      <div className="relative w-12 h-12 mx-auto mb-4">
+                        <motion.div
+                          className="absolute inset-0 border-4 border-primary/20 rounded-full"
+                          animate={{ scale: [1, 1.2, 1] }}
+                          transition={{ duration: 1.5, repeat: Infinity }}
                         />
-                        <button
-                          onClick={() => overdueCustomDays > 0 && fetchOverduesData()}
-                          className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-                        >
-                          Apply
-                        </button>
-                      </>
-                    )}
+                        <motion.div
+                          className="absolute inset-0 border-4 border-t-primary border-r-transparent border-b-transparent border-l-transparent rounded-full"
+                          animate={{ rotate: 360 }}
+                          transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                        />
+                      </div>
+                      <p className="text-gray-600 font-medium">Loading arrears data...</p>
+                    </motion.div>
                   </div>
-                </div>
-                {overdueFilter !== 'all' && (
-                  <p className="text-sm text-gray-600 mt-3">
-                    Showing tenants overdue by {overdueFilter === 'custom' ? overdueCustomDays : overdueFilter} days or more
-                  </p>
-                )}
-              </div>
-
-              {/* Overdue Statistics */}
-              {overdueData?.summary.overdueCategories && (
-                <div className="mb-6">
-                  <h3 className="text-md font-semibold text-gray-900 mb-3">Overdue Distribution</h3>
-                  <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
-                    <div className="bg-gray-50 rounded-lg p-3 text-center">
-                      <div className="text-xs text-gray-600">1 Week</div>
-                      <div className="text-xl font-bold text-orange-600">{overdueData.summary.overdueCategories.week1}</div>
-                    </div>
-                    <div className="bg-gray-50 rounded-lg p-3 text-center">
-                      <div className="text-xs text-gray-600">2 Weeks</div>
-                      <div className="text-xl font-bold text-orange-600">{overdueData.summary.overdueCategories.week2}</div>
-                    </div>
-                    <div className="bg-gray-50 rounded-lg p-3 text-center">
-                      <div className="text-xs text-gray-600">1 Month</div>
-                      <div className="text-xl font-bold text-red-600">{overdueData.summary.overdueCategories.month1}</div>
-                    </div>
-                    <div className="bg-gray-50 rounded-lg p-3 text-center">
-                      <div className="text-xs text-gray-600">2 Months</div>
-                      <div className="text-xl font-bold text-red-700">{overdueData.summary.overdueCategories.month2}</div>
-                    </div>
-                    <div className="bg-gray-50 rounded-lg p-3 text-center">
-                      <div className="text-xs text-gray-600">3 Months</div>
-                      <div className="text-xl font-bold text-red-800">{overdueData.summary.overdueCategories.month3}</div>
-                    </div>
-                    <div className="bg-gray-50 rounded-lg p-3 text-center">
-                      <div className="text-xs text-gray-600">Over 3 Months</div>
-                      <div className="text-xl font-bold text-red-900">{overdueData.summary.overdueCategories.more}</div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {overduesLoading ? (
-                <div className="flex items-center justify-center py-12">
-                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center">
-                    <div className="relative w-12 h-12 mx-auto mb-4">
-                      <motion.div
-                        className="absolute inset-0 border-4 border-orange-200 rounded-full"
-                        animate={{ scale: [1, 1.2, 1] }}
-                        transition={{ duration: 1.5, repeat: Infinity }}
-                      />
-                      <motion.div
-                        className="absolute inset-0 border-4 border-t-orange-500 border-r-transparent border-b-transparent border-l-transparent rounded-full"
-                        animate={{ rotate: 360 }}
-                        transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                      />
-                    </div>
-                    <p className="text-gray-600 font-medium">Loading overdue tenants...</p>
-                  </motion.div>
-                </div>
-              ) : overdueData ? (
-                <>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-                    <div className="bg-linear-to-br from-orange-50 to-orange-100 rounded-xl p-6 border border-orange-200">
-                      <div className="text-sm font-medium text-orange-700 mb-2">Overdue Tenants</div>
-                      <div className="text-2xl font-bold text-orange-900">
-                        {overdueData.summary.totalOverdueTenants}
+                ) : arrearsData ? (
+                  <>
+                    {/* Summary Cards */}
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+                      <div className="bg-linear-to-br from-red-50 to-red-100 rounded-xl p-6 border border-red-200">
+                        <div className="text-sm font-medium text-red-700 mb-2">Total Arrears</div>
+                        <div className="text-2xl font-bold text-red-900">
+                          Ksh {arrearsData.summary.totalArrears.toLocaleString()}
+                        </div>
+                      </div>
+                      <div className="bg-linear-to-br from-blue-50 to-blue-100 rounded-xl p-6 border border-blue-200">
+                        <div className="text-sm font-medium text-blue-700 mb-2">Total Expected</div>
+                        <div className="text-2xl font-bold text-blue-900">
+                          Ksh {arrearsData.summary.totalExpected.toLocaleString()}
+                        </div>
+                      </div>
+                      <div className="bg-linear-to-br from-green-50 to-green-100 rounded-xl p-6 border border-green-200">
+                        <div className="text-sm font-medium text-green-700 mb-2">Total Paid</div>
+                        <div className="text-2xl font-bold text-green-900">
+                          Ksh {arrearsData.summary.totalPaid.toLocaleString()}
+                        </div>
+                      </div>
+                      <div className="bg-linear-to-br from-gray-50 to-gray-100 rounded-xl p-6 border border-gray-200">
+                        <div className="text-sm font-medium text-gray-700 mb-2">Total Items</div>
+                        <div className="text-2xl font-bold text-gray-900">
+                          {arrearsData.summary.itemCount}
+                        </div>
                       </div>
                     </div>
-                    <div className="bg-linear-to-br from-red-50 to-red-100 rounded-xl p-6 border border-red-200">
-                      <div className="text-sm font-medium text-red-700 mb-2">Total Overdue Amount</div>
-                      <div className="text-2xl font-bold text-red-900">
-                        Ksh {overdueData.summary.totalOverdueAmount.toLocaleString()}
-                      </div>
-                    </div>
-                    <div className="bg-linear-to-br from-blue-50 to-blue-100 rounded-xl p-6 border border-blue-200">
-                      <div className="text-sm font-medium text-blue-700 mb-2">Average Overdue</div>
-                      <div className="text-2xl font-bold text-blue-900">
-                        Ksh {overdueData.summary.averageOverdueAmount.toLocaleString()}
-                      </div>
-                    </div>
-                  </div>
 
-                  {filteredOverdueTenants.length > 0 ? (
-                    <div className="space-y-4">
-                      {filteredOverdueTenants.map((tenant: Tenant, index) => {
-                        const outstandingBalance = tenant.paymentSummary?.paymentHistory?.outstandingBalance || 0;
-                        const totalPaid = tenant.paymentSummary?.paymentHistory?.totalPaid || 0;
-                        const nextDueDate =
-                          tenant.paymentSummary?.nextPayment?.dueDateFormatted ||
-                          tenant.paymentSummary?.nextPayment?.dueDate ||
-                          '-';
-                        const paymentsBehind = tenant.paymentSummary?.nextPayment?.paymentsBehind || 0;
-                        const paymentPerPeriod = tenant.paymentSummary?.paymentAmountPerPeriod || 0;
-                        const unitLabel = [tenant.unit?.type, tenant.unit?.unitNo].filter(Boolean).join(' ') || tenant.unit?.unitType || 'Unit';
-                        
-                        // Calculate overdue days (approximate)
-                        const overdueDays = (tenant as any).overdueDetails?.daysOverdue || 
-                                          (tenant.paymentSummary?.nextPayment?.paymentsBehind || 0) * 30;
-
-                        return (
+                    {/* Grouped Arrears by Tenant */}
+                    {groupedArrears.length > 0 ? (
+                      <div className="space-y-4">
+                        {groupedArrears.map((group, index) => (
                           <motion.div
-                            key={tenant.id}
+                            key={group.tenantId}
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ delay: index * 0.05 }}
-                            className="border-2 border-gray-200 rounded-xl overflow-hidden hover:border-orange-300 transition-colors"
+                            className="border-2 border-gray-200 rounded-xl overflow-hidden hover:border-red/30 transition-colors"
                           >
+                            {/* Tenant Header - Clickable */}
                             <button
-                              onClick={() =>
-                                setExpandedOverdueTenant(
-                                  expandedOverdueTenant === tenant.id ? null : tenant.id
-                                )
-                              }
-                              className="w-full flex items-center justify-between p-5 bg-orange-50/40 hover:bg-orange-50/60 transition-colors text-left"
+                              onClick={() => setExpandedArrearsTenant(
+                                expandedArrearsTenant === group.tenantId ? null : group.tenantId
+                              )}
+                              className="w-full flex items-center justify-between p-5 bg-red-50/30 hover:bg-red-50/50 transition-colors text-left"
                             >
                               <div className="flex items-center gap-4">
-                                <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center">
-                                  <span className="text-lg font-bold text-orange-700">
-                                    {tenant.fullName.charAt(0).toUpperCase()}
+                                <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+                                  <span className="text-lg font-bold text-red-700">
+                                    {group.tenantName.charAt(0).toUpperCase()}
                                   </span>
                                 </div>
-
                                 <div>
-                                  <h3 className="text-lg font-bold text-gray-900">{tenant.fullName}</h3>
-                                  <div className="flex items-center gap-3 text-sm text-gray-600 mt-1 flex-wrap">
+                                  <h3 className="text-lg font-bold text-gray-900">{group.tenantName}</h3>
+                                  <div className="flex items-center gap-3 text-sm text-gray-600 mt-1">
                                     <span className="flex items-center gap-1">
                                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
                                       </svg>
-                                      {unitLabel}
+                                      {group.unitName}
                                     </span>
                                     <span>•</span>
-                                    <span>{tenant.contact || tenant.email || 'No contact'}</span>
-                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs">
-                                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                      </svg>
-                                      {(tenant as any).overdueDetails?.periodText || getOverduePeriodText(overdueDays)}
-                                    </span>
+                                    <span>{group.items.length} outstanding {group.items.length !== 1 ? 'invoices' : 'invoice'}</span>
                                   </div>
                                 </div>
                               </div>
-
                               <div className="flex items-center gap-6">
                                 <div className="text-right">
-                                  <p className="text-xs text-gray-600 mb-1">
-                                    Payments Behind:
-                                    <span className="ml-1 font-medium text-orange-700">{paymentsBehind}</span>
+                                  <p className="text-xs text-gray-600 mb-1">Paid: 
+                                    <span className="text-green-600 font-medium ml-1">
+                                      Ksh {group.totalPaid.toLocaleString()}
+                                    </span>
                                   </p>
-                                  <p className="text-sm text-gray-600">
-                                    Outstanding:
-                                    <span className="ml-1 text-red-600 font-bold text-lg">
-                                      Ksh {outstandingBalance.toLocaleString()}
+                                  <p className="text-sm text-gray-600">Balance: 
+                                    <span className="text-red-600 font-bold text-lg ml-1">
+                                      Ksh {group.totalArrears.toLocaleString()}
                                     </span>
                                   </p>
                                 </div>
-
                                 <motion.div
-                                  animate={{ rotate: expandedOverdueTenant === tenant.id ? 180 : 0 }}
+                                  animate={{ rotate: expandedArrearsTenant === group.tenantId ? 180 : 0 }}
                                   transition={{ duration: 0.2 }}
                                   className="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-sm"
                                 >
-                                  <svg
-                                    className="w-5 h-5 text-gray-600"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    viewBox="0 0 24 24"
-                                  >
-                                    <path
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      strokeWidth={2}
-                                      d="M19 9l-7 7-7-7"
-                                    />
+                                  <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                                   </svg>
                                 </motion.div>
                               </div>
                             </button>
 
+                            {/* Expandable Arrears Details */}
                             <AnimatePresence>
-                              {expandedOverdueTenant === tenant.id && (
+                              {expandedArrearsTenant === group.tenantId && (
                                 <motion.div
                                   initial={{ height: 0, opacity: 0 }}
                                   animate={{ height: 'auto', opacity: 1 }}
@@ -2271,400 +1880,1421 @@ const clearUpcomingFilters = () => {
                                   className="overflow-hidden"
                                 >
                                   <div className="p-5 bg-white border-t border-gray-200">
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                      <div className="bg-gray-50 rounded-lg p-4">
-                                        <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">
-                                          Payment Status
-                                        </p>
-                                        <p className="font-semibold text-gray-900">
-                                          {tenant.paymentSummary?.status || 'OVERDUE'}
-                                        </p>
-                                      </div>
-
-                                      <div className="bg-gray-50 rounded-lg p-4">
-                                        <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">
-                                          Next Due Date
-                                        </p>
-                                        <p className="font-semibold text-gray-900">{nextDueDate}</p>
-                                      </div>
-
-                                      <div className="bg-gray-50 rounded-lg p-4">
-                                        <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">
-                                          Payment Per Period
-                                        </p>
-                                        <p className="font-semibold text-gray-900">
-                                          Ksh {paymentPerPeriod.toLocaleString()}
-                                        </p>
-                                      </div>
-
-                                      <div className="bg-gray-50 rounded-lg p-4">
-                                        <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">
-                                          Total Paid
-                                        </p>
-                                        <p className="font-semibold text-green-700">
-                                          Ksh {totalPaid.toLocaleString()}
-                                        </p>
-                                      </div>
-
-                                      <div className="bg-gray-50 rounded-lg p-4 md:col-span-2">
-                                        <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">
-                                          Lease Term
-                                        </p>
-                                        <p className="font-semibold text-gray-900">{tenant.leaseTerm || '-'}</p>
-                                      </div>
+                                    <h4 className="text-sm font-semibold text-gray-700 mb-4 uppercase tracking-wide">
+                                      Outstanding Invoices
+                                    </h4>
+                                    <div className="overflow-x-auto">
+                                      <table className="w-full">
+                                        <thead>
+                                          <tr className="border-b border-gray-200">
+                                            <th className="text-left py-3 px-4 font-semibold text-gray-700 text-sm">Invoice #</th>
+                                            <th className="text-left py-3 px-4 font-semibold text-gray-700 text-sm">Type</th>
+                                            <th className="text-left py-3 px-4 font-semibold text-gray-700 text-sm">Expected</th>
+                                            <th className="text-left py-3 px-4 font-semibold text-gray-700 text-sm">Paid</th>
+                                            <th className="text-left py-3 px-4 font-semibold text-gray-700 text-sm">Balance</th>
+                                            <th className="text-left py-3 px-4 font-semibold text-gray-700 text-sm">Status</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {group.items.map((item, idx) => (
+                                            <motion.tr
+                                              key={item.id}
+                                              initial={{ opacity: 0, x: -10 }}
+                                              animate={{ opacity: 1, x: 0 }}
+                                              transition={{ delay: idx * 0.03 }}
+                                              className="border-b border-gray-100 last:border-0 hover:bg-gray-50"
+                                            >
+                                              <td className="py-3 px-4 font-mono text-sm text-gray-900">
+                                                {item.invoiceNumber}
+                                              </td>
+                                              <td className="py-3 px-4">
+                                                <span
+                                                  className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
+                                                    item.invoiceType === 'RENT'
+                                                      ? 'bg-blue-100 text-blue-700'
+                                                      : 'bg-purple-100 text-purple-700'
+                                                  }`}
+                                                >
+                                                  {item.invoiceType === 'RENT' ? 'Rent' : item.billType}
+                                                </span>
+                                              </td>
+                                              <td className="py-3 px-4 text-gray-900">
+                                                Ksh {item.expectedAmount?.toLocaleString() || '-'}
+                                              </td>
+                                              <td className="py-3 px-4">
+                                                <span className="text-green-600 font-medium">
+                                                  Ksh {item.paidAmount.toLocaleString()}
+                                                </span>
+                                              </td>
+                                              <td className="py-3 px-4">
+                                                <span className="font-bold text-red-600">
+                                                  Ksh {item.balance.toLocaleString()}
+                                                </span>
+                                              </td>
+                                              <td className="py-3 px-4">
+                                                <span
+                                                  className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${
+                                                    item.status === 'UNPAID'
+                                                      ? 'bg-red-100 text-red-700'
+                                                      : 'bg-yellow-100 text-yellow-700'
+                                                  }`}
+                                                >
+                                                  {item.status === 'UNPAID' ? 'Unpaid' : 'Partial'}
+                                                </span>
+                                              </td>
+                                            </motion.tr>
+                                          ))}
+                                        </tbody>
+                                        <tfoot>
+                                          <tr className="bg-red-50/50 font-semibold">
+                                            <td className="py-3 px-4 text-gray-900" colSpan={2}>Total Balance</td>
+                                            <td className="py-3 px-4 text-gray-700">
+                                              Ksh {group.items.reduce((sum, item) => sum + (item.expectedAmount || 0), 0).toLocaleString()}
+                                            </td>
+                                            <td className="py-3 px-4 text-green-700">
+                                              Ksh {group.totalPaid.toLocaleString()}
+                                            </td>
+                                            <td className="py-3 px-4 text-red-700" colSpan={2}>
+                                              Ksh {group.totalArrears.toLocaleString()}
+                                            </td>
+                                          </tr>
+                                        </tfoot>
+                                      </table>
                                     </div>
                                   </div>
                                 </motion.div>
                               )}
                             </AnimatePresence>
                           </motion.div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="text-center py-12">
-                      <div className="w-16 h-16 mx-auto mb-4 bg-green-100 rounded-full flex items-center justify-center">
-                        <svg
-                          className="w-8 h-8 text-green-600"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                          />
-                        </svg>
+                        ))}
                       </div>
-                      <p className="text-gray-900 font-medium text-lg">No Overdues Found</p>
-                      <p className="text-gray-600 mt-2">
-                        {overdueFilter === 'all' 
-                          ? 'All tenants in this property are up to date.'
-                          : `No tenants are overdue by ${overdueFilter === 'custom' ? overdueCustomDays : overdueFilter} days or more.`}
-                      </p>
+                    ) : (
+                      <div className="text-center py-12">
+                        <div className="w-16 h-16 mx-auto mb-4 bg-green-100 rounded-full flex items-center justify-center">
+                          <svg
+                            className="w-8 h-8 text-green-600"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                            />
+                          </svg>
+                        </div>
+                        <p className="text-gray-900 font-medium text-lg">No Arrears Found</p>
+                        <p className="text-gray-600 mt-2">
+                          All tenants are up to date with their payments!
+                        </p>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="text-center py-12">
+                    <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+                      <svg
+                        className="w-8 h-8 text-gray-400"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                        />
+                      </svg>
                     </div>
-                  )}
-                </>
-              ) : (
-                <div className="text-center py-12">
-                  <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
-                    <svg
-                      className="w-8 h-8 text-gray-400"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                      />
-                    </svg>
+                    <p className="text-gray-900 font-medium">Failed to load arrears data</p>
+                    <Button onClick={fetchArrearsData} className="mt-4">
+                      Retry
+                    </Button>
                   </div>
-                  <p className="text-gray-900 font-medium">Failed to load overdue tenants</p>
-                  <Button onClick={fetchOverduesData} className="mt-4">
-                    Retry
-                  </Button>
-                </div>
-              )}
-            </motion.div>
-          </div>
+                )}
+              </motion.div>
+            </div>
+          </PermissionGuard>
         )}
 
-        {activeTab === 'payments' && (
-          <div className="space-y-6">
-            <motion.div
-              variants={itemVariants}
-              className="bg-white rounded-2xl p-8 shadow-lg border border-gray-200"
-            >
-              <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
-                    <svg
-                      className="w-6 h-6 text-purple-600"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                      />
-                    </svg>
-                  </div>
-                  <h2 className="text-2xl font-bold text-heading-color">Property Collection Statement</h2>
-                </div>
-                <Button
-                  onClick={handleOpenExportModal}
-                  disabled={exporting}
-                  className="px-6 py-2.5 bg-primary text-white hover:bg-primary/90 transition-all duration-300 shadow-md rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <span className="flex items-center gap-2">
-                    <svg
-                      className="w-5 h-5"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                      />
-                    </svg>
-                    Export to Excel
-                  </span>
-                </Button>
+        {/* OVERDUES TAB - With Filters and PDF Export */}
+        {activeTab === 'overdues' && (
+          <PermissionGuard permissions={[PermissionCode.VIEW_OVERDUE_INVOICES, PermissionCode.VIEW_TENANT_FINANCIALS]} fallback={
+            <div className="bg-white rounded-2xl p-8 shadow-lg border border-gray-200 text-center">
+              <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-10 h-10 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
               </div>
-
-              {/* Report Summary */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                <div className="bg-linear-to-br from-green-50 to-green-100 rounded-xl p-6 border border-green-200">
-                  <div className="text-sm font-medium text-green-700 mb-2">Total Income</div>
-                  <div className="text-2xl font-bold text-green-900">
-                    Ksh {totals.totalIncome.toLocaleString()}
+              <h3 className="text-xl font-bold text-gray-900 mb-2">Access Denied</h3>
+              <p className="text-gray-600">You don't have permission to view overdue tenants.</p>
+            </div>
+          }>
+            <div className="space-y-6">
+              <motion.div
+                variants={itemVariants}
+                className="bg-white rounded-2xl p-8 shadow-lg border border-gray-200"
+              >
+                <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center">
+                      <svg
+                        className="w-6 h-6 text-orange-600"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                        />
+                      </svg>
+                    </div>
+                    <div>
+                      <h2 className="text-2xl font-bold text-heading-color">Overdue Tenants</h2>
+                      <p className="text-sm text-gray-600 mt-1">
+                        {filteredOverdueTenants.length} tenant{filteredOverdueTenants.length !== 1 ? 's' : ''} overdue for this property
+                      </p>
+                    </div>
                   </div>
-                </div>
-                <div className="bg-linear-to-br from-blue-50 to-blue-100 rounded-xl p-6 border border-blue-200">
-                  <div className="text-sm font-medium text-blue-700 mb-2">Total Commissions</div>
-                  <div className="text-2xl font-bold text-blue-900">
-                    Ksh {totals.totalCommissions.toLocaleString()}
-                  </div>
-                </div>
-                <div className="bg-linear-to-br from-purple-50 to-purple-100 rounded-xl p-6 border border-purple-200">
-                  <div className="text-sm font-medium text-purple-700 mb-2">Net Income</div>
-                  <div className="text-2xl font-bold text-purple-900">
-                    Ksh {(totals.totalIncome - totals.totalCommissions).toLocaleString()}
-                  </div>
-                </div>
-              </div>
-
-              {/* Detailed Breakdown */}
-              <div className="space-y-6">
-                {/* Tenants & Units Overview */}
-                <div>
-                  <h3 className="text-lg font-bold text-gray-900 mb-4">Units & Tenants</h3>
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="border-b-2 border-gray-200">
-                          <th className="text-left py-3 px-4 font-semibold text-gray-900">Unit</th>
-                          <th className="text-left py-3 px-4 font-semibold text-gray-900">
-                            Tenant
-                          </th>
-                          <th className="text-left py-3 px-4 font-semibold text-gray-900">
-                            Monthly Rent
-                          </th>
-                          <th className="text-left py-3 px-4 font-semibold text-gray-900">
-                            Service Charge
-                          </th>
-                          <th className="text-left py-3 px-4 font-semibold text-gray-900">
-                            Status
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {property.units && property.units.length > 0 ? (
-                          property.units.map((unit, index) => (
-                            <motion.tr
-                              key={unit.id}
-                              initial={{ opacity: 0, x: -20 }}
-                              animate={{ opacity: 1, x: 0 }}
-                              transition={{ delay: index * 0.05 }}
-                              className="border-b border-gray-100 hover:bg-gray-50"
+                  
+                  {/* Export PDF Button */}
+                  {(filteredOverdueTenants.length > 0 || overdueData) && (
+                    <Button
+                      onClick={handleExportOverduesToPDF}
+                      disabled={exportingOverduesPdf}
+                      className="px-6 py-2.5 bg-red-600 text-white hover:bg-red-700 transition-all duration-300 shadow-md rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <span className="flex items-center gap-2">
+                        {exportingOverduesPdf ? (
+                          <>
+                            <motion.svg
+                              animate={{ rotate: 360 }}
+                              transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                              className="w-5 h-5"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
                             >
-                              <td className="py-3 px-4">
-                                <div className="font-medium text-gray-900">
-                                  {unit.type || 'Unit'}
-                                </div>
-                                <div className="text-sm text-gray-600">
-                                  {[
-                                    unit.bedrooms !== undefined && `${unit.bedrooms} bed`,
-                                    unit.bathrooms !== undefined && `${unit.bathrooms} bath`,
-                                  ]
-                                    .filter(Boolean)
-                                    .join(' • ') || 'N/A'}
-                                </div>
-                              </td>
-                              <td className="py-3 px-4">
-                                {unit.tenant ? (
-                                  <div>
-                                    <div className="font-medium text-gray-900">
-                                      {unit.tenant.fullName}
-                                    </div>
-                                    <div className="text-sm text-gray-600">
-                                      {unit.tenant.contact}
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <span className="text-gray-500 font-medium">Vacant</span>
-                                )}
-                              </td>
-                              <td className="py-3 px-4">
-                                <span className="font-semibold text-gray-900">
-                                  Ksh {unit.rentAmount.toLocaleString()}
-                                </span>
-                              </td>
-                              <td className="py-3 px-4">
-                                {unit.tenant?.serviceCharge ? (
-                                  <div className="text-sm text-gray-900">
-                                    {unit.tenant.serviceCharge.type === 'PERCENTAGE' && (
-                                      <span>{unit.tenant.serviceCharge.percentage}%</span>
-                                    )}
-                                    {unit.tenant.serviceCharge.type === 'FIXED' && (
-                                      <span>
-                                        Ksh{' '}
-                                        {unit.tenant.serviceCharge.fixedAmount?.toLocaleString()}
-                                      </span>
-                                    )}
-                                    {unit.tenant.serviceCharge.type === 'PER_SQ_FT' && (
-                                      <span>
-                                        Ksh {unit.tenant.serviceCharge.perSqFtRate}/sq ft
-                                      </span>
-                                    )}
-                                  </div>
-                                ) : (
-                                  <span className="text-gray-500">-</span>
-                                )}
-                              </td>
-                              <td className="py-3 px-4">
-                                <span
-                                  className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${
-                                    unit.status === 'OCCUPIED'
-                                      ? 'bg-green-100 text-green-700'
-                                      : 'bg-gray-100 text-gray-700'
-                                  }`}
-                                >
-                                  {unit.status}
-                                </span>
-                              </td>
-                            </motion.tr>
-                          ))
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                              />
+                            </motion.svg>
+                            Exporting...
+                          </>
                         ) : (
-                          <tr>
-                            <td colSpan={5} className="py-8 text-center">
-                              <p className="text-gray-900 font-medium">No units found</p>
-                            </td>
-                          </tr>
+                          <>
+                            <svg
+                              className="w-5 h-5"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"
+                              />
+                            </svg>
+                            Export PDF
+                          </>
                         )}
-                      </tbody>
-                    </table>
+                      </span>
+                    </Button>
+                  )}
+                </div>
+
+                {/* Filter Buttons */}
+                <div className="mb-6">
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => setOverdueFilter('all')}
+                      className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
+                        overdueFilter === 'all'
+                          ? 'bg-red-600 text-white shadow-md'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      All Overdues
+                    </button>
+                    <button
+                      onClick={() => setOverdueFilter('7')}
+                      className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
+                        overdueFilter === '7'
+                          ? 'bg-red-600 text-white shadow-md'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      7 Days (1 Week)
+                    </button>
+                    <button
+                      onClick={() => setOverdueFilter('14')}
+                      className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
+                        overdueFilter === '14'
+                          ? 'bg-red-600 text-white shadow-md'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      14 Days
+                    </button>
+                    <button
+                      onClick={() => setOverdueFilter('30')}
+                      className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
+                        overdueFilter === '30'
+                          ? 'bg-red-600 text-white shadow-md'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      30 Days (1 Month)
+                    </button>
+                    <button
+                      onClick={() => setOverdueFilter('60')}
+                      className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
+                        overdueFilter === '60'
+                          ? 'bg-red-600 text-white shadow-md'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      60 Days (2 Months)
+                    </button>
+                    <button
+                      onClick={() => setOverdueFilter('90')}
+                      className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
+                        overdueFilter === '90'
+                          ? 'bg-red-600 text-white shadow-md'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      90 Days (3 Months)
+                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setOverdueFilter('custom')}
+                        className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
+                          overdueFilter === 'custom'
+                            ? 'bg-red-600 text-white shadow-md'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        }`}
+                      >
+                        Custom Days
+                      </button>
+                      {overdueFilter === 'custom' && (
+                        <>
+                          <input
+                            type="number"
+                            value={overdueCustomDays}
+                            onChange={(e) => setOverdueCustomDays(parseInt(e.target.value) || 0)}
+                            placeholder="Enter days"
+                            min="1"
+                            className="w-32 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                          />
+                          <button
+                            onClick={() => overdueCustomDays > 0 && fetchOverduesData()}
+                            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                          >
+                            Apply
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  {overdueFilter !== 'all' && (
+                    <p className="text-sm text-gray-600 mt-3">
+                      Showing tenants overdue by {overdueFilter === 'custom' ? overdueCustomDays : overdueFilter} days or more
+                    </p>
+                  )}
+                </div>
+
+                {/* Overdue Statistics */}
+                {overdueData?.summary.overdueCategories && (
+                  <div className="mb-6">
+                    <h3 className="text-md font-semibold text-gray-900 mb-3">Overdue Distribution</h3>
+                    <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+                      <div className="bg-gray-50 rounded-lg p-3 text-center">
+                        <div className="text-xs text-gray-600">1 Week</div>
+                        <div className="text-xl font-bold text-orange-600">{overdueData.summary.overdueCategories.week1}</div>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg p-3 text-center">
+                        <div className="text-xs text-gray-600">2 Weeks</div>
+                        <div className="text-xl font-bold text-orange-600">{overdueData.summary.overdueCategories.week2}</div>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg p-3 text-center">
+                        <div className="text-xs text-gray-600">1 Month</div>
+                        <div className="text-xl font-bold text-red-600">{overdueData.summary.overdueCategories.month1}</div>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg p-3 text-center">
+                        <div className="text-xs text-gray-600">2 Months</div>
+                        <div className="text-xl font-bold text-red-700">{overdueData.summary.overdueCategories.month2}</div>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg p-3 text-center">
+                        <div className="text-xs text-gray-600">3 Months</div>
+                        <div className="text-xl font-bold text-red-800">{overdueData.summary.overdueCategories.month3}</div>
+                      </div>
+                      <div className="bg-gray-50 rounded-lg p-3 text-center">
+                        <div className="text-xs text-gray-600">Over 3 Months</div>
+                        <div className="text-xl font-bold text-red-900">{overdueData.summary.overdueCategories.more}</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {overduesLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center">
+                      <div className="relative w-12 h-12 mx-auto mb-4">
+                        <motion.div
+                          className="absolute inset-0 border-4 border-orange-200 rounded-full"
+                          animate={{ scale: [1, 1.2, 1] }}
+                          transition={{ duration: 1.5, repeat: Infinity }}
+                        />
+                        <motion.div
+                          className="absolute inset-0 border-4 border-t-orange-500 border-r-transparent border-b-transparent border-l-transparent rounded-full"
+                          animate={{ rotate: 360 }}
+                          transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                        />
+                      </div>
+                      <p className="text-gray-600 font-medium">Loading overdue tenants...</p>
+                    </motion.div>
+                  </div>
+                ) : overdueData ? (
+                  <>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                      <div className="bg-linear-to-br from-orange-50 to-orange-100 rounded-xl p-6 border border-orange-200">
+                        <div className="text-sm font-medium text-orange-700 mb-2">Overdue Tenants</div>
+                        <div className="text-2xl font-bold text-orange-900">
+                          {overdueData.summary.totalOverdueTenants}
+                        </div>
+                      </div>
+                      <div className="bg-linear-to-br from-red-50 to-red-100 rounded-xl p-6 border border-red-200">
+                        <div className="text-sm font-medium text-red-700 mb-2">Total Overdue Amount</div>
+                        <div className="text-2xl font-bold text-red-900">
+                          Ksh {overdueData.summary.totalOverdueAmount.toLocaleString()}
+                        </div>
+                      </div>
+                      <div className="bg-linear-to-br from-blue-50 to-blue-100 rounded-xl p-6 border border-blue-200">
+                        <div className="text-sm font-medium text-blue-700 mb-2">Average Overdue</div>
+                        <div className="text-2xl font-bold text-blue-900">
+                          Ksh {overdueData.summary.averageOverdueAmount.toLocaleString()}
+                        </div>
+                      </div>
+                    </div>
+
+                    {filteredOverdueTenants.length > 0 ? (
+                      <div className="space-y-4">
+                        {filteredOverdueTenants.map((tenant: Tenant, index) => {
+                          const outstandingBalance = tenant.paymentSummary?.paymentHistory?.outstandingBalance || 0;
+                          const totalPaid = tenant.paymentSummary?.paymentHistory?.totalPaid || 0;
+                          const nextDueDate =
+                            tenant.paymentSummary?.nextPayment?.dueDateFormatted ||
+                            tenant.paymentSummary?.nextPayment?.dueDate ||
+                            '-';
+                          const paymentsBehind = tenant.paymentSummary?.nextPayment?.paymentsBehind || 0;
+                          const paymentPerPeriod = tenant.paymentSummary?.paymentAmountPerPeriod || 0;
+                          const unitLabel = [tenant.unit?.type, tenant.unit?.unitNo].filter(Boolean).join(' ') || tenant.unit?.unitType || 'Unit';
+                          
+                          // Calculate overdue days (approximate)
+                          const overdueDays = (tenant as any).overdueDetails?.daysOverdue || 
+                                            (tenant.paymentSummary?.nextPayment?.paymentsBehind || 0) * 30;
+
+                          return (
+                            <motion.div
+                              key={tenant.id}
+                              initial={{ opacity: 0, y: 20 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ delay: index * 0.05 }}
+                              className="border-2 border-gray-200 rounded-xl overflow-hidden hover:border-orange-300 transition-colors"
+                            >
+                              <button
+                                onClick={() =>
+                                  setExpandedOverdueTenant(
+                                    expandedOverdueTenant === tenant.id ? null : tenant.id
+                                  )
+                                }
+                                className="w-full flex items-center justify-between p-5 bg-orange-50/40 hover:bg-orange-50/60 transition-colors text-left"
+                              >
+                                <div className="flex items-center gap-4">
+                                  <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center">
+                                    <span className="text-lg font-bold text-orange-700">
+                                      {tenant.fullName.charAt(0).toUpperCase()}
+                                    </span>
+                                  </div>
+
+                                  <div>
+                                    <h3 className="text-lg font-bold text-gray-900">{tenant.fullName}</h3>
+                                    <div className="flex items-center gap-3 text-sm text-gray-600 mt-1 flex-wrap">
+                                      <span className="flex items-center gap-1">
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                                        </svg>
+                                        {unitLabel}
+                                      </span>
+                                      <span>•</span>
+                                      <span>{tenant.contact || tenant.email || 'No contact'}</span>
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs">
+                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                        {(tenant as any).overdueDetails?.periodText || getOverduePeriodText(overdueDays)}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-6">
+                                  <div className="text-right">
+                                    <p className="text-xs text-gray-600 mb-1">
+                                      Payments Behind:
+                                      <span className="ml-1 font-medium text-orange-700">{paymentsBehind}</span>
+                                    </p>
+                                    <p className="text-sm text-gray-600">
+                                      Outstanding:
+                                      <span className="ml-1 text-red-600 font-bold text-lg">
+                                        Ksh {outstandingBalance.toLocaleString()}
+                                      </span>
+                                    </p>
+                                  </div>
+
+                                  <motion.div
+                                    animate={{ rotate: expandedOverdueTenant === tenant.id ? 180 : 0 }}
+                                    transition={{ duration: 0.2 }}
+                                    className="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-sm"
+                                  >
+                                    <svg
+                                      className="w-5 h-5 text-gray-600"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      viewBox="0 0 24 24"
+                                    >
+                                      <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth={2}
+                                        d="M19 9l-7 7-7-7"
+                                      />
+                                    </svg>
+                                  </motion.div>
+                                </div>
+                              </button>
+
+                              <AnimatePresence>
+                                {expandedOverdueTenant === tenant.id && (
+                                  <motion.div
+                                    initial={{ height: 0, opacity: 0 }}
+                                    animate={{ height: 'auto', opacity: 1 }}
+                                    exit={{ height: 0, opacity: 0 }}
+                                    transition={{ duration: 0.3 }}
+                                    className="overflow-hidden"
+                                  >
+                                    <div className="p-5 bg-white border-t border-gray-200">
+                                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div className="bg-gray-50 rounded-lg p-4">
+                                          <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">
+                                            Payment Status
+                                          </p>
+                                          <p className="font-semibold text-gray-900">
+                                            {tenant.paymentSummary?.status || 'OVERDUE'}
+                                          </p>
+                                        </div>
+
+                                        <div className="bg-gray-50 rounded-lg p-4">
+                                          <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">
+                                            Next Due Date
+                                          </p>
+                                          <p className="font-semibold text-gray-900">{nextDueDate}</p>
+                                        </div>
+
+                                        <div className="bg-gray-50 rounded-lg p-4">
+                                          <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">
+                                            Payment Per Period
+                                          </p>
+                                          <p className="font-semibold text-gray-900">
+                                            Ksh {paymentPerPeriod.toLocaleString()}
+                                          </p>
+                                        </div>
+
+                                        <div className="bg-gray-50 rounded-lg p-4">
+                                          <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">
+                                            Total Paid
+                                          </p>
+                                          <p className="font-semibold text-green-700">
+                                            Ksh {totalPaid.toLocaleString()}
+                                          </p>
+                                        </div>
+
+                                        <div className="bg-gray-50 rounded-lg p-4 md:col-span-2">
+                                          <p className="text-xs uppercase tracking-wide text-gray-500 mb-1">
+                                            Lease Term
+                                          </p>
+                                          <p className="font-semibold text-gray-900">{tenant.leaseTerm || '-'}</p>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </motion.div>
+                                )}
+                              </AnimatePresence>
+                            </motion.div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="text-center py-12">
+                        <div className="w-16 h-16 mx-auto mb-4 bg-green-100 rounded-full flex items-center justify-center">
+                          <svg
+                            className="w-8 h-8 text-green-600"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                            />
+                          </svg>
+                        </div>
+                        <p className="text-gray-900 font-medium text-lg">No Overdues Found</p>
+                        <p className="text-gray-600 mt-2">
+                          {overdueFilter === 'all' 
+                            ? 'All tenants in this property are up to date.'
+                            : `No tenants are overdue by ${overdueFilter === 'custom' ? overdueCustomDays : overdueFilter} days or more.`}
+                        </p>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="text-center py-12">
+                    <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+                      <svg
+                        className="w-8 h-8 text-gray-400"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                        />
+                      </svg>
+                    </div>
+                    <p className="text-gray-900 font-medium">Failed to load overdue tenants</p>
+                    <Button onClick={fetchOverduesData} className="mt-4">
+                      Retry
+                    </Button>
+                  </div>
+                )}
+              </motion.div>
+            </div>
+          </PermissionGuard>
+        )}
+
+        {/* PAYMENTS TAB - Property Statement */}
+        {activeTab === 'payments' && (
+          <PermissionGuard permission={PermissionCode.VIEW_PAYMENT_REPORTS} fallback={
+            <div className="bg-white rounded-2xl p-8 shadow-lg border border-gray-200 text-center">
+              <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-10 h-10 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 mb-2">Access Denied</h3>
+              <p className="text-gray-600">You don't have permission to view property statements.</p>
+            </div>
+          }>
+            <div className="space-y-6">
+              <motion.div
+                variants={itemVariants}
+                className="bg-white rounded-2xl p-8 shadow-lg border border-gray-200"
+              >
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
+                      <svg
+                        className="w-6 h-6 text-purple-600"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                        />
+                      </svg>
+                    </div>
+                    <h2 className="text-2xl font-bold text-heading-color">Property Collection Statement</h2>
+                  </div>
+                  <Button
+                    onClick={handleOpenExportModal}
+                    disabled={exporting}
+                    className="px-6 py-2.5 bg-primary text-white hover:bg-primary/90 transition-all duration-300 shadow-md rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <span className="flex items-center gap-2">
+                      <svg
+                        className="w-5 h-5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                        />
+                      </svg>
+                      Export to Excel
+                    </span>
+                  </Button>
+                </div>
+
+                {/* Report Summary */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                  <div className="bg-linear-to-br from-green-50 to-green-100 rounded-xl p-6 border border-green-200">
+                    <div className="text-sm font-medium text-green-700 mb-2">Total Income</div>
+                    <div className="text-2xl font-bold text-green-900">
+                      Ksh {totals.totalIncome.toLocaleString()}
+                    </div>
+                  </div>
+                  {/* Only show commissions summary if user has permission */}
+                  {(isAdmin || isManager || hasPermission(PermissionCode.VIEW_COMMISSIONS)) && (
+                    <div className="bg-linear-to-br from-blue-50 to-blue-100 rounded-xl p-6 border border-blue-200">
+                      <div className="text-sm font-medium text-blue-700 mb-2">Total Commissions</div>
+                      <div className="text-2xl font-bold text-blue-900">
+                        Ksh {totals.totalCommissions.toLocaleString()}
+                      </div>
+                    </div>
+                  )}
+                  <div className="bg-linear-to-br from-purple-50 to-purple-100 rounded-xl p-6 border border-purple-200">
+                    <div className="text-sm font-medium text-purple-700 mb-2">Net Income</div>
+                    <div className="text-2xl font-bold text-purple-900">
+                      Ksh {(totals.totalIncome - (isAdmin || isManager || hasPermission(PermissionCode.VIEW_COMMISSIONS) ? totals.totalCommissions : 0)).toLocaleString()}
+                    </div>
                   </div>
                 </div>
 
-                {/* Service Providers */}
-                {property.serviceProviders && property.serviceProviders.length > 0 && (
+                {/* Detailed Breakdown */}
+                <div className="space-y-6">
+                  {/* Tenants & Units Overview */}
                   <div>
-                    <h3 className="text-lg font-bold text-gray-900 mb-4">Service Providers</h3>
+                    <h3 className="text-lg font-bold text-gray-900 mb-4">Units & Tenants</h3>
                     <div className="overflow-x-auto">
                       <table className="w-full">
                         <thead>
                           <tr className="border-b-2 border-gray-200">
+                            <th className="text-left py-3 px-4 font-semibold text-gray-900">Unit</th>
                             <th className="text-left py-3 px-4 font-semibold text-gray-900">
-                              Provider
+                              Tenant
                             </th>
                             <th className="text-left py-3 px-4 font-semibold text-gray-900">
-                              Service
+                              Monthly Rent
                             </th>
                             <th className="text-left py-3 px-4 font-semibold text-gray-900">
-                              Contact
+                              Service Charge
                             </th>
                             <th className="text-left py-3 px-4 font-semibold text-gray-900">
-                              Charge
+                              Status
                             </th>
-                            <th className="text-left py-3 px-4 font-semibold text-gray-900">
-                              Frequency
-                            </th>
-                           </tr>
+                          </tr>
                         </thead>
                         <tbody>
-                          {property.serviceProviders.map((provider, index) => (
-                            <motion.tr
-                              key={provider.id}
-                              initial={{ opacity: 0, x: -20 }}
-                              animate={{ opacity: 1, x: 0 }}
-                              transition={{ delay: index * 0.05 }}
-                              className="border-b border-gray-100 hover:bg-gray-50"
-                            >
-                              <td className="py-3 px-4">
-                                <div className="font-medium text-gray-900">{provider.name}</div>
+                          {property.units && property.units.length > 0 ? (
+                            property.units.map((unit, index) => (
+                              <motion.tr
+                                key={unit.id}
+                                initial={{ opacity: 0, x: -20 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                transition={{ delay: index * 0.05 }}
+                                className="border-b border-gray-100 hover:bg-gray-50"
+                              >
+                                <td className="py-3 px-4">
+                                  <div className="font-medium text-gray-900">
+                                    {unit.type || 'Unit'}
+                                  </div>
+                                  <div className="text-sm text-gray-600">
+                                    {[
+                                      unit.bedrooms !== undefined && `${unit.bedrooms} bed`,
+                                      unit.bathrooms !== undefined && `${unit.bathrooms} bath`,
+                                    ]
+                                      .filter(Boolean)
+                                      .join(' • ') || 'N/A'}
+                                  </div>
+                                </td>
+                                <td className="py-3 px-4">
+                                  {unit.tenant ? (
+                                    <div>
+                                      <div className="font-medium text-gray-900">
+                                        {unit.tenant.fullName}
+                                      </div>
+                                      <div className="text-sm text-gray-600">
+                                        {unit.tenant.contact}
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <span className="text-gray-500 font-medium">Vacant</span>
+                                  )}
+                                </td>
+                                <td className="py-3 px-4">
+                                  <span className="font-semibold text-gray-900">
+                                    Ksh {unit.rentAmount.toLocaleString()}
+                                  </span>
+                                </td>
+                                <td className="py-3 px-4">
+                                  {unit.tenant?.serviceCharge ? (
+                                    <div className="text-sm text-gray-900">
+                                      {unit.tenant.serviceCharge.type === 'PERCENTAGE' && (
+                                        <span>{unit.tenant.serviceCharge.percentage}%</span>
+                                      )}
+                                      {unit.tenant.serviceCharge.type === 'FIXED' && (
+                                        <span>
+                                          Ksh{' '}
+                                          {unit.tenant.serviceCharge.fixedAmount?.toLocaleString()}
+                                        </span>
+                                      )}
+                                      {unit.tenant.serviceCharge.type === 'PER_SQ_FT' && (
+                                        <span>
+                                          Ksh {unit.tenant.serviceCharge.perSqFtRate}/sq ft
+                                        </span>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <span className="text-gray-500">-</span>
+                                  )}
+                                </td>
+                                <td className="py-3 px-4">
+                                  <span
+                                    className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${
+                                      unit.status === 'OCCUPIED'
+                                        ? 'bg-green-100 text-green-700'
+                                        : 'bg-gray-100 text-gray-700'
+                                    }`}
+                                  >
+                                    {unit.status}
+                                  </span>
+                                </td>
+                              </motion.tr>
+                            ))
+                          ) : (
+                            <tr>
+                              <td colSpan={5} className="py-8 text-center">
+                                <p className="text-gray-900 font-medium">No units found</p>
                               </td>
-                              <td className="py-3 px-4 text-gray-900">
-                                {provider.serviceContract || '-'}
-                              </td>
-                              <td className="py-3 px-4 text-gray-900">
-                                {provider.contact || '-'}
-                              </td>
-                              <td className="py-3 px-4">
-                                <span className="font-semibold text-red-600">
-                                  Ksh {provider.chargeAmount.toLocaleString()}
-                                </span>
-                              </td>
-                              <td className="py-3 px-4">
-                                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">
-                                  {provider.chargeFrequency}
-                                </span>
-                              </td>
-                            </motion.tr>
-                          ))}
+                            </tr>
+                          )}
                         </tbody>
                       </table>
                     </div>
                   </div>
-                )}
-              </div>
-            </motion.div>
-          </div>
+
+                  {/* Service Providers */}
+                  {property.serviceProviders && property.serviceProviders.length > 0 && (
+                    <div>
+                      <h3 className="text-lg font-bold text-gray-900 mb-4">Service Providers</h3>
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead>
+                            <tr className="border-b-2 border-gray-200">
+                              <th className="text-left py-3 px-4 font-semibold text-gray-900">
+                                Provider
+                              </th>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-900">
+                                Service
+                              </th>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-900">
+                                Contact
+                              </th>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-900">
+                                Charge
+                              </th>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-900">
+                                Frequency
+                              </th>
+                             </tr>
+                          </thead>
+                          <tbody>
+                            {property.serviceProviders.map((provider, index) => (
+                              <motion.tr
+                                key={provider.id}
+                                initial={{ opacity: 0, x: -20 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                transition={{ delay: index * 0.05 }}
+                                className="border-b border-gray-100 hover:bg-gray-50"
+                              >
+                                <td className="py-3 px-4">
+                                  <div className="font-medium text-gray-900">{provider.name}</div>
+                                </td>
+                                <td className="py-3 px-4 text-gray-900">
+                                  {provider.serviceContract || '-'}
+                                </td>
+                                <td className="py-3 px-4 text-gray-900">
+                                  {provider.contact || '-'}
+                                </td>
+                                <td className="py-3 px-4">
+                                  <span className="font-semibold text-red-600">
+                                    Ksh {provider.chargeAmount.toLocaleString()}
+                                  </span>
+                                </td>
+                                <td className="py-3 px-4">
+                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">
+                                    {provider.chargeFrequency}
+                                  </span>
+                                </td>
+                              </motion.tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            </div>
+          </PermissionGuard>
         )}
 
         {/* UPCOMING PAYMENTS TAB */}
         {activeTab === 'UpcomingPayments' && (
-          <div className="space-y-6">
-            <motion.div
-              variants={itemVariants}
-              className="bg-white rounded-2xl p-8 shadow-lg border border-gray-200"
-            >
-              {/* Header */}
-              <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-linear-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center shadow-md">
-                    <svg
-                      className="w-5 h-5 text-white"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
+          <PermissionGuard permissions={[PermissionCode.PREVIEW_PAYMENTS, PermissionCode.VIEW_TENANT_FINANCIALS]} fallback={
+            <div className="bg-white rounded-2xl p-8 shadow-lg border border-gray-200 text-center">
+              <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-10 h-10 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 mb-2">Access Denied</h3>
+              <p className="text-gray-600">You don't have permission to view upcoming payments.</p>
+            </div>
+          }>
+            <div className="space-y-6">
+              <motion.div
+                variants={itemVariants}
+                className="bg-white rounded-2xl p-8 shadow-lg border border-gray-200"
+              >
+                {/* Header */}
+                <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-linear-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center shadow-md">
+                      <svg
+                        className="w-5 h-5 text-white"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+                        />
+                      </svg>
+                    </div>
+                    <div>
+                      <h2 className="text-2xl font-bold text-heading-color">Upcoming Payments</h2>
+                      <p className="text-sm text-gray-600 mt-1">
+                        Track all upcoming tenant payment schedules and deadlines
+                      </p>
+                    </div>
+                  </div>
+                  
+                  {/* Export Button */}
+                  {filteredPayments.length > 0 && (
+                    <Button
+                      onClick={handleExportUpcomingPayments}
+                      disabled={exportingUpcomingPayments}
+                      className="px-6 py-2.5 bg-blue-600 text-white hover:bg-blue-700 transition-all duration-300 shadow-md rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
-                      />
-                    </svg>
-                  </div>
-                  <div>
-                    <h2 className="text-2xl font-bold text-heading-color">Upcoming Payments</h2>
-                    <p className="text-sm text-gray-600 mt-1">
-                      Track all upcoming tenant payment schedules and deadlines
-                    </p>
-                  </div>
+                      <span className="flex items-center gap-2">
+                        {exportingUpcomingPayments ? (
+                          <>
+                            <motion.svg
+                              animate={{ rotate: 360 }}
+                              transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                              className="w-5 h-5"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                              />
+                            </motion.svg>
+                            Exporting...
+                          </>
+                        ) : (
+                          <>
+                            <svg
+                              className="w-5 h-5"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                              />
+                            </svg>
+                            Export to Excel
+                          </>
+                        )}
+                      </span>
+                    </Button>
+                  )}
                 </div>
-                
-                {/* Export Button */}
-                {filteredPayments.length > 0 && (
+
+                {/* Date Range Filter */}
+                <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-900 mb-1">Date From</label>
+                      <input
+                        type="date"
+                        value={upcomingDateFrom}
+                        onChange={(e) => setUpcomingDateFrom(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-900 mb-1">Date To</label>
+                      <input
+                        type="date"
+                        value={upcomingDateTo}
+                        onChange={(e) => setUpcomingDateTo(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
+                      />
+                    </div>
+                    <div className="flex items-end gap-2">
+                      <Button
+                        onClick={() => {
+                          // Trigger filter by updating state (already handled by useEffect)
+                        }}
+                        className="bg-blue-600 text-white hover:bg-blue-700"
+                      >
+                        Apply Filter
+                      </Button>
+                      <Button
+                        onClick={clearUpcomingFilters}
+                        variant="secondary"
+                        className="bg-gray-200 text-gray-700 hover:bg-gray-300"
+                      >
+                        Clear
+                      </Button>
+                    </div>
+                    <div className="flex items-end justify-end">
+                      <div className="text-sm text-gray-600">
+                        Showing: <span className="font-semibold text-gray-900">{filteredPayments.length}</span> of{' '}
+                        <span className="font-semibold text-gray-900">
+                          {nextPaymentsData?.payments.filter(p => !p.payment.isOverdue).length || 0}
+                        </span> payments
+                      </div>
+                    </div>
+                  </div>
+                  {/* Show filter indicators if active */}
+                  {(upcomingDateFrom || upcomingDateTo) && (
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-medium text-gray-700">Active filters:</span>
+                      {upcomingDateFrom && (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                          From: {new Date(upcomingDateFrom).toLocaleDateString()}
+                        </span>
+                      )}
+                      {upcomingDateTo && (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                          To: {new Date(upcomingDateTo).toLocaleDateString()}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {nextPaymentsLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center">
+                      <div className="relative w-12 h-12 mx-auto mb-4">
+                        <motion.div
+                          className="absolute inset-0 border-4 border-blue-200 rounded-full"
+                          animate={{ scale: [1, 1.2, 1] }}
+                          transition={{ duration: 1.5, repeat: Infinity }}
+                        />
+                        <motion.div
+                          className="absolute inset-0 border-4 border-t-blue-500 border-r-transparent border-b-transparent border-l-transparent rounded-full"
+                          animate={{ rotate: 360 }}
+                          transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                        />
+                      </div>
+                      <p className="text-gray-600 font-medium">Loading payment schedules...</p>
+                    </motion.div>
+                  </div>
+                ) : nextPaymentsData ? (
+                  <>
+                    {/* Summary Cards - Update to show filtered totals */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+                      <motion.div
+                        whileHover={{ y: -2, scale: 1.02 }}
+                        className="bg-linear-to-br from-blue-50 to-blue-100 rounded-xl p-5 border border-blue-200 shadow-sm"
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="text-sm font-medium text-blue-700">Total Tenants</div>
+                          <div className="w-8 h-8 bg-blue-200 rounded-lg flex items-center justify-center">
+                            <svg className="w-4 h-4 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                            </svg>
+                          </div>
+                        </div>
+                        <div className="text-2xl font-bold text-blue-900">{nextPaymentsData.summary.total}</div>
+                        <div className="text-xs text-blue-600 mt-1">
+                          <span className="text-green-600">{nextPaymentsData.summary.upcoming} upcoming payments</span>
+                        </div>
+                      </motion.div>
+
+                      <motion.div
+                        whileHover={{ y: -2, scale: 1.02 }}
+                        className="bg-linear-to-br from-green-50 to-green-100 rounded-xl p-5 border border-green-200 shadow-sm"
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="text-sm font-medium text-green-700">Upcoming Amount</div>
+                          <div className="w-8 h-8 bg-green-200 rounded-lg flex items-center justify-center">
+                            <svg className="w-4 h-4 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                          </div>
+                        </div>
+                        <div className="text-2xl font-bold text-green-900">
+                          Ksh {nextPaymentsData.summary.amounts.upcoming.toLocaleString()}
+                        </div>
+                        <div className="text-xs text-green-600 mt-1">Expected in upcoming periods</div>
+                      </motion.div>
+
+                      <motion.div
+                        whileHover={{ y: -2, scale: 1.02 }}
+                        className="bg-linear-to-br from-purple-50 to-purple-100 rounded-xl p-5 border border-purple-200 shadow-sm"
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="text-sm font-medium text-purple-700">Payment Policies</div>
+                          <div className="w-8 h-8 bg-purple-200 rounded-lg flex items-center justify-center">
+                            <svg className="w-4 h-4 text-purple-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                            </svg>
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <div className="flex justify-between text-sm">
+                            <span className="text-purple-800">Monthly:</span>
+                            <span className="font-semibold text-purple-900">{nextPaymentsData.summary.byPolicy.MONTHLY}</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-purple-800">Quarterly:</span>
+                            <span className="font-semibold text-purple-900">{nextPaymentsData.summary.byPolicy.QUARTERLY}</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-purple-800">Annual:</span>
+                            <span className="font-semibold text-purple-900">{nextPaymentsData.summary.byPolicy.ANNUAL}</span>
+                          </div>
+                        </div>
+                      </motion.div>
+                    </div>
+
+                    {/* Upcoming Payments Grid - Using filtered payments */}
+                    {filteredPayments.length > 0 ? (
+                      <div>
+                        <div className="flex items-center gap-2 mb-4">
+                          <div className="w-1 h-6 bg-green-500 rounded-full"></div>
+                          <h3 className="text-lg font-bold text-gray-900">Scheduled Payments</h3>
+                          <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-semibold">
+                            {filteredPayments.length} upcoming
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                          {filteredPayments.map((payment, index) => (
+                            <motion.div
+                              key={payment.id}
+                              initial={{ opacity: 0, y: 20 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ delay: index * 0.05 }}
+                              className="group relative bg-white border-2 border-green-100 rounded-xl overflow-hidden hover:shadow-lg transition-all duration-300 hover:border-green-300"
+                            >
+                              {/* Progress bar for days remaining */}
+                              <div className="absolute top-0 left-0 h-1 bg-linear-to-r from-green-400 to-green-500 transition-all duration-500"
+                                style={{ width: `${Math.min(100, Math.max(0, 100 - (payment.payment.daysUntilDue / 30) * 100))}%` }}
+                              />
+                              
+                              <div className="p-5">
+                                <div className="flex items-start justify-between mb-3">
+                                  <div className="flex items-center gap-3">
+                                    <div className="w-12 h-12 bg-linear-to-br from-green-100 to-green-200 rounded-full flex items-center justify-center">
+                                      <span className="text-lg font-bold text-green-700">
+                                        {payment.name.charAt(0).toUpperCase()}
+                                      </span>
+                                    </div>
+                                    <div>
+                                      <h4 className="font-bold text-gray-900 text-lg">{payment.name}</h4>
+                                      <div className="flex items-center gap-2 text-sm text-gray-600">
+                                        <span className="flex items-center gap-1">
+                                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                                          </svg>
+                                          {payment.unit.number}
+                                        </span>
+                                        <span>•</span>
+                                        <span className="capitalize">{payment.payment.policy}</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div className="text-right">
+                                    <div className="text-xs text-gray-500 mb-1">Due Date</div>
+                                    <div className="font-semibold text-gray-900">{payment.payment.dueDate}</div>
+                                  </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-3 mb-3">
+                                  <div className="bg-gray-50 rounded-lg p-2">
+                                    <div className="text-xs text-gray-500">Days Until Due</div>
+                                    <div className={`text-lg font-bold ${
+                                      payment.payment.daysUntilDue <= 3 ? 'text-red-600' :
+                                      payment.payment.daysUntilDue <= 7 ? 'text-orange-600' :
+                                      'text-green-600'
+                                    }`}>
+                                      {payment.payment.daysUntilDue} days
+                                    </div>
+                                  </div>
+                                  <div className="bg-gray-50 rounded-lg p-2">
+                                    <div className="text-xs text-gray-500">Total Amount</div>
+                                    <div className="text-lg font-bold text-blue-600">
+                                      Ksh {payment.payment.amount.total.toLocaleString()}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* More Info Button */}
+                                <button
+                                  onClick={() => setExpandedPaymentTenant(
+                                    expandedPaymentTenant === payment.id ? null : payment.id
+                                  )}
+                                  className="w-full mt-2 flex items-center justify-center gap-2 text-sm text-blue-600 hover:text-blue-700 font-medium transition-colors"
+                                >
+                                  <span>{expandedPaymentTenant === payment.id ? 'Show Less' : 'View Details'}</span>
+                                  <motion.svg
+                                    animate={{ rotate: expandedPaymentTenant === payment.id ? 180 : 0 }}
+                                    className="w-4 h-4"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                  </motion.svg>
+                                </button>
+
+                                {/* Expandable Details */}
+                                <AnimatePresence>
+                                  {expandedPaymentTenant === payment.id && (
+                                    <motion.div
+                                      initial={{ height: 0, opacity: 0 }}
+                                      animate={{ height: 'auto', opacity: 1 }}
+                                      exit={{ height: 0, opacity: 0 }}
+                                      transition={{ duration: 0.3 }}
+                                      className="overflow-hidden mt-3"
+                                    >
+                                      <div className="border-t border-gray-200 pt-3 space-y-3">
+                                        <div className="grid grid-cols-2 gap-3">
+                                          <div>
+                                            <div className="text-xs text-gray-500 font-semibold mb-2">Payment Breakdown</div>
+                                            <div className="text-sm space-y-1">
+                                              <div className="flex justify-between">
+                                                <span className="text-gray-600">Rent:</span>
+                                                <span className="font-medium">Ksh {payment.payment.amount.rent.toLocaleString()}</span>
+                                              </div>
+                                              {payment.payment.amount.serviceCharge > 0 && (
+                                                <div className="flex justify-between">
+                                                  <span className="text-gray-600">Service Charge:</span>
+                                                  <span className="font-medium">Ksh {payment.payment.amount.serviceCharge.toLocaleString()}</span>
+                                                </div>
+                                              )}
+                                              {payment.payment.amount.vat > 0 && (
+                                                <div className="flex justify-between">
+                                                  <span className="text-gray-600">VAT:</span>
+                                                  <span className="font-medium">Ksh {payment.payment.amount.vat.toLocaleString()}</span>
+                                                </div>
+                                              )}
+                                            </div>
+                                          </div>
+                                          <div>
+                                            <div className="text-xs text-gray-500 font-semibold mb-2">Contact Information</div>
+                                            <div className="text-sm space-y-1">
+                                              <div className="flex items-center gap-1">
+                                                <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                                </svg>
+                                                <span className="text-gray-700 truncate">{payment.contact.email}</span>
+                                              </div>
+                                              <div className="flex items-center gap-1">
+                                                <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                                                </svg>
+                                                <span className="text-gray-700">{payment.contact.phone}</span>
+                                              </div>
+                                              <div className="flex items-center gap-1">
+                                                <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-4 0h4" />
+                                                </svg>
+                                                <span className="text-gray-700 text-xs">KRA: {payment.contact.kra}</span>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </div>
+                                        
+                                        {payment.rent.escalation && (
+                                          <div className="bg-yellow-50 rounded-lg p-2">
+                                            <div className="text-xs text-yellow-700 font-medium">Rent Escalation Schedule</div>
+                                            <div className="text-sm text-yellow-800">
+                                              {payment.rent.escalation.rate}% increase {payment.rent.escalation.frequency.toLowerCase()} • 
+                                              Next adjustment: {new Date(payment.rent.escalation.nextDate).toLocaleDateString()}
+                                            </div>
+                                          </div>
+                                        )}
+                                        
+                                        {payment.history && payment.history.paymentsMade > 0 && (
+                                          <div className="bg-gray-50 rounded-lg p-2">
+                                            <div className="text-xs text-gray-600 font-medium">Payment History</div>
+                                            <div className="text-sm text-gray-700">
+                                              Last payment on {payment.history.lastPayment} • 
+                                              {payment.history.paymentsMade} payment{payment.history.paymentsMade !== 1 ? 's' : ''} recorded
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        {/* Unit Details */}
+                                        <div className="bg-blue-50 rounded-lg p-2">
+                                          <div className="text-xs text-blue-700 font-medium">Unit Details</div>
+                                          <div className="text-sm text-blue-800">
+                                            {payment.unit.type} • {payment.unit.size} sq ft • Floor {payment.unit.floor}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </motion.div>
+                                  )}
+                                </AnimatePresence>
+                              </div>
+                            </motion.div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      /* No Upcoming Payments State - with filter context */
+                      <div className="text-center py-12">
+                        <div className="w-20 h-20 mx-auto mb-4 bg-linear-to-br from-green-100 to-blue-100 rounded-full flex items-center justify-center">
+                          <svg
+                            className="w-10 h-10 text-green-600"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                            />
+                          </svg>
+                        </div>
+                        <p className="text-gray-900 font-medium text-lg">
+                          {upcomingDateFrom || upcomingDateTo ? 'No payments in selected date range' : 'No Upcoming Payments'}
+                        </p>
+                        <p className="text-gray-600 mt-2">
+                          {upcomingDateFrom || upcomingDateTo 
+                            ? 'Try adjusting your date range filters to see more results.'
+                            : 'All tenants have no pending upcoming payments at this time.'}
+                        </p>
+                        {(upcomingDateFrom || upcomingDateTo) && (
+                          <Button onClick={clearUpcomingFilters} className="mt-4">
+                            Clear Filters
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="text-center py-12">
+                    <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+                      <svg
+                        className="w-8 h-8 text-gray-400"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                        />
+                      </svg>
+                    </div>
+                    <p className="text-gray-900 font-medium">Failed to load payment schedules</p>
+                    <Button onClick={fetchNextPaymentsData} className="mt-4">
+                      Retry
+                    </Button>
+                  </div>
+                )}
+              </motion.div>
+            </div>
+          </PermissionGuard>
+        )}
+
+        {/* RENT REPORT TAB */}
+        {activeTab === 'rentReport' && (
+          <PermissionGuard permission={PermissionCode.VIEW_PAYMENT_REPORTS} fallback={
+            <div className="bg-white rounded-2xl p-8 shadow-lg border border-gray-200 text-center">
+              <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-10 h-10 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 mb-2">Access Denied</h3>
+              <p className="text-gray-600">You don't have permission to view rent reports.</p>
+            </div>
+          }>
+            <div className="space-y-6">
+              <motion.div
+                variants={itemVariants}
+                className="bg-white rounded-2xl p-8 shadow-lg border border-gray-200"
+              >
+                <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+                      <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h2 className="text-2xl font-bold text-gray-900">Rent Payment Report</h2>
+                      <p className="text-sm text-gray-700 mt-1">
+                        Comprehensive rent collection analysis for this property
+                      </p>
+                    </div>
+                  </div>
                   <Button
-                    onClick={handleExportUpcomingPayments}
-                    disabled={exportingUpcomingPayments}
-                    className="px-6 py-2.5 bg-blue-600 text-white hover:bg-blue-700 transition-all duration-300 shadow-md rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={handleExportRentReport}
+                    disabled={exportingRentReport || !rentReportData}
+                    className="px-6 py-2.5 bg-green-600 text-white hover:bg-green-700 transition-all duration-300 shadow-md rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <span className="flex items-center gap-2">
-                      {exportingUpcomingPayments ? (
+                      {exportingRentReport ? (
                         <>
                           <motion.svg
                             animate={{ rotate: 360 }}
@@ -2674,920 +3304,467 @@ const clearUpcomingFilters = () => {
                             stroke="currentColor"
                             viewBox="0 0 24 24"
                           >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                            />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                           </motion.svg>
                           Exporting...
                         </>
                       ) : (
                         <>
-                          <svg
-                            className="w-5 h-5"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                            />
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                           </svg>
                           Export to Excel
                         </>
                       )}
                     </span>
                   </Button>
-                )}
-              </div>
-
-              {/* Date Range Filter */}
-              <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-900 mb-1">Date From</label>
-                    <input
-                      type="date"
-                      value={upcomingDateFrom}
-                      onChange={(e) => setUpcomingDateFrom(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-900 mb-1">Date To</label>
-                    <input
-                      type="date"
-                      value={upcomingDateTo}
-                      onChange={(e) => setUpcomingDateTo(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
-                    />
-                  </div>
-                  <div className="flex items-end gap-2">
-                    <Button
-                      onClick={() => {
-                        // Trigger filter by updating state (already handled by useEffect)
-                      }}
-                      className="bg-blue-600 text-white hover:bg-blue-700"
-                    >
-                      Apply Filter
-                    </Button>
-                    <Button
-                      onClick={clearUpcomingFilters}
-                      variant="secondary"
-                      className="bg-gray-200 text-gray-700 hover:bg-gray-300"
-                    >
-                      Clear
-                    </Button>
-                  </div>
-                  <div className="flex items-end justify-end">
-                    <div className="text-sm text-gray-600">
-                      Showing: <span className="font-semibold text-gray-900">{filteredPayments.length}</span> of{' '}
-                      <span className="font-semibold text-gray-900">
-                        {nextPaymentsData?.payments.filter(p => !p.payment.isOverdue).length || 0}
-                      </span> payments
-                    </div>
-                  </div>
                 </div>
-                {/* Show filter indicators if active */}
-                {(upcomingDateFrom || upcomingDateTo) && (
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <span className="text-xs font-medium text-gray-700">Active filters:</span>
-                    {upcomingDateFrom && (
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                        From: {new Date(upcomingDateFrom).toLocaleDateString()}
-                      </span>
-                    )}
-                    {upcomingDateTo && (
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                        To: {new Date(upcomingDateTo).toLocaleDateString()}
-                      </span>
-                    )}
-                  </div>
-                )}
-              </div>
 
-              {nextPaymentsLoading ? (
-                <div className="flex items-center justify-center py-12">
-                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center">
-                    <div className="relative w-12 h-12 mx-auto mb-4">
-                      <motion.div
-                        className="absolute inset-0 border-4 border-blue-200 rounded-full"
-                        animate={{ scale: [1, 1.2, 1] }}
-                        transition={{ duration: 1.5, repeat: Infinity }}
-                      />
-                      <motion.div
-                        className="absolute inset-0 border-4 border-t-blue-500 border-r-transparent border-b-transparent border-l-transparent rounded-full"
-                        animate={{ rotate: 360 }}
-                        transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                      />
-                    </div>
-                    <p className="text-gray-600 font-medium">Loading payment schedules...</p>
-                  </motion.div>
-                </div>
-              ) : nextPaymentsData ? (
-                <>
-                  {/* Summary Cards - Update to show filtered totals */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
-                    <motion.div
-                      whileHover={{ y: -2, scale: 1.02 }}
-                      className="bg-linear-to-br from-blue-50 to-blue-100 rounded-xl p-5 border border-blue-200 shadow-sm"
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="text-sm font-medium text-blue-700">Total Tenants</div>
-                        <div className="w-8 h-8 bg-blue-200 rounded-lg flex items-center justify-center">
-                          <svg className="w-4 h-4 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                          </svg>
-                        </div>
-                      </div>
-                      <div className="text-2xl font-bold text-blue-900">{nextPaymentsData.summary.total}</div>
-                      <div className="text-xs text-blue-600 mt-1">
-                        <span className="text-green-600">{nextPaymentsData.summary.upcoming} upcoming payments</span>
-                      </div>
-                    </motion.div>
-
-                    <motion.div
-                      whileHover={{ y: -2, scale: 1.02 }}
-                      className="bg-linear-to-br from-green-50 to-green-100 rounded-xl p-5 border border-green-200 shadow-sm"
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="text-sm font-medium text-green-700">Upcoming Amount</div>
-                        <div className="w-8 h-8 bg-green-200 rounded-lg flex items-center justify-center">
-                          <svg className="w-4 h-4 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                        </div>
-                      </div>
-                      <div className="text-2xl font-bold text-green-900">
-                        Ksh {nextPaymentsData.summary.amounts.upcoming.toLocaleString()}
-                      </div>
-                      <div className="text-xs text-green-600 mt-1">Expected in upcoming periods</div>
-                    </motion.div>
-
-                    <motion.div
-                      whileHover={{ y: -2, scale: 1.02 }}
-                      className="bg-linear-to-br from-purple-50 to-purple-100 rounded-xl p-5 border border-purple-200 shadow-sm"
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="text-sm font-medium text-purple-700">Payment Policies</div>
-                        <div className="w-8 h-8 bg-purple-200 rounded-lg flex items-center justify-center">
-                          <svg className="w-4 h-4 text-purple-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                          </svg>
-                        </div>
-                      </div>
-                      <div className="space-y-1">
-                        <div className="flex justify-between text-sm">
-                          <span className="text-purple-800">Monthly:</span>
-                          <span className="font-semibold text-purple-900">{nextPaymentsData.summary.byPolicy.MONTHLY}</span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                          <span className="text-purple-800">Quarterly:</span>
-                          <span className="font-semibold text-purple-900">{nextPaymentsData.summary.byPolicy.QUARTERLY}</span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                          <span className="text-purple-800">Annual:</span>
-                          <span className="font-semibold text-purple-900">{nextPaymentsData.summary.byPolicy.ANNUAL}</span>
-                        </div>
-                      </div>
-                    </motion.div>
-                  </div>
-
-                  {/* Upcoming Payments Grid - Using filtered payments */}
-                  {filteredPayments.length > 0 ? (
+                {/* Filters */}
+                <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <div>
-                      <div className="flex items-center gap-2 mb-4">
-                        <div className="w-1 h-6 bg-green-500 rounded-full"></div>
-                        <h3 className="text-lg font-bold text-gray-900">Scheduled Payments</h3>
-                        <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-semibold">
-                          {filteredPayments.length} upcoming
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                        {filteredPayments.map((payment, index) => (
-                          <motion.div
-                            key={payment.id}
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ delay: index * 0.05 }}
-                            className="group relative bg-white border-2 border-green-100 rounded-xl overflow-hidden hover:shadow-lg transition-all duration-300 hover:border-green-300"
-                          >
-                            {/* Progress bar for days remaining */}
-                            <div className="absolute top-0 left-0 h-1 bg-linear-to-r from-green-400 to-green-500 transition-all duration-500"
-                              style={{ width: `${Math.min(100, Math.max(0, 100 - (payment.payment.daysUntilDue / 30) * 100))}%` }}
-                            />
-                            
-                            <div className="p-5">
-                              <div className="flex items-start justify-between mb-3">
-                                <div className="flex items-center gap-3">
-                                  <div className="w-12 h-12 bg-linear-to-br from-green-100 to-green-200 rounded-full flex items-center justify-center">
-                                    <span className="text-lg font-bold text-green-700">
-                                      {payment.name.charAt(0).toUpperCase()}
-                                    </span>
-                                  </div>
-                                  <div>
-                                    <h4 className="font-bold text-gray-900 text-lg">{payment.name}</h4>
-                                    <div className="flex items-center gap-2 text-sm text-gray-600">
-                                      <span className="flex items-center gap-1">
-                                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                                        </svg>
-                                        {payment.unit.number}
-                                      </span>
-                                      <span>•</span>
-                                      <span className="capitalize">{payment.payment.policy}</span>
-                                    </div>
-                                  </div>
-                                </div>
-                                <div className="text-right">
-                                  <div className="text-xs text-gray-500 mb-1">Due Date</div>
-                                  <div className="font-semibold text-gray-900">{payment.payment.dueDate}</div>
-                                </div>
-                              </div>
-
-                              <div className="grid grid-cols-2 gap-3 mb-3">
-                                <div className="bg-gray-50 rounded-lg p-2">
-                                  <div className="text-xs text-gray-500">Days Until Due</div>
-                                  <div className={`text-lg font-bold ${
-                                    payment.payment.daysUntilDue <= 3 ? 'text-red-600' :
-                                    payment.payment.daysUntilDue <= 7 ? 'text-orange-600' :
-                                    'text-green-600'
-                                  }`}>
-                                    {payment.payment.daysUntilDue} days
-                                  </div>
-                                </div>
-                                <div className="bg-gray-50 rounded-lg p-2">
-                                  <div className="text-xs text-gray-500">Total Amount</div>
-                                  <div className="text-lg font-bold text-blue-600">
-                                    Ksh {payment.payment.amount.total.toLocaleString()}
-                                  </div>
-                                </div>
-                              </div>
-
-                              {/* More Info Button */}
-                              <button
-                                onClick={() => setExpandedPaymentTenant(
-                                  expandedPaymentTenant === payment.id ? null : payment.id
-                                )}
-                                className="w-full mt-2 flex items-center justify-center gap-2 text-sm text-blue-600 hover:text-blue-700 font-medium transition-colors"
-                              >
-                                <span>{expandedPaymentTenant === payment.id ? 'Show Less' : 'View Details'}</span>
-                                <motion.svg
-                                  animate={{ rotate: expandedPaymentTenant === payment.id ? 180 : 0 }}
-                                  className="w-4 h-4"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  viewBox="0 0 24 24"
-                                >
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                </motion.svg>
-                              </button>
-
-                              {/* Expandable Details */}
-                              <AnimatePresence>
-                                {expandedPaymentTenant === payment.id && (
-                                  <motion.div
-                                    initial={{ height: 0, opacity: 0 }}
-                                    animate={{ height: 'auto', opacity: 1 }}
-                                    exit={{ height: 0, opacity: 0 }}
-                                    transition={{ duration: 0.3 }}
-                                    className="overflow-hidden mt-3"
-                                  >
-                                    <div className="border-t border-gray-200 pt-3 space-y-3">
-                                      <div className="grid grid-cols-2 gap-3">
-                                        <div>
-                                          <div className="text-xs text-gray-500 font-semibold mb-2">Payment Breakdown</div>
-                                          <div className="text-sm space-y-1">
-                                            <div className="flex justify-between">
-                                              <span className="text-gray-600">Rent:</span>
-                                              <span className="font-medium">Ksh {payment.payment.amount.rent.toLocaleString()}</span>
-                                            </div>
-                                            {payment.payment.amount.serviceCharge > 0 && (
-                                              <div className="flex justify-between">
-                                                <span className="text-gray-600">Service Charge:</span>
-                                                <span className="font-medium">Ksh {payment.payment.amount.serviceCharge.toLocaleString()}</span>
-                                              </div>
-                                            )}
-                                            {payment.payment.amount.vat > 0 && (
-                                              <div className="flex justify-between">
-                                                <span className="text-gray-600">VAT:</span>
-                                                <span className="font-medium">Ksh {payment.payment.amount.vat.toLocaleString()}</span>
-                                              </div>
-                                            )}
-                                          </div>
-                                        </div>
-                                        <div>
-                                          <div className="text-xs text-gray-500 font-semibold mb-2">Contact Information</div>
-                                          <div className="text-sm space-y-1">
-                                            <div className="flex items-center gap-1">
-                                              <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                                              </svg>
-                                              <span className="text-gray-700 truncate">{payment.contact.email}</span>
-                                            </div>
-                                            <div className="flex items-center gap-1">
-                                              <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                                              </svg>
-                                              <span className="text-gray-700">{payment.contact.phone}</span>
-                                            </div>
-                                            <div className="flex items-center gap-1">
-                                              <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-4 0h4" />
-                                              </svg>
-                                              <span className="text-gray-700 text-xs">KRA: {payment.contact.kra}</span>
-                                            </div>
-                                          </div>
-                                        </div>
-                                      </div>
-                                      
-                                      {payment.rent.escalation && (
-                                        <div className="bg-yellow-50 rounded-lg p-2">
-                                          <div className="text-xs text-yellow-700 font-medium">Rent Escalation Schedule</div>
-                                          <div className="text-sm text-yellow-800">
-                                            {payment.rent.escalation.rate}% increase {payment.rent.escalation.frequency.toLowerCase()} • 
-                                            Next adjustment: {new Date(payment.rent.escalation.nextDate).toLocaleDateString()}
-                                          </div>
-                                        </div>
-                                      )}
-                                      
-                                      {payment.history && payment.history.paymentsMade > 0 && (
-                                        <div className="bg-gray-50 rounded-lg p-2">
-                                          <div className="text-xs text-gray-600 font-medium">Payment History</div>
-                                          <div className="text-sm text-gray-700">
-                                            Last payment on {payment.history.lastPayment} • 
-                                            {payment.history.paymentsMade} payment{payment.history.paymentsMade !== 1 ? 's' : ''} recorded
-                                          </div>
-                                        </div>
-                                      )}
-
-                                      {/* Unit Details */}
-                                      <div className="bg-blue-50 rounded-lg p-2">
-                                        <div className="text-xs text-blue-700 font-medium">Unit Details</div>
-                                        <div className="text-sm text-blue-800">
-                                          {payment.unit.type} • {payment.unit.size} sq ft • Floor {payment.unit.floor}
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </motion.div>
-                                )}
-                              </AnimatePresence>
-                            </div>
-                          </motion.div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : (
-                    /* No Upcoming Payments State - with filter context */
-                    <div className="text-center py-12">
-                      <div className="w-20 h-20 mx-auto mb-4 bg-linear-to-br from-green-100 to-blue-100 rounded-full flex items-center justify-center">
-                        <svg
-                          className="w-10 h-10 text-green-600"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                          />
-                        </svg>
-                      </div>
-                      <p className="text-gray-900 font-medium text-lg">
-                        {upcomingDateFrom || upcomingDateTo ? 'No payments in selected date range' : 'No Upcoming Payments'}
-                      </p>
-                      <p className="text-gray-600 mt-2">
-                        {upcomingDateFrom || upcomingDateTo 
-                          ? 'Try adjusting your date range filters to see more results.'
-                          : 'All tenants have no pending upcoming payments at this time.'}
-                      </p>
-                      {(upcomingDateFrom || upcomingDateTo) && (
-                        <Button onClick={clearUpcomingFilters} className="mt-4">
-                          Clear Filters
-                        </Button>
-                      )}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="text-center py-12">
-                  <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
-                    <svg
-                      className="w-8 h-8 text-gray-400"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                      <label className="block text-sm font-medium text-gray-900 mb-1">Date From</label>
+                      <input
+                        type="date"
+                        value={rentReportFilters.dateFrom}
+                        onChange={(e) => setRentReportFilters({ ...rentReportFilters, dateFrom: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-gray-900 bg-white"
                       />
-                    </svg>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-900 mb-1">Date To</label>
+                      <input
+                        type="date"
+                        value={rentReportFilters.dateTo}
+                        onChange={(e) => setRentReportFilters({ ...rentReportFilters, dateTo: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-gray-900 bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-900 mb-1">Status</label>
+                      <select
+                        value={rentReportFilters.status}
+                        onChange={(e) => setRentReportFilters({ ...rentReportFilters, status: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-gray-900 bg-white"
+                      >
+                        <option value="">All</option>
+                        <option value="PAID">Paid</option>
+                        <option value="PARTIAL">Partial</option>
+                        <option value="UNPAID">Unpaid</option>
+                        <option value="PREPAID">Prepaid</option>
+                        <option value="CREDIT">Credit</option>
+                      </select>
+                    </div>
+                    <div className="flex items-end">
+                      <Button
+                        onClick={fetchRentReport}
+                        className="w-full bg-green-600 text-white hover:bg-green-700"
+                      >
+                        Apply Filters
+                      </Button>
+                    </div>
                   </div>
-                  <p className="text-gray-900 font-medium">Failed to load payment schedules</p>
-                  <Button onClick={fetchNextPaymentsData} className="mt-4">
-                    Retry
-                  </Button>
                 </div>
-              )}
-            </motion.div>
-          </div>
-        )}
 
-        {/* RENT REPORT TAB */}
-        {activeTab === 'rentReport' && (
-          <div className="space-y-6">
-            <motion.div
-              variants={itemVariants}
-              className="bg-white rounded-2xl p-8 shadow-lg border border-gray-200"
-            >
-              <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-                    <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  </div>
-                  <div>
-                    <h2 className="text-2xl font-bold text-gray-900">Rent Payment Report</h2>
-                    <p className="text-sm text-gray-700 mt-1">
-                      Comprehensive rent collection analysis for this property
-                    </p>
-                  </div>
-                </div>
-                <Button
-                  onClick={handleExportRentReport}
-                  disabled={exportingRentReport || !rentReportData}
-                  className="px-6 py-2.5 bg-green-600 text-white hover:bg-green-700 transition-all duration-300 shadow-md rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <span className="flex items-center gap-2">
-                    {exportingRentReport ? (
-                      <>
-                        <motion.svg
+                {rentReportLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <div className="text-center">
+                      <div className="relative w-12 h-12 mx-auto mb-4">
+                        <motion.div
+                          className="absolute inset-0 border-4 border-green-200 rounded-full"
+                          animate={{ scale: [1, 1.2, 1] }}
+                          transition={{ duration: 1.5, repeat: Infinity }}
+                        />
+                        <motion.div
+                          className="absolute inset-0 border-4 border-t-green-500 border-r-transparent border-b-transparent border-l-transparent rounded-full"
                           animate={{ rotate: 360 }}
                           transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                          className="w-5 h-5"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                        </motion.svg>
-                        Exporting...
-                      </>
-                    ) : (
-                      <>
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                        Export to Excel
-                      </>
-                    )}
-                  </span>
-                </Button>
-              </div>
-
-              {/* Filters */}
-              <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-900 mb-1">Date From</label>
-                    <input
-                      type="date"
-                      value={rentReportFilters.dateFrom}
-                      onChange={(e) => setRentReportFilters({ ...rentReportFilters, dateFrom: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-gray-900 bg-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-900 mb-1">Date To</label>
-                    <input
-                      type="date"
-                      value={rentReportFilters.dateTo}
-                      onChange={(e) => setRentReportFilters({ ...rentReportFilters, dateTo: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-gray-900 bg-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-900 mb-1">Status</label>
-                    <select
-                      value={rentReportFilters.status}
-                      onChange={(e) => setRentReportFilters({ ...rentReportFilters, status: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-gray-900 bg-white"
-                    >
-                      <option value="">All</option>
-                      <option value="PAID">Paid</option>
-                      <option value="PARTIAL">Partial</option>
-                      <option value="UNPAID">Unpaid</option>
-                      <option value="PREPAID">Prepaid</option>
-                      <option value="CREDIT">Credit</option>
-                    </select>
-                  </div>
-                  <div className="flex items-end">
-                    <Button
-                      onClick={fetchRentReport}
-                      className="w-full bg-green-600 text-white hover:bg-green-700"
-                    >
-                      Apply Filters
-                    </Button>
-                  </div>
-                </div>
-              </div>
-
-              {rentReportLoading ? (
-                <div className="flex items-center justify-center py-12">
-                  <div className="text-center">
-                    <div className="relative w-12 h-12 mx-auto mb-4">
-                      <motion.div
-                        className="absolute inset-0 border-4 border-green-200 rounded-full"
-                        animate={{ scale: [1, 1.2, 1] }}
-                        transition={{ duration: 1.5, repeat: Infinity }}
-                      />
-                      <motion.div
-                        className="absolute inset-0 border-4 border-t-green-500 border-r-transparent border-b-transparent border-l-transparent rounded-full"
-                        animate={{ rotate: 360 }}
-                        transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                      />
-                    </div>
-                    <p className="text-gray-900">Loading rent report...</p>
-                  </div>
-                </div>
-              ) : rentReportData ? (
-                <>
-                  {/* Summary Cards */}
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-                    <div className="bg-linear-to-br from-green-50 to-green-100 rounded-xl p-5 border border-green-200">
-                      <div className="text-sm font-medium text-green-700 mb-1">Collection Rate</div>
-                      <div className="text-2xl font-bold text-gray-900">{rentReportData.summary.collectionRate}%</div>
-                      <div className="text-xs text-gray-700 mt-1">{rentReportData.summary.collectionRateStatus}</div>
-                    </div>
-                    <div className="bg-linear-to-br from-blue-50 to-blue-100 rounded-xl p-5 border border-blue-200">
-                      <div className="text-sm font-medium text-blue-700 mb-1">Total Collected</div>
-                      <div className="text-2xl font-bold text-gray-900">Ksh {rentReportData.summary.totalRentCollected.toLocaleString()}</div>
-                    </div>
-                    <div className="bg-linear-to-br from-red-50 to-red-100 rounded-xl p-5 border border-red-200">
-                      <div className="text-sm font-medium text-red-700 mb-1">Total Arrears</div>
-                      <div className="text-2xl font-bold text-gray-900">Ksh {rentReportData.summary.totalArrears.toLocaleString()}</div>
-                    </div>
-                    <div className="bg-linear-to-br from-purple-50 to-purple-100 rounded-xl p-5 border border-purple-200">
-                      <div className="text-sm font-medium text-purple-700 mb-1">Total Tenants</div>
-                      <div className="text-2xl font-bold text-gray-900">{rentReportData.summary.totalTenants}</div>
-                    </div>
-                  </div>
-
-                  {/* Payment Breakdown */}
-                  <div className="mb-6">
-                    <h3 className="text-lg font-bold text-gray-900 mb-3">Payment Breakdown</h3>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                      <div className="bg-green-50 rounded-lg p-3 text-center">
-                        <div className="text-2xl font-bold text-green-700">{rentReportData.summary.paymentBreakdown.fullyPaid}</div>
-                        <div className="text-xs text-gray-700">Fully Paid</div>
+                        />
                       </div>
-                      <div className="bg-yellow-50 rounded-lg p-3 text-center">
-                        <div className="text-2xl font-bold text-yellow-700">{rentReportData.summary.paymentBreakdown.partiallyPaid}</div>
-                        <div className="text-xs text-gray-700">Partially Paid</div>
+                      <p className="text-gray-900">Loading rent report...</p>
+                    </div>
+                  </div>
+                ) : rentReportData ? (
+                  <>
+                    {/* Summary Cards */}
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                      <div className="bg-linear-to-br from-green-50 to-green-100 rounded-xl p-5 border border-green-200">
+                        <div className="text-sm font-medium text-green-700 mb-1">Collection Rate</div>
+                        <div className="text-2xl font-bold text-gray-900">{rentReportData.summary.collectionRate}%</div>
+                        <div className="text-xs text-gray-700 mt-1">{rentReportData.summary.collectionRateStatus}</div>
                       </div>
-                      <div className="bg-red-50 rounded-lg p-3 text-center">
-                        <div className="text-2xl font-bold text-red-700">{rentReportData.summary.paymentBreakdown.unpaid}</div>
-                        <div className="text-xs text-gray-700">Unpaid</div>
+                      <div className="bg-linear-to-br from-blue-50 to-blue-100 rounded-xl p-5 border border-blue-200">
+                        <div className="text-sm font-medium text-blue-700 mb-1">Total Collected</div>
+                        <div className="text-2xl font-bold text-gray-900">Ksh {rentReportData.summary.totalRentCollected.toLocaleString()}</div>
                       </div>
-                      <div className="bg-orange-50 rounded-lg p-3 text-center">
-                        <div className="text-2xl font-bold text-orange-700">{rentReportData.summary.paymentBreakdown.overdue}</div>
-                        <div className="text-xs text-gray-700">Overdue</div>
+                      <div className="bg-linear-to-br from-red-50 to-red-100 rounded-xl p-5 border border-red-200">
+                        <div className="text-sm font-medium text-red-700 mb-1">Total Arrears</div>
+                        <div className="text-2xl font-bold text-gray-900">Ksh {rentReportData.summary.totalArrears.toLocaleString()}</div>
+                      </div>
+                      <div className="bg-linear-to-br from-purple-50 to-purple-100 rounded-xl p-5 border border-purple-200">
+                        <div className="text-sm font-medium text-purple-700 mb-1">Total Tenants</div>
+                        <div className="text-2xl font-bold text-gray-900">{rentReportData.summary.totalTenants}</div>
                       </div>
                     </div>
-                  </div>
 
-                  {/* Monthly Trends Table */}
-                  {rentReportData.monthlyTrends && rentReportData.monthlyTrends.length > 0 && (
+                    {/* Payment Breakdown */}
                     <div className="mb-6">
-                      <h3 className="text-lg font-bold text-gray-900 mb-3">Monthly Trends</h3>
-                      <div className="overflow-x-auto">
-                        <table className="w-full">
-                          <thead>
-                            <tr className="border-b-2 border-gray-200">
-                              <th className="text-left py-3 px-4 font-semibold text-gray-900">Month</th>
-                              <th className="text-right py-3 px-4 font-semibold text-gray-900">Expected</th>
-                              <th className="text-right py-3 px-4 font-semibold text-gray-900">Collected</th>
-                              <th className="text-right py-3 px-4 font-semibold text-gray-900">Arrears</th>
-                              <th className="text-right py-3 px-4 font-semibold text-gray-900">Collection Rate</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {rentReportData.monthlyTrends.map((trend: any, idx: number) => {
-                              const rate = trend.expected > 0 ? ((trend.collected / trend.expected) * 100).toFixed(1) : '0';
-                              return (
-                                <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50">
-                                  <td className="py-3 px-4 font-medium text-gray-900">{trend.month}</td>
-                                  <td className="py-3 px-4 text-right text-gray-900">Ksh {trend.expected.toLocaleString()}</td>
-                                  <td className="py-3 px-4 text-right text-gray-900">Ksh {trend.collected.toLocaleString()}</td>
-                                  <td className="py-3 px-4 text-right text-red-600 font-semibold">Ksh {trend.arrears.toLocaleString()}</td>
-                                  <td className="py-3 px-4 text-right font-semibold text-gray-900">{rate}%</td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
+                      <h3 className="text-lg font-bold text-gray-900 mb-3">Payment Breakdown</h3>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div className="bg-green-50 rounded-lg p-3 text-center">
+                          <div className="text-2xl font-bold text-green-700">{rentReportData.summary.paymentBreakdown.fullyPaid}</div>
+                          <div className="text-xs text-gray-700">Fully Paid</div>
+                        </div>
+                        <div className="bg-yellow-50 rounded-lg p-3 text-center">
+                          <div className="text-2xl font-bold text-yellow-700">{rentReportData.summary.paymentBreakdown.partiallyPaid}</div>
+                          <div className="text-xs text-gray-700">Partially Paid</div>
+                        </div>
+                        <div className="bg-red-50 rounded-lg p-3 text-center">
+                          <div className="text-2xl font-bold text-red-700">{rentReportData.summary.paymentBreakdown.unpaid}</div>
+                          <div className="text-xs text-gray-700">Unpaid</div>
+                        </div>
+                        <div className="bg-orange-50 rounded-lg p-3 text-center">
+                          <div className="text-2xl font-bold text-orange-700">{rentReportData.summary.paymentBreakdown.overdue}</div>
+                          <div className="text-xs text-gray-700">Overdue</div>
+                        </div>
                       </div>
                     </div>
-                  )}
 
-                  {/* Tenant Outstanding Table */}
-                  {rentReportData.tenantOutstanding && rentReportData.tenantOutstanding.length > 0 && (
-                    <div>
-                      <h3 className="text-lg font-bold text-gray-900 mb-3">Tenants with Outstanding Balances</h3>
-                      <div className="overflow-x-auto">
-                        <table className="w-full">
-                          <thead>
-                            <tr className="border-b-2 border-gray-200">
-                              <th className="text-left py-3 px-4 font-semibold text-gray-900">Tenant</th>
-                              <th className="text-left py-3 px-4 font-semibold text-gray-900">Unit</th>
-                              <th className="text-right py-3 px-4 font-semibold text-gray-900">Expected</th>
-                              <th className="text-right py-3 px-4 font-semibold text-gray-900">Paid</th>
-                              <th className="text-right py-3 px-4 font-semibold text-gray-900">Outstanding</th>
-                              <th className="text-left py-3 px-4 font-semibold text-gray-900">Status</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {rentReportData.tenantOutstanding.map((tenant: any, idx: number) => (
-                              <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50">
-                                <td className="py-3 px-4 font-medium text-gray-900">{tenant.tenantName}</td>
-                                <td className="py-3 px-4 text-gray-900">{tenant.unitNo}</td>
-                                <td className="py-3 px-4 text-right text-gray-900">Ksh {tenant.expectedTotal.toLocaleString()}</td>
-                                <td className="py-3 px-4 text-right text-green-600 font-semibold">Ksh {tenant.paidTotal.toLocaleString()}</td>
-                                <td className="py-3 px-4 text-right text-red-600 font-semibold">Ksh {tenant.outstandingBalance.toLocaleString()}</td>
-                                <td className="py-3 px-4">
-                                  <span className={`inline-flex px-2 py-1 rounded-full text-xs font-semibold ${
-                                    tenant.paymentStatus === 'PAID' ? 'bg-green-100 text-green-700' :
-                                    tenant.paymentStatus === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' :
-                                    'bg-red-100 text-red-700'
-                                  }`}>
-                                    {tenant.paymentStatus}
-                                  </span>
-                                </td>
+                    {/* Monthly Trends Table */}
+                    {rentReportData.monthlyTrends && rentReportData.monthlyTrends.length > 0 && (
+                      <div className="mb-6">
+                        <h3 className="text-lg font-bold text-gray-900 mb-3">Monthly Trends</h3>
+                        <div className="overflow-x-auto">
+                          <table className="w-full">
+                            <thead>
+                              <tr className="border-b-2 border-gray-200">
+                                <th className="text-left py-3 px-4 font-semibold text-gray-900">Month</th>
+                                <th className="text-right py-3 px-4 font-semibold text-gray-900">Expected</th>
+                                <th className="text-right py-3 px-4 font-semibold text-gray-900">Collected</th>
+                                <th className="text-right py-3 px-4 font-semibold text-gray-900">Arrears</th>
+                                <th className="text-right py-3 px-4 font-semibold text-gray-900">Collection Rate</th>
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                            </thead>
+                            <tbody>
+                              {rentReportData.monthlyTrends.map((trend: any, idx: number) => {
+                                const rate = trend.expected > 0 ? ((trend.collected / trend.expected) * 100).toFixed(1) : '0';
+                                return (
+                                  <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50">
+                                    <td className="py-3 px-4 font-medium text-gray-900">{trend.month}</td>
+                                    <td className="py-3 px-4 text-right text-gray-900">Ksh {trend.expected.toLocaleString()}</td>
+                                    <td className="py-3 px-4 text-right text-gray-900">Ksh {trend.collected.toLocaleString()}</td>
+                                    <td className="py-3 px-4 text-right text-red-600 font-semibold">Ksh {trend.arrears.toLocaleString()}</td>
+                                    <td className="py-3 px-4 text-right font-semibold text-gray-900">{rate}%</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
+                    )}
+
+                    {/* Tenant Outstanding Table */}
+                    {rentReportData.tenantOutstanding && rentReportData.tenantOutstanding.length > 0 && (
+                      <div>
+                        <h3 className="text-lg font-bold text-gray-900 mb-3">Tenants with Outstanding Balances</h3>
+                        <div className="overflow-x-auto">
+                          <table className="w-full">
+                            <thead>
+                              <tr className="border-b-2 border-gray-200">
+                                <th className="text-left py-3 px-4 font-semibold text-gray-900">Tenant</th>
+                                <th className="text-left py-3 px-4 font-semibold text-gray-900">Unit</th>
+                                <th className="text-right py-3 px-4 font-semibold text-gray-900">Expected</th>
+                                <th className="text-right py-3 px-4 font-semibold text-gray-900">Paid</th>
+                                <th className="text-right py-3 px-4 font-semibold text-gray-900">Outstanding</th>
+                                <th className="text-left py-3 px-4 font-semibold text-gray-900">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {rentReportData.tenantOutstanding.map((tenant: any, idx: number) => (
+                                <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50">
+                                  <td className="py-3 px-4 font-medium text-gray-900">{tenant.tenantName}</td>
+                                  <td className="py-3 px-4 text-gray-900">{tenant.unitNo}</td>
+                                  <td className="py-3 px-4 text-right text-gray-900">Ksh {tenant.expectedTotal.toLocaleString()}</td>
+                                  <td className="py-3 px-4 text-right text-green-600 font-semibold">Ksh {tenant.paidTotal.toLocaleString()}</td>
+                                  <td className="py-3 px-4 text-right text-red-600 font-semibold">Ksh {tenant.outstandingBalance.toLocaleString()}</td>
+                                  <td className="py-3 px-4">
+                                    <span className={`inline-flex px-2 py-1 rounded-full text-xs font-semibold ${
+                                      tenant.paymentStatus === 'PAID' ? 'bg-green-100 text-green-700' :
+                                      tenant.paymentStatus === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' :
+                                      'bg-red-100 text-red-700'
+                                    }`}>
+                                      {tenant.paymentStatus}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="text-center py-12">
+                    <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+                      <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
                     </div>
-                  )}
-                </>
-              ) : (
-                <div className="text-center py-12">
-                  <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
-                    <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
+                    <p className="text-gray-900 font-medium">No rent report data available</p>
+                    <Button onClick={fetchRentReport} className="mt-4">Load Report</Button>
                   </div>
-                  <p className="text-gray-900 font-medium">No rent report data available</p>
-                  <Button onClick={fetchRentReport} className="mt-4">Load Report</Button>
-                </div>
-              )}
-            </motion.div>
-          </div>
+                )}
+              </motion.div>
+            </div>
+          </PermissionGuard>
         )}
 
         {/* BILLS REPORT TAB */}
         {activeTab === 'billsReport' && (
-          <div className="space-y-6">
-            <motion.div
-              variants={itemVariants}
-              className="bg-white rounded-2xl p-8 shadow-lg border border-gray-200"
-            >
-              <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                    <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                    </svg>
+          <PermissionGuard permission={PermissionCode.VIEW_BILL_INVOICES} fallback={
+            <div className="bg-white rounded-2xl p-8 shadow-lg border border-gray-200 text-center">
+              <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-10 h-10 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 mb-2">Access Denied</h3>
+              <p className="text-gray-600">You don't have permission to view bills reports.</p>
+            </div>
+          }>
+            <div className="space-y-6">
+              <motion.div
+                variants={itemVariants}
+                className="bg-white rounded-2xl p-8 shadow-lg border border-gray-200"
+              >
+                <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                      <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h2 className="text-2xl font-bold text-gray-900">Bills Payment Report</h2>
+                      <p className="text-sm text-gray-700 mt-1">
+                        Water and electricity bill collection analysis
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <h2 className="text-2xl font-bold text-gray-900">Bills Payment Report</h2>
-                    <p className="text-sm text-gray-700 mt-1">
-                      Water and electricity bill collection analysis
-                    </p>
+                  <Button
+                    onClick={handleExportBillsReport}
+                    disabled={exportingBillsReport || !billsReportData}
+                    className="px-6 py-2.5 bg-blue-600 text-white hover:bg-blue-700 transition-all duration-300 shadow-md rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <span className="flex items-center gap-2">
+                      {exportingBillsReport ? (
+                        <>
+                          <motion.svg
+                            animate={{ rotate: 360 }}
+                            transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                            className="w-5 h-5"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                          </motion.svg>
+                          Exporting...
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
+                          Export to Excel
+                        </>
+                      )}
+                    </span>
+                  </Button>
+                </div>
+
+                {/* Filters */}
+                <div className="mb-6 p-4 bg-gray-50 rounded-lg">
+                  <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-900 mb-1">Date From</label>
+                      <input
+                        type="date"
+                        value={billsReportFilters.dateFrom}
+                        onChange={(e) => setBillsReportFilters({ ...billsReportFilters, dateFrom: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-900 mb-1">Date To</label>
+                      <input
+                        type="date"
+                        value={billsReportFilters.dateTo}
+                        onChange={(e) => setBillsReportFilters({ ...billsReportFilters, dateTo: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-900 mb-1">Bill Type</label>
+                      <select
+                        value={billsReportFilters.billType}
+                        onChange={(e) => setBillsReportFilters({ ...billsReportFilters, billType: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
+                      >
+                        <option value="">All</option>
+                        <option value="WATER">Water</option>
+                        <option value="ELECTRICITY">Electricity</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-900 mb-1">Status</label>
+                      <select
+                        value={billsReportFilters.status}
+                        onChange={(e) => setBillsReportFilters({ ...billsReportFilters, status: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
+                      >
+                        <option value="">All</option>
+                        <option value="PAID">Paid</option>
+                        <option value="PARTIAL">Partial</option>
+                        <option value="UNPAID">Unpaid</option>
+                        <option value="OVERDUE">Overdue</option>
+                      </select>
+                    </div>
+                    <div className="flex items-end">
+                      <Button
+                        onClick={fetchBillsReport}
+                        className="w-full bg-blue-600 text-white hover:bg-blue-700"
+                      >
+                        Apply Filters
+                      </Button>
+                    </div>
                   </div>
                 </div>
-                <Button
-                  onClick={handleExportBillsReport}
-                  disabled={exportingBillsReport || !billsReportData}
-                  className="px-6 py-2.5 bg-blue-600 text-white hover:bg-blue-700 transition-all duration-300 shadow-md rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <span className="flex items-center gap-2">
-                    {exportingBillsReport ? (
-                      <>
-                        <motion.svg
+
+                {billsReportLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <div className="text-center">
+                      <div className="relative w-12 h-12 mx-auto mb-4">
+                        <motion.div
+                          className="absolute inset-0 border-4 border-blue-200 rounded-full"
+                          animate={{ scale: [1, 1.2, 1] }}
+                          transition={{ duration: 1.5, repeat: Infinity }}
+                        />
+                        <motion.div
+                          className="absolute inset-0 border-4 border-t-blue-500 border-r-transparent border-b-transparent border-l-transparent rounded-full"
                           animate={{ rotate: 360 }}
                           transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                          className="w-5 h-5"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                        </motion.svg>
-                        Exporting...
-                      </>
-                    ) : (
-                      <>
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                        Export to Excel
-                      </>
-                    )}
-                  </span>
-                </Button>
-              </div>
-
-              {/* Filters */}
-              <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-                <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-900 mb-1">Date From</label>
-                    <input
-                      type="date"
-                      value={billsReportFilters.dateFrom}
-                      onChange={(e) => setBillsReportFilters({ ...billsReportFilters, dateFrom: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-900 mb-1">Date To</label>
-                    <input
-                      type="date"
-                      value={billsReportFilters.dateTo}
-                      onChange={(e) => setBillsReportFilters({ ...billsReportFilters, dateTo: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-900 mb-1">Bill Type</label>
-                    <select
-                      value={billsReportFilters.billType}
-                      onChange={(e) => setBillsReportFilters({ ...billsReportFilters, billType: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
-                    >
-                      <option value="">All</option>
-                      <option value="WATER">Water</option>
-                      <option value="ELECTRICITY">Electricity</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-900 mb-1">Status</label>
-                    <select
-                      value={billsReportFilters.status}
-                      onChange={(e) => setBillsReportFilters({ ...billsReportFilters, status: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 bg-white"
-                    >
-                      <option value="">All</option>
-                      <option value="PAID">Paid</option>
-                      <option value="PARTIAL">Partial</option>
-                      <option value="UNPAID">Unpaid</option>
-                      <option value="OVERDUE">Overdue</option>
-                    </select>
-                  </div>
-                  <div className="flex items-end">
-                    <Button
-                      onClick={fetchBillsReport}
-                      className="w-full bg-blue-600 text-white hover:bg-blue-700"
-                    >
-                      Apply Filters
-                    </Button>
-                  </div>
-                </div>
-              </div>
-
-              {billsReportLoading ? (
-                <div className="flex items-center justify-center py-12">
-                  <div className="text-center">
-                    <div className="relative w-12 h-12 mx-auto mb-4">
-                      <motion.div
-                        className="absolute inset-0 border-4 border-blue-200 rounded-full"
-                        animate={{ scale: [1, 1.2, 1] }}
-                        transition={{ duration: 1.5, repeat: Infinity }}
-                      />
-                      <motion.div
-                        className="absolute inset-0 border-4 border-t-blue-500 border-r-transparent border-b-transparent border-l-transparent rounded-full"
-                        animate={{ rotate: 360 }}
-                        transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                      />
-                    </div>
-                    <p className="text-gray-900">Loading bills report...</p>
-                  </div>
-                </div>
-              ) : billsReportData ? (
-                <>
-                  {/* Summary Cards */}
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-                    <div className="bg-linear-to-br from-blue-50 to-blue-100 rounded-xl p-5 border border-blue-200">
-                      <div className="text-sm font-medium text-blue-700 mb-1">Water Collection</div>
-                      <div className="text-2xl font-bold text-gray-900">{billsReportData.summary.water.collectionRate}%</div>
-                      <div className="text-xs text-gray-700 mt-1">Ksh {billsReportData.summary.water.totalCollected.toLocaleString()} collected</div>
-                    </div>
-                    <div className="bg-linear-to-br from-yellow-50 to-yellow-100 rounded-xl p-5 border border-yellow-200">
-                      <div className="text-sm font-medium text-yellow-700 mb-1">Electricity Collection</div>
-                      <div className="text-2xl font-bold text-gray-900">{billsReportData.summary.electricity.collectionRate}%</div>
-                      <div className="text-xs text-gray-700 mt-1">Ksh {billsReportData.summary.electricity.totalCollected.toLocaleString()} collected</div>
-                    </div>
-                    <div className="bg-linear-to-br from-red-50 to-red-100 rounded-xl p-5 border border-red-200">
-                      <div className="text-sm font-medium text-red-700 mb-1">Total Arrears</div>
-                      <div className="text-2xl font-bold text-gray-900">Ksh {billsReportData.summary.overall.totalArrears.toLocaleString()}</div>
-                    </div>
-                    <div className="bg-linear-to-br from-purple-50 to-purple-100 rounded-xl p-5 border border-purple-200">
-                      <div className="text-sm font-medium text-purple-700 mb-1">Delinquent Bills</div>
-                      <div className="text-2xl font-bold text-gray-900">{billsReportData.summary.overall.delinquentBillsCount}</div>
-                      <div className="text-xs text-gray-700 mt-1">Over 30 days overdue</div>
-                    </div>
-                  </div>
-
-                  {/* Payment Breakdown */}
-                  <div className="mb-6">
-                    <h3 className="text-lg font-bold text-gray-900 mb-3">Bill Payment Breakdown</h3>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                      <div className="bg-green-50 rounded-lg p-3 text-center">
-                        <div className="text-2xl font-bold text-green-700">{billsReportData.summary.overall.paymentBreakdown.paid}</div>
-                        <div className="text-xs text-gray-700">Paid</div>
+                        />
                       </div>
-                      <div className="bg-yellow-50 rounded-lg p-3 text-center">
-                        <div className="text-2xl font-bold text-yellow-700">{billsReportData.summary.overall.paymentBreakdown.partial}</div>
-                        <div className="text-xs text-gray-700">Partial</div>
+                      <p className="text-gray-900">Loading bills report...</p>
+                    </div>
+                  </div>
+                ) : billsReportData ? (
+                  <>
+                    {/* Summary Cards */}
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                      <div className="bg-linear-to-br from-blue-50 to-blue-100 rounded-xl p-5 border border-blue-200">
+                        <div className="text-sm font-medium text-blue-700 mb-1">Water Collection</div>
+                        <div className="text-2xl font-bold text-gray-900">{billsReportData.summary.water.collectionRate}%</div>
+                        <div className="text-xs text-gray-700 mt-1">Ksh {billsReportData.summary.water.totalCollected.toLocaleString()} collected</div>
                       </div>
-                      <div className="bg-red-50 rounded-lg p-3 text-center">
-                        <div className="text-2xl font-bold text-red-700">{billsReportData.summary.overall.paymentBreakdown.unpaid}</div>
-                        <div className="text-xs text-gray-700">Unpaid</div>
+                      <div className="bg-linear-to-br from-yellow-50 to-yellow-100 rounded-xl p-5 border border-yellow-200">
+                        <div className="text-sm font-medium text-yellow-700 mb-1">Electricity Collection</div>
+                        <div className="text-2xl font-bold text-gray-900">{billsReportData.summary.electricity.collectionRate}%</div>
+                        <div className="text-xs text-gray-700 mt-1">Ksh {billsReportData.summary.electricity.totalCollected.toLocaleString()} collected</div>
                       </div>
-                      <div className="bg-orange-50 rounded-lg p-3 text-center">
-                        <div className="text-2xl font-bold text-orange-700">{billsReportData.summary.overall.paymentBreakdown.overdue}</div>
-                        <div className="text-xs text-gray-700">Overdue</div>
+                      <div className="bg-linear-to-br from-red-50 to-red-100 rounded-xl p-5 border border-red-200">
+                        <div className="text-sm font-medium text-red-700 mb-1">Total Arrears</div>
+                        <div className="text-2xl font-bold text-gray-900">Ksh {billsReportData.summary.overall.totalArrears.toLocaleString()}</div>
+                      </div>
+                      <div className="bg-linear-to-br from-purple-50 to-purple-100 rounded-xl p-5 border border-purple-200">
+                        <div className="text-sm font-medium text-purple-700 mb-1">Delinquent Bills</div>
+                        <div className="text-2xl font-bold text-gray-900">{billsReportData.summary.overall.delinquentBillsCount}</div>
+                        <div className="text-xs text-gray-700 mt-1">Over 30 days overdue</div>
                       </div>
                     </div>
-                  </div>
 
-                  {/* Delinquent Bills Table */}
-                  {billsReportData.delinquentBills && billsReportData.delinquentBills.length > 0 && (
+                    {/* Payment Breakdown */}
                     <div className="mb-6">
-                      <h3 className="text-lg font-bold text-gray-900 mb-3">Delinquent Bills (Over 30 Days)</h3>
-                      <div className="overflow-x-auto">
-                        <table className="w-full">
-                          <thead>
-                            <tr className="border-b-2 border-gray-200">
-                              <th className="text-left py-3 px-4 font-semibold text-gray-900">Invoice #</th>
-                              <th className="text-left py-3 px-4 font-semibold text-gray-900">Tenant</th>
-                              <th className="text-left py-3 px-4 font-semibold text-gray-900">Unit</th>
-                              <th className="text-left py-3 px-4 font-semibold text-gray-900">Type</th>
-                              <th className="text-right py-3 px-4 font-semibold text-gray-900">Amount</th>
-                              <th className="text-right py-3 px-4 font-semibold text-gray-900">Balance</th>
-                              <th className="text-right py-3 px-4 font-semibold text-gray-900">Days Overdue</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {billsReportData.delinquentBills.map((bill: any, idx: number) => (
-                              <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50">
-                                <td className="py-3 px-4 font-mono text-sm text-gray-900">{bill.invoiceNumber}</td>
-                                <td className="py-3 px-4 text-gray-900">{bill.tenantName}</td>
-                                <td className="py-3 px-4 text-gray-900">{bill.unitNo}</td>
-                                <td className="py-3 px-4">
-                                  <span className={`inline-flex px-2 py-1 rounded-full text-xs font-semibold ${
-                                    bill.billType === 'WATER' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'
-                                  }`}>
-                                    {bill.billType}
-                                  </span>
-                                </td>
-                                <td className="py-3 px-4 text-right text-gray-900">Ksh {bill.amount.toLocaleString()}</td>
-                                <td className="py-3 px-4 text-right text-red-600 font-semibold">Ksh {bill.balance.toLocaleString()}</td>
-                                <td className="py-3 px-4 text-right text-orange-600 font-semibold">{bill.daysOverdue} days</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                      <h3 className="text-lg font-bold text-gray-900 mb-3">Bill Payment Breakdown</h3>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div className="bg-green-50 rounded-lg p-3 text-center">
+                          <div className="text-2xl font-bold text-green-700">{billsReportData.summary.overall.paymentBreakdown.paid}</div>
+                          <div className="text-xs text-gray-700">Paid</div>
+                        </div>
+                        <div className="bg-yellow-50 rounded-lg p-3 text-center">
+                          <div className="text-2xl font-bold text-yellow-700">{billsReportData.summary.overall.paymentBreakdown.partial}</div>
+                          <div className="text-xs text-gray-700">Partial</div>
+                        </div>
+                        <div className="bg-red-50 rounded-lg p-3 text-center">
+                          <div className="text-2xl font-bold text-red-700">{billsReportData.summary.overall.paymentBreakdown.unpaid}</div>
+                          <div className="text-xs text-gray-700">Unpaid</div>
+                        </div>
+                        <div className="bg-orange-50 rounded-lg p-3 text-center">
+                          <div className="text-2xl font-bold text-orange-700">{billsReportData.summary.overall.paymentBreakdown.overdue}</div>
+                          <div className="text-xs text-gray-700">Overdue</div>
+                        </div>
                       </div>
                     </div>
-                  )}
-                </>
-              ) : (
-                <div className="text-center py-12">
-                  <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
-                    <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                    </svg>
+
+                    {/* Delinquent Bills Table */}
+                    {billsReportData.delinquentBills && billsReportData.delinquentBills.length > 0 && (
+                      <div className="mb-6">
+                        <h3 className="text-lg font-bold text-gray-900 mb-3">Delinquent Bills (Over 30 Days)</h3>
+                        <div className="overflow-x-auto">
+                          <table className="w-full">
+                            <thead>
+                              <tr className="border-b-2 border-gray-200">
+                                <th className="text-left py-3 px-4 font-semibold text-gray-900">Invoice #</th>
+                                <th className="text-left py-3 px-4 font-semibold text-gray-900">Tenant</th>
+                                <th className="text-left py-3 px-4 font-semibold text-gray-900">Unit</th>
+                                <th className="text-left py-3 px-4 font-semibold text-gray-900">Type</th>
+                                <th className="text-right py-3 px-4 font-semibold text-gray-900">Amount</th>
+                                <th className="text-right py-3 px-4 font-semibold text-gray-900">Balance</th>
+                                <th className="text-right py-3 px-4 font-semibold text-gray-900">Days Overdue</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {billsReportData.delinquentBills.map((bill: any, idx: number) => (
+                                <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50">
+                                  <td className="py-3 px-4 font-mono text-sm text-gray-900">{bill.invoiceNumber}</td>
+                                  <td className="py-3 px-4 text-gray-900">{bill.tenantName}</td>
+                                  <td className="py-3 px-4 text-gray-900">{bill.unitNo}</td>
+                                  <td className="py-3 px-4">
+                                    <span className={`inline-flex px-2 py-1 rounded-full text-xs font-semibold ${
+                                      bill.billType === 'WATER' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'
+                                    }`}>
+                                      {bill.billType}
+                                    </span>
+                                  </td>
+                                  <td className="py-3 px-4 text-right text-gray-900">Ksh {bill.amount.toLocaleString()}</td>
+                                  <td className="py-3 px-4 text-right text-red-600 font-semibold">Ksh {bill.balance.toLocaleString()}</td>
+                                  <td className="py-3 px-4 text-right text-orange-600 font-semibold">{bill.daysOverdue} days</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="text-center py-12">
+                    <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+                      <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
+                    </div>
+                    <p className="text-gray-900 font-medium">No bills report data available</p>
+                    <Button onClick={fetchBillsReport} className="mt-4">Load Report</Button>
                   </div>
-                  <p className="text-gray-900 font-medium">No bills report data available</p>
-                  <Button onClick={fetchBillsReport} className="mt-4">Load Report</Button>
-                </div>
-              )}
-            </motion.div>
-          </div>
+                )}
+              </motion.div>
+            </div>
+          </PermissionGuard>
         )}
       </motion.div>
     </motion.div>

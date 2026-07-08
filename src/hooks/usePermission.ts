@@ -296,7 +296,7 @@ export function usePermissions() {
       hasPermission: () => false,
       canAccessModule: () => false,
       getVisibleNavigation: () => [],
-      isLoading: true, // Add isLoading to return
+      isLoading: true,
       user: null,
       roleName: null,
       isAdmin: false,
@@ -354,6 +354,22 @@ export function usePermissions() {
       canCreateTenant: false,
       canEditTenant: false,
       canDeleteTenant: false,
+      // Commission permissions
+      canViewCommissions: false,
+      canCreateCommission: false,
+      canEditCommission: false,
+      canDeleteCommission: false,
+      // Payment specific permissions
+      canRecordPayments: false,
+      canPreviewPayments: false,
+      canViewArrears: false,
+      canDownloadPaymentReceipt: false,
+      // Download permissions
+      canDownloadInvoice: false,
+      canDownloadDemandLetter: false,
+      canDownloadBillInvoice: false,
+      // Bill permissions
+      canPayBills: false,
     };
   }
 
@@ -403,7 +419,7 @@ export function usePermissions() {
     hasPermission,
     canAccessModule,
     getVisibleNavigation,
-    isLoading: false, // Add isLoading to return - false when loaded
+    isLoading: false,
     user,
     roleName,
     isAdmin,
@@ -473,6 +489,11 @@ export function usePermissions() {
     canCreateTenant: permissions.tenants.canCreate,
     canEditTenant: permissions.tenants.canEdit,
     canDeleteTenant: permissions.tenants.canDelete,
+    // Commission permissions
+    canViewCommissions: permissions.commissions.canView,
+    canCreateCommission: permissions.commissions.canCreate,
+    canEditCommission: permissions.commissions.canEdit,
+    canDeleteCommission: permissions.commissions.canDelete,
     // Payment specific permissions
     canRecordPayments: hasPermission(PermissionCode.RECORD_PAYMENTS),
     canPreviewPayments: hasPermission(PermissionCode.PREVIEW_PAYMENTS),

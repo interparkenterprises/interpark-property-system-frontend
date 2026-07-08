@@ -1224,7 +1224,7 @@ export default function PropertyDetailPage() {
                 </div>
               </dl>
               {/* View More Button - Only visible for admin/manager */}
-              {(isAdmin || isManager) && (
+              {(isAdmin || isManager || hasPermission(PermissionCode.VIEW_TENANT_FINANCIALS)) && (
                 <div className="mt-6 pt-6 border-t-2 border-gray-100">
                   <Button
                     onClick={handleViewMoreDetails}
