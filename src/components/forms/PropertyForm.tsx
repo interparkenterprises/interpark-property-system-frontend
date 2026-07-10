@@ -246,7 +246,7 @@ const PropertyForm = forwardRef<HTMLFormElement, PropertyFormProps>(
       // Create preview
       const reader = new FileReader();
       reader.onloadend = () => {
-        const previewUrl = reader.result as string;
+        const previewUrl = `${process.env.NEXT_PUBLIC_API_URL}${attachment.previewUrl}`;
         setImagePreview(previewUrl);
         
         // Save draft with new image preview

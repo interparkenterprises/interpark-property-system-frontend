@@ -513,6 +513,7 @@ export const unitsAPI = {
 };
 
 export const tenantsAPI = {
+  // Existing methods
   getAll: async (): Promise<Tenant[]> => {
     try {
       const response = await api.get('/tenants');
@@ -521,7 +522,7 @@ export const tenantsAPI = {
       return handleApiError(error);
     }
   },
-    // NEW: Get tenants by property ID
+
   getByProperty: async (propertyId: string): Promise<Tenant[]> => {
     try {
       const response = await api.get(`/tenants/property/${propertyId}`);
@@ -532,7 +533,6 @@ export const tenantsAPI = {
     }
   },
 
-    // NEW: Get next payments by property ID
   getNextPaymentsByProperty: async (propertyId: string): Promise<NextPaymentsResponse> => {
     try {
       const response = await api.get(`/tenants/property/${propertyId}/next-payments`);
@@ -542,6 +542,7 @@ export const tenantsAPI = {
       return handleApiError(error);
     }
   },
+
   getById: async (id: string): Promise<Tenant> => {
     try {
       const response = await api.get(`/tenants/${id}`);
@@ -550,33 +551,34 @@ export const tenantsAPI = {
       return handleApiError(error);
     }
   },
-  // Updated getOverdue method with days filtering support (optionally filtered by property)
+
   getOverdue: async (
-    propertyId?: string, 
-    daysOverdue?: number | string, 
+    propertyId?: string,
+    daysOverdue?: number | string,
     customDays?: number
   ): Promise<OverdueTenantsResponse> => {
     try {
       const params: Record<string, string> = {};
-      
+
       if (propertyId) {
         params.propertyId = propertyId;
       }
-      
+
       if (daysOverdue) {
         params.daysOverdue = daysOverdue.toString();
       }
-      
+
       if (customDays && daysOverdue === 'custom') {
         params.customDays = customDays.toString();
       }
-      
+
       const response = await api.get('/tenants/overdue', { params });
       return response.data;
     } catch (error) {
       return handleApiError(error);
     }
   },
+
   create: async (data: Partial<Tenant>): Promise<Tenant> => {
     try {
       const response = await api.post('/tenants', data);
@@ -585,6 +587,7 @@ export const tenantsAPI = {
       return handleApiError(error);
     }
   },
+
   update: async (id: string, data: Partial<Tenant>): Promise<Tenant> => {
     try {
       const response = await api.put(`/tenants/${id}`, data);
@@ -593,6 +596,7 @@ export const tenantsAPI = {
       return handleApiError(error);
     }
   },
+
   updateServiceCharge: async (id: string, data: Partial<ServiceCharge>): Promise<Tenant> => {
     try {
       const response = await api.patch(`/tenants/${id}/service-charge`, data);
@@ -601,6 +605,7 @@ export const tenantsAPI = {
       return handleApiError(error);
     }
   },
+
   removeServiceCharge: async (id: string): Promise<Tenant> => {
     try {
       const response = await api.delete(`/tenants/${id}/service-charge`);
@@ -609,6 +614,7 @@ export const tenantsAPI = {
       return handleApiError(error);
     }
   },
+
   delete: async (id: string): Promise<void> => {
     try {
       await api.delete(`/tenants/${id}`);
@@ -616,7 +622,113 @@ export const tenantsAPI = {
       return handleApiError(error);
     }
   },
-};
+
+  // ==============================================
+  // ATTACHMENT METHODS (NEW)
+  // ==============================================
+
+  /**
+   * Fetch all attachments for a tenant.
+  * @param tenantId - The ID of the tenant.
+ * @returns Promise<{success: boolean, count: number, data: Attachment[]}> - Attachments with metadata.
+ */
+getAttachments: async (tenantId: string) => {
+  try {
+    const response = await api.get(`/tenants/${tenantId}/attachments`);
+    return response.data; // Returns { success, count, data: Attachment[] }
+  } catch (error) {
+    console.error('Error fetching attachments:', error);
+    return { success: false, count: 0, data: [] };
+  }
+},
+
+
+  /**
+   * Upload a new attachment for a tenant.
+   * @param formData - FormData containing the file and tenantId.
+   * @returns Promise<Attachment> - The uploaded attachment.
+   */
+  uploadAttachment: async (formData: FormData) => {
+    try {
+      const response = await api.post(
+        `/tenants/${formData.get('tenantId')}/attachments`,
+        formData,
+        {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        }
+      );
+      return response.data;
+    } catch (error) {
+      console.error('Error uploading attachment:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Update an attachment (e.g., rename).
+   * @param attachmentId - The ID of the attachment.
+   * @param data - Updated data (e.g., { name: string }).
+   * @returns Promise<Attachment> - The updated attachment.
+   */
+  updateAttachment: async (attachmentId: string, data: { name: string }) => {
+    try {
+      const response = await api.put(`/attachments/${attachmentId}`, data);
+      return response.data;
+    } catch (error) {
+      console.error('Error updating attachment:', error);
+      throw error;
+    }
+  },
+
+ /**
+ * Delete an attachment.
+ * @param attachmentId - The ID of the attachment.
+ * @returns Promise<{success: boolean, message: string}> - Confirmation of deletion.
+ */
+deleteAttachment: async (attachmentId: string) => {
+  try {
+    const response = await api.delete(`/attachments/${attachmentId}`);
+    return response.data; // Returns { success, message }
+  } catch (error) {
+    console.error('Error deleting attachment:', error);
+    throw error;
+  }
+},
+
+  /**
+ * Download an attachment.
+ * @param attachmentId - The ID of the attachment.
+ * @returns Promise<Blob> - The file as a Blob.
+ */
+downloadAttachment: async (attachmentId: string) => {
+  try {
+    const response = await api.get(`/attachments/${attachmentId}/download`, {
+      responseType: 'blob',
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Error downloading attachment:', error);
+    throw error;
+  }
+},
+
+/**
+ * Preview an attachment in the browser.
+ * @param attachmentId - The ID of the attachment.
+ * @returns Promise<Blob> - The file as a Blob for preview.
+ */
+previewAttachment: async (attachmentId: string) => {
+  try {
+    const response = await api.get(`/attachments/${attachmentId}/preview`, {
+      responseType: 'blob',
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Error previewing attachment:', error);
+    throw error;
+  }
+},
+}
 
 export const paymentsAPI = {
   getPaymentReports: async (): Promise<PaymentReport[]> => {

@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { motion, Variants } from 'framer-motion';
+import { motion, AnimatePresence, Variants } from 'framer-motion';
 import { Tenant, Invoice, InvoiceStatus, PaymentReport, PaymentPreview, CreatePaymentReportResponse, PaymentStatus, BillInvoice, PaymentPolicy, DemandLetter, DemandLetterStatus, CreatePaymentReportRequest } from '@/types';
 import { tenantsAPI, invoicesAPI, paymentsAPI, billInvoicesAPI, demandLettersAPI } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import api from "@/lib/api"; 
 import {
   Dialog,
   DialogContent,
@@ -25,19 +26,44 @@ import { PermissionGuard } from '@/components/auth/PermissionGuard';
 import { useGlobalPermissions } from '@/app/providers/PermissionsProvider';
 import { PermissionCode } from '@/types';
 
+// Define Attachment type
+type Attachment = {
+  id: string;
+  name: string;
+  fileName: string;
+  url: string;
+  previewUrl: string; 
+  downloadUrl: string; 
+  mimeType: string;
+  size: number;
+  tenantId: string;
+  uploadedAt: string;
+  uploadedBy: {
+    id: string;
+    firstName: string;
+    name: string;
+    email?: string;
+  };
+  // Permission flags (added by backend)
+  canPreview: boolean;
+  canDownload: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
+};
+
 export default function TenantDetailPage() {
   const params = useParams();
   const router = useRouter();
-  
-  // Permission hooks - using the centralized permission system
-  const { 
+
+  // Permission hooks
+  const {
     permissions,
-    isAdmin, 
+    isAdmin,
     isManager,
     hasPermission,
     canAccessModule,
   } = useGlobalPermissions();
-  
+
   // ==============================================
   // PAGE ACCESS PERMISSION CHECK
   // ==============================================
@@ -69,57 +95,48 @@ export default function TenantDetailPage() {
       router.push('/unauthorized');
     }
   }, [canAccessTenantDetailsPage, router]);
-  
+
   // ==============================================
   // PERMISSION CHECKS FOR SPECIFIC FEATURES
-  // ADMIN and MANAGER have full access
-  // USER has limited access based on their permissions
-  // Using centralized permission checks
   // ==============================================
-  
-  const canViewInvoices = isAdmin || isManager || 
+  const canViewInvoices = isAdmin || isManager ||
     hasPermission(PermissionCode.VIEW_INVOICES) ||
     hasPermission(PermissionCode.CREATE_INVOICES) ||
     hasPermission(PermissionCode.DOWNLOAD_INVOICES);
-    
+
   const canCreateInvoices = isAdmin || isManager || hasPermission(PermissionCode.CREATE_INVOICES);
   const canDeleteInvoices = isAdmin || isManager || hasPermission(PermissionCode.DELETE_INVOICES);
   const canDownloadInvoices = isAdmin || isManager || hasPermission(PermissionCode.DOWNLOAD_INVOICES);
-  
+
   const canViewPayments = isAdmin || isManager ||
     hasPermission(PermissionCode.VIEW_PAYMENT_REPORTS) ||
     hasPermission(PermissionCode.RECORD_PAYMENTS);
-    
+
   const canCreatePayments = isAdmin || isManager || hasPermission(PermissionCode.RECORD_PAYMENTS);
   const canDeletePayments = isAdmin || isManager || hasPermission(PermissionCode.DELETE_PAYMENT_RECORDS);
   const canDownloadPaymentReports = isAdmin || isManager || hasPermission(PermissionCode.VIEW_PAYMENT_REPORTS);
-  
+
   const canViewBillInvoices = isAdmin || isManager || hasPermission(PermissionCode.VIEW_BILL_INVOICES);
   const canDeleteBillInvoices = isAdmin || isManager || hasPermission(PermissionCode.DELETE_BILL_INVOICE);
   const canDownloadBillInvoices = isAdmin || isManager || hasPermission(PermissionCode.DOWNLOAD_BILL_INVOICE);
   const canCreateBillInvoices = isAdmin || isManager || hasPermission(PermissionCode.CREATE_BILL_INVOICE);
-  
+
   const canViewDemandLetters = isAdmin || isManager ||
     hasPermission(PermissionCode.VIEW_DEMAND_LETTERS) ||
     hasPermission(PermissionCode.SEND_DEMAND_LETTERS) ||
     hasPermission(PermissionCode.AUTO_GENERATE_DEMAND_LETTER) ||
     hasPermission(PermissionCode.DOWNLOAD_DEMAND_LETTER);
-    
+
   const canCreateDemandLetters = isAdmin || isManager ||
     hasPermission(PermissionCode.CREATE_DEMAND_LETTER) ||
     hasPermission(PermissionCode.AUTO_GENERATE_DEMAND_LETTER);
-  
+
   const canViewOverdueInvoices = isAdmin || isManager || hasPermission(PermissionCode.VIEW_OVERDUE_INVOICES);
-  
   const canViewComprehensiveReport = isAdmin || isManager;
-  
+
   // Also check module-level permissions from the centralized system
   const canAccessTenantsModule = canAccessModule('tenants');
-  const canAccessInvoicesModule = canAccessModule('invoices');
-  const canAccessPaymentsModule = canAccessModule('payments');
-  const canAccessBillInvoicesModule = canAccessModule('billInvoices');
-  const canAccessDemandLettersModule = canAccessModule('demandLetters');
-  
+
   // State declarations
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -131,6 +148,16 @@ export default function TenantDetailPage() {
   const [paymentReportsLoading, setPaymentReportsLoading] = useState(false);
   const [billInvoicesLoading, setBillInvoicesLoading] = useState(false);
   const [demandLettersLoading, setDemandLettersLoading] = useState(false);
+
+  // Attachments state
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [deletingAttachmentId, setDeletingAttachmentId] = useState<string | null>(null);
+  const [editingAttachment, setEditingAttachment] = useState<Attachment | null>(null);
+  const [showAttachmentForm, setShowAttachmentForm] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+
   const [showInvoiceDialog, setShowInvoiceDialog] = useState(false);
   const [showInvoicesList, setShowInvoicesList] = useState(false);
   const [showPaymentReportsDialog, setShowPaymentReportsDialog] = useState(false);
@@ -173,7 +200,7 @@ export default function TenantDetailPage() {
     dueDate: '',
     notes: '',
   });
-  
+
   const [paymentForm, setPaymentForm] = useState({
     paymentPeriod: '',
     datePaid: new Date().toISOString().split('T')[0],
@@ -193,6 +220,173 @@ export default function TenantDetailPage() {
 
   const tenantId = params.id as string;
 
+  // Fetch attachments
+const fetchAttachments = async (tenantId: string) => {
+  try {
+    const response = await tenantsAPI.getAttachments(tenantId);
+    const attachmentsWithUrls = (response.data || []).map((att: any) => ({
+      ...att,
+      previewUrl: att.previewUrl || `/api/attachments/${att.id}/preview`,
+      downloadUrl: att.downloadUrl || `/api/attachments/${att.id}/download`,
+      canPreview: att.canPreview !== undefined ? att.canPreview : true,
+      canDownload: att.canDownload !== undefined ? att.canDownload : true,
+      canEdit: att.canEdit !== undefined ? att.canEdit : (isAdmin || isManager),
+      canDelete: att.canDelete !== undefined ? att.canDelete : (isAdmin || isManager),
+    }));
+    setAttachments(attachmentsWithUrls);
+  } catch (error) {
+    console.error("Error fetching attachments:", error);
+    toast.error("Failed to load attachments");
+  }
+};
+
+  // Upload attachment
+const uploadAttachment = async (file: File, tenantId: string) => {
+  setUploading(true);
+  try {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("tenantId", tenantId);
+
+    const response = await tenantsAPI.uploadAttachment(formData);
+    const newAttachment = {
+      ...response.data,
+      previewUrl: response.data.previewUrl || `/api/attachments/${response.data.id}/preview`,
+      downloadUrl: response.data.downloadUrl || `/api/attachments/${response.data.id}/download`,
+      canPreview: true,
+      canDownload: true,
+      canEdit: isAdmin || isManager,
+      canDelete: isAdmin || isManager,
+    };
+    setAttachments([...attachments, newAttachment]);
+    toast.success("Attachment uploaded successfully");
+  } catch (error: any) {
+    toast.error(error.response?.data?.message || "Failed to upload attachment");
+  } finally {
+    setUploading(false);
+  }
+};
+// download attachment
+const handleDownload = async (attachment: Attachment) => {
+  if (!attachment.canDownload) {
+    toast.error("You don't have permission to download this attachment");
+    return;
+  }
+
+  try {
+    const blob = await tenantsAPI.downloadAttachment(attachment.id);
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = attachment.name;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+    toast.success(`Downloaded ${attachment.name}`);
+  } catch (error: any) {
+    toast.error(error.response?.data?.message || "Failed to download attachment");
+  }
+};
+  // Delete attachment
+const deleteAttachment = async (attachmentId: string) => {
+  if (!confirm("Are you sure you want to delete this attachment? This action cannot be undone.")) return;
+
+  setDeletingAttachmentId(attachmentId);
+  try {
+    await tenantsAPI.deleteAttachment(attachmentId);
+    setAttachments(attachments.filter(att => att.id !== attachmentId));
+    toast.success("Attachment deleted successfully");
+  } catch (error: any) {
+    toast.error(error.response?.data?.message || "Failed to delete attachment");
+  } finally {
+    setDeletingAttachmentId(null);
+  }
+};
+
+  // Handle file selection
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file size (10MB max)
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error("File size exceeds 10MB limit");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    await uploadAttachment(file, tenantId);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+      //handlepreview
+const handlePreview = async (attachment: Attachment) => {
+  if (!attachment.canPreview) {
+    toast.error("You don't have permission to preview this attachment");
+    return;
+  }
+
+  try {
+    const response = await api.get(attachment.previewUrl, {
+      responseType: "blob",
+    });
+
+    const contentType = response.headers["content-type"] || "application/octet-stream";
+
+    const blob = new Blob([response.data], {
+      type: contentType,
+    });
+
+    const blobUrl = URL.createObjectURL(blob);
+
+    window.open(blobUrl, "_blank", "noopener,noreferrer");
+
+    // Clean up later
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+  } catch (error: any) {
+    console.error("Error previewing attachment:", error);
+    toast.error(
+      error.response?.data?.message || "Failed to preview attachment"
+    );
+  }
+};
+  // Handle edit attachment
+const handleEditAttachment = (attachment: Attachment) => {
+  setEditingAttachment(attachment);
+  setShowAttachmentForm(true);
+};
+
+const handleSaveEditedAttachment = async (newName: string) => {
+  if (!editingAttachment) return;
+
+  try {
+    const updated = await tenantsAPI.updateAttachment(editingAttachment.id, { name: newName });
+
+    setAttachments(
+      attachments.map(att => {
+        if (att.id !== updated.data.id) return att;
+
+        return {
+          ...att, // Preserve ALL existing fields (uploadedBy, uploadedAt, etc.)
+          name: updated.data.name, // Update the name
+          previewUrl: updated.data.previewUrl || att.previewUrl || `/api/attachments/${att.id}/preview`,
+          downloadUrl: updated.data.downloadUrl || att.downloadUrl || `/api/attachments/${att.id}/download`,
+          canPreview: updated.data.canPreview ?? att.canPreview ?? true,
+          canDownload: updated.data.canDownload ?? att.canDownload ?? true,
+          canEdit: updated.data.canEdit ?? att.canEdit ?? (isAdmin || isManager),
+          canDelete: updated.data.canDelete ?? att.canDelete ?? (isAdmin || isManager),
+        };
+      })
+    );
+
+    setShowAttachmentForm(false);
+    setEditingAttachment(null);
+    toast.success("Attachment renamed successfully");
+  } catch (error: any) {
+    toast.error(error.response?.data?.message || "Failed to rename attachment");
+  }
+};
   // Fetch data based on permissions
   useEffect(() => {
     fetchTenant();
@@ -212,7 +406,22 @@ export default function TenantDetailPage() {
     if (canViewPayments) {
       fetchOutstandingInvoices();
     }
+    if (tenantId) {
+      fetchAttachments(tenantId);
+    }
   }, [tenantId]);
+
+  const fetchTenant = async () => {
+    try {
+      const data = await tenantsAPI.getById(tenantId);
+      setTenant(data);
+    } catch (error) {
+      console.error('Error fetching tenant:', error);
+      toast.error('Failed to load tenant details');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Fetch payment preview when amount changes
   useEffect(() => {
@@ -382,17 +591,6 @@ export default function TenantDetailPage() {
     return '';
   };
 
-  const fetchTenant = async () => {
-    try {
-      const data = await tenantsAPI.getById(tenantId);
-      setTenant(data);
-    } catch (error) {
-      console.error('Error fetching tenant:', error);
-      toast.error('Failed to load tenant details');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const fetchInvoices = async () => {
     if (!canViewInvoices) return;
@@ -1794,6 +1992,326 @@ export default function TenantDetailPage() {
             </div>
           </div>
         </motion.div>
+        {/* attachments */}
+      <motion.div
+  variants={itemVariants}
+  whileHover={{ y: -2 }}
+  className="bg-white rounded-2xl p-8 shadow-lg border border-gray-200"
+>
+  <div className="flex items-center justify-between mb-6">
+    <div className="flex items-center gap-3">
+      <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
+        <svg
+          className="w-6 h-6 text-primary"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M16.5 6.5l-9.2 9.2a3 3 0 104.2 4.2l9.2-9.2a5 5 0 10-7.1-7.1L5.8 11.4"
+          />
+        </svg>
+      </div>
+      <div>
+        <h2 className="text-xl font-bold text-heading-color">Attachments</h2>
+        <p className="text-sm text-gray-500">
+          Lease agreements, IDs, receipts and supporting documents
+        </p>
+      </div>
+    </div>
+
+    {/* Upload Button (Admin/Manager Only) */}
+
+    {(isAdmin || isManager) && (
+      <>
+        <input
+          ref={fileInputRef}
+          type="file"
+          className="hidden"
+          onChange={handleFileChange}
+          accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.txt"
+        />
+        <Button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+          className="flex items-center gap-2 cursor-pointer"
+        >
+          {uploading ? (
+            <>
+              <svg
+                className="animate-spin -ml-1 mr-2 h-4 w-4 text-white"
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+              >
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                ></circle>
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                ></path>
+              </svg>
+              Uploading...
+            </>
+          ) : (
+            <>
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              Upload
+            </>
+          )}
+        </Button>
+      </>
+    )}
+  </div>
+
+  {/* Attachment Edit Dialog */}
+  <Dialog open={showAttachmentForm} onOpenChange={setShowAttachmentForm}>
+    <DialogContent className="sm:max-w-md">
+      <DialogHeader>
+        <DialogTitle>Rename Attachment</DialogTitle>
+        <DialogDescription>Update the name of this attachment</DialogDescription>
+      </DialogHeader>
+      <div className="space-y-4 py-4">
+        <div className="space-y-2">
+          <Label htmlFor="attachment-name">Attachment Name</Label>
+          <Input
+            id="attachment-name"
+            value={editingAttachment?.name || ''}
+            onChange={(e) => setEditingAttachment({ ...editingAttachment!, name: e.target.value })}
+            className="w-full"
+          />
+        </div>
+      </div>
+      <DialogFooter>
+        <Button
+          variant="outline"
+          onClick={() => {
+            setShowAttachmentForm(false);
+            setEditingAttachment(null);
+          }}
+        >
+          Cancel
+        </Button>
+        <Button
+          onClick={() => {
+            if (editingAttachment) {
+              handleSaveEditedAttachment(editingAttachment.name);
+            }
+          }}
+          disabled={!editingAttachment?.name}
+        >
+          Save
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
+
+  {/* Empty State */}
+  {attachments.length === 0 ? (
+    <div className="rounded-xl border-2 border-dashed border-gray-200 py-12 text-center">
+      <svg
+        className="w-14 h-14 mx-auto text-gray-300 mb-4"
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M16.5 6.5l-9.2 9.2a3 3 0 104.2 4.2l9.2-9.2a5 5 0 10-7.1-7.1L5.8 11.4"
+        />
+      </svg>
+      <h3 className="text-lg font-semibold text-gray-800">No attachments yet</h3>
+      <p className="text-gray-500 mt-2">Upload lease agreements, IDs, invoices or any supporting documents.</p>
+      {(isAdmin || isManager) && (
+        <Button onClick={() => fileInputRef.current?.click()} className="mt-6">
+          <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+          </svg>
+          Upload First Attachment
+        </Button>
+      )}
+    </div>
+  ) : (
+    // Attachments List
+    <div className="space-y-3">
+      {attachments.map((attachment) => {
+        const fileExtension = attachment.name.split('.').pop()?.toLowerCase();
+        const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(fileExtension || '');
+        const isPdf = fileExtension === 'pdf';
+
+        return (
+          <motion.div
+            key={attachment.id}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex items-center justify-between rounded-xl border border-gray-200 p-4 hover:bg-gray-50 transition"
+          >
+            <div className="flex items-center gap-4">
+              {/* File Icon */}
+              <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
+                {isImage ? (
+                  <svg className="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                    />
+                  </svg>
+                ) : isPdf ? (
+                  <svg className="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                    />
+                  </svg>
+                ) : (
+                  <svg className="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h10v10H7z" />
+                  </svg>
+                )}
+              </div>
+
+              {/* File Info */}
+              <div className="min-w-0 flex-1">
+                <h4 className="font-semibold text-heading-color truncate">{attachment.name}</h4>
+                <p className="text-sm text-gray-500 dark:text-gray-600">
+  Uploaded by{" "}
+  <span className="font-medium text-blue-900 dark:text-blue-1000">
+    {attachment.uploadedBy?.name}
+  </span>{" "}
+  • {new Date(attachment.uploadedAt).toLocaleDateString()}
+</p>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex items-center gap-2">
+              {/* Preview Button */}
+              {attachment.canPreview && (isImage || isPdf) && (
+                <Button
+                  onClick={() => handlePreview(attachment)}
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-3"
+                  title="Preview"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                    />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                    />
+                  </svg>
+                </Button>
+              )}
+
+              {/* Download Button */}
+              {attachment.canDownload && (
+                <Button
+                  onClick={() => handleDownload(attachment)}
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-3"
+                  title="Download"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                    />
+                  </svg>
+                </Button>
+              )}
+
+              {/* Edit & Delete Buttons (Admin/Manager Only) */}
+              {(isAdmin || isManager) && (
+                <>
+                  <Button
+                    onClick={() => deleteAttachment(attachment.id)}
+                    variant="outline"
+                    size="sm"
+                    disabled={deletingAttachmentId === attachment.id}
+                    className="h-8 px-3 border-red-200 text-red-600 hover:bg-red-50"
+                    title="Delete"
+                  >
+                    {deletingAttachmentId === attachment.id ? (
+                      <svg
+                        className="animate-spin h-4 w-4 text-red-600"
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                      >
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path
+                          className="opacity-75"
+                          fill="currentColor"
+                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                        ></path>
+                      </svg>
+                    ) : (
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                        />
+                      </svg>
+                    )}
+                  </Button>
+                  <Button
+                    onClick={() => handleEditAttachment(attachment)}
+                    variant="outline"
+                    size="sm"
+                    className="h-8 px-3"
+                    title="Rename"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                      />
+                    </svg>
+                  </Button>
+                </>
+              )}
+            </div>
+          </motion.div>
+        );
+      })}
+    </div>
+  )}
+</motion.div>
+    
+      
 
         {/* Unit Information */}
         {tenant.unit && (
