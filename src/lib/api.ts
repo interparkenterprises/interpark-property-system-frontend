@@ -82,6 +82,10 @@ import {
   PropertyRentPaymentReportResponse,
   GetPropertyBillsReportParams,
   PropertyBillsPaymentReportResponse,
+  AttachmentsListResponse,
+  AttachmentUploadResponse,
+  DeleteAttachmentResponse,
+  UpdateAttachmentRequest,
 } from '@/types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.interparkpropertysystem.co.ke/api';
@@ -513,6 +517,10 @@ export const unitsAPI = {
 };
 
 export const tenantsAPI = {
+  // =============================================
+  // BASIC CRUD OPERATIONS
+  // =============================================
+
   getAll: async (): Promise<Tenant[]> => {
     try {
       const response = await api.get('/tenants');
@@ -521,7 +529,7 @@ export const tenantsAPI = {
       return handleApiError(error);
     }
   },
-    // NEW: Get tenants by property ID
+
   getByProperty: async (propertyId: string): Promise<Tenant[]> => {
     try {
       const response = await api.get(`/tenants/property/${propertyId}`);
@@ -532,7 +540,6 @@ export const tenantsAPI = {
     }
   },
 
-    // NEW: Get next payments by property ID
   getNextPaymentsByProperty: async (propertyId: string): Promise<NextPaymentsResponse> => {
     try {
       const response = await api.get(`/tenants/property/${propertyId}/next-payments`);
@@ -542,6 +549,7 @@ export const tenantsAPI = {
       return handleApiError(error);
     }
   },
+
   getById: async (id: string): Promise<Tenant> => {
     try {
       const response = await api.get(`/tenants/${id}`);
@@ -550,7 +558,7 @@ export const tenantsAPI = {
       return handleApiError(error);
     }
   },
-  // Updated getOverdue method with days filtering support (optionally filtered by property)
+
   getOverdue: async (
     propertyId?: string, 
     daysOverdue?: number | string, 
@@ -577,6 +585,7 @@ export const tenantsAPI = {
       return handleApiError(error);
     }
   },
+
   create: async (data: Partial<Tenant>): Promise<Tenant> => {
     try {
       const response = await api.post('/tenants', data);
@@ -585,6 +594,7 @@ export const tenantsAPI = {
       return handleApiError(error);
     }
   },
+
   update: async (id: string, data: Partial<Tenant>): Promise<Tenant> => {
     try {
       const response = await api.put(`/tenants/${id}`, data);
@@ -593,6 +603,7 @@ export const tenantsAPI = {
       return handleApiError(error);
     }
   },
+
   updateServiceCharge: async (id: string, data: Partial<ServiceCharge>): Promise<Tenant> => {
     try {
       const response = await api.patch(`/tenants/${id}/service-charge`, data);
@@ -601,6 +612,7 @@ export const tenantsAPI = {
       return handleApiError(error);
     }
   },
+
   removeServiceCharge: async (id: string): Promise<Tenant> => {
     try {
       const response = await api.delete(`/tenants/${id}/service-charge`);
@@ -609,9 +621,86 @@ export const tenantsAPI = {
       return handleApiError(error);
     }
   },
+
   delete: async (id: string): Promise<void> => {
     try {
       await api.delete(`/tenants/${id}`);
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  // =============================================
+  // FINANCIALS
+  // =============================================
+
+  getFinancials: async (tenantId: string): Promise<any> => {
+    try {
+      const response = await api.get(`/tenants/${tenantId}/financials`);
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  // =============================================
+  // ATTACHMENTS
+  // =============================================
+
+  getAttachments: async (tenantId: string): Promise<AttachmentsListResponse> => {
+    try {
+      const response = await api.get(`/tenants/${tenantId}/attachments`);
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  uploadAttachment: async (tenantId: string, file: File): Promise<AttachmentUploadResponse> => {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const response = await api.post(`/tenants/${tenantId}/attachments`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  previewAttachment: async (attachmentId: string): Promise<void> => {
+    try {
+      window.open(`/api/tenants/attachments/${attachmentId}/preview`, '_blank');
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  downloadAttachment: async (attachmentId: string): Promise<void> => {
+    try {
+      window.open(`/api/tenants/attachments/${attachmentId}/download`, '_blank');
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  updateAttachment: async (attachmentId: string, data: UpdateAttachmentRequest): Promise<AttachmentUploadResponse> => {
+    try {
+      const response = await api.put(`/tenants/attachments/${attachmentId}`, data);
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  deleteAttachment: async (attachmentId: string): Promise<DeleteAttachmentResponse> => {
+    try {
+      const response = await api.delete(`/tenants/attachments/${attachmentId}`);
+      return response.data;
     } catch (error) {
       return handleApiError(error);
     }

@@ -387,6 +387,72 @@ export interface NextPaymentsResponse {
   payments: NextPaymentItem[];
 }
 
+// =============================================
+// ATTACHMENT TYPES
+// =============================================
+
+export interface Attachment {
+  id: string;
+  name: string;           // Original file name
+  fileName: string;       // Stored file name
+  url: string;            // File path or URL
+  mimeType: string;
+  size: number;
+  tenantId: string;
+  tenant?: Tenant;
+  uploadedById: string;
+  uploadedBy?: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  uploadedAt: string;
+  updatedAt: string;
+  
+  // Frontend helper fields (added by controller)
+  previewUrl?: string;
+  downloadUrl?: string;
+  canEdit?: boolean;
+  canDelete?: boolean;
+  canDownload?: boolean;
+  canPreview?: boolean;
+}
+
+export interface AttachmentUploadResponse {
+  success: boolean;
+  message: string;
+  data: Attachment & {
+    previewUrl: string;
+    downloadUrl: string;
+    canEdit: boolean;
+    canDelete: boolean;
+    canDownload: boolean;
+    canPreview: boolean;
+  };
+}
+
+export interface AttachmentsListResponse {
+  success: boolean;
+  count: number;
+  data: (Attachment & {
+    previewUrl: string;
+    downloadUrl: string;
+    canEdit: boolean;
+    canDelete: boolean;
+    canDownload: boolean;
+    canPreview: boolean;
+  })[];
+}
+
+export interface UpdateAttachmentRequest {
+  name: string;
+}
+
+export interface DeleteAttachmentResponse {
+  success: boolean;
+  message: string;
+}
+
 export type PaymentStatus = 'PAID' | 'PARTIAL' | 'UNPAID'| 'CREDIT' | 'PREPAID';
 
 export interface PaymentReport {

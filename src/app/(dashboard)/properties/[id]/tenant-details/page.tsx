@@ -24,6 +24,7 @@ import { formatDateToOrdinal, getDaysRemaining } from '@/lib/dateUtils';
 import { PermissionGuard } from '@/components/auth/PermissionGuard';
 import { useGlobalPermissions } from '@/app/providers/PermissionsProvider';
 import { PermissionCode } from '@/types';
+import { AttachmentSection } from '@/components/tenant/AttachmentSection';
 
 export default function TenantDetailPage() {
   const params = useParams();
@@ -1876,6 +1877,18 @@ export default function TenantDetailPage() {
             </dl>
           </motion.div>
         )}
+        {/* ============================================= */}
+        {/* ATTACHMENTS SECTION - Full width */}
+        {/* ============================================= */}
+        <motion.div variants={itemVariants} className="col-span-1 lg:col-span-2">
+          <AttachmentSection 
+            tenantId={tenantId}
+            isAdmin={isAdmin}
+            isManager={isManager}
+            canEdit={canCreateInvoices || canCreatePayments}
+            canDelete={isAdmin || isManager}
+          />
+        </motion.div>
       </div>
 
       {/* Generate Invoice Dialog */}
