@@ -94,6 +94,30 @@ const api = axios.create({
   baseURL: API_BASE_URL,
 });
 
+// Helper function to format date for API
+const formatDateForAPI = (date: string | Date | undefined): string | undefined => {
+  if (!date) return undefined;
+  
+  try {
+    const dateObj = typeof date === 'string' ? new Date(date) : date;
+    
+    // Validate the date
+    if (isNaN(dateObj.getTime())) {
+      console.warn('Invalid date provided:', date);
+      return undefined;
+    }
+    
+    // Format as YYYY-MM-DD
+    const year = dateObj.getFullYear();
+    const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const day = String(dateObj.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  } catch (error) {
+    console.error('Error formatting date:', error);
+    return undefined;
+  }
+};
+
 // Add token to requests
 api.interceptors.request.use((config) => {
   // Check if we're in browser environment before accessing localStorage
@@ -806,14 +830,30 @@ export const paymentsAPI = {
 
   createPaymentReport: async (data: CreatePaymentReportRequest): Promise<CreatePaymentReportResponse> => {
     try {
-      const response = await api.post('/payments', {
+      // Format the paymentPeriod if it exists
+      const formattedPaymentPeriod = data.paymentPeriod 
+        ? formatDateForAPI(data.paymentPeriod) 
+        : undefined;
+      
+      // Build the request data
+      const requestData = {
         ...data,
+        paymentPeriod: formattedPaymentPeriod,
         // Set defaults to match backend behavior
         handleOverpayment: data.handleOverpayment ?? true,
         updateExistingInvoices: data.updateExistingInvoices ?? true,
         createMissingInvoices: data.createMissingInvoices ?? false,
-       // autoGenerateBalanceInvoice: data.autoGenerateBalanceInvoice ?? false,
-      });
+      };
+      
+      // Log the formatted data for debugging
+     /* console.log('Creating payment report with data:', {
+        tenantId: requestData.tenantId,
+        amountPaid: requestData.amountPaid,
+        paymentPeriod: requestData.paymentPeriod,
+        notes: requestData.notes,
+      });*/
+      
+      const response = await api.post('/payments', requestData);
       
       if (!response.data || !response.data.success) {
         throw new Error(response.data?.message || 'Invalid response from server');
@@ -822,10 +862,15 @@ export const paymentsAPI = {
       return response.data.data;
     } catch (error: any) {
       console.error('Failed to create payment report:', error);
-      const message =
-        error?.response?.data?.message ||
-        error?.message ||
-        'Failed to create payment report';
+      
+      // Enhanced error messages for common issues
+      let message = error?.response?.data?.message || error?.message || 'Failed to create payment report';
+      
+      // Check for paymentPeriod related errors
+      if (message.includes('paymentPeriod date format')) {
+        message = 'Invalid date format. Please provide a valid date (e.g., "2026-07-01")';
+      }
+      
       throw new Error(message);
     }
   },
