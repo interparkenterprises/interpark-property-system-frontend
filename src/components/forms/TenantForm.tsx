@@ -18,8 +18,8 @@ interface ServiceChargeFormData {
   fixedAmount?: number;
   percentage?: number;
   perSqFtRate?: number;
-  vatType: VATType; // NEW
-  vatRate: number; // NEW
+  vatType: VATType;
+  vatRate: number;
 }
 
 interface TenantFormData {
@@ -32,7 +32,7 @@ interface TenantFormData {
   leaseTerm: string;
   rent: number;
   escalationRate: number;
-  escalationFrequency?: EscalationFrequency; // Updated to include BI_ENNIAL
+  escalationFrequency?: EscalationFrequency;
   termStart: string;
   rentStart: string;
   deposit: number;
@@ -78,6 +78,7 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
   const [selectedUnit, setSelectedUnit] = useState<Unit | null>(null);
   const [fetchingUnits, setFetchingUnits] = useState(false);
   const [hasDraft, setHasDraft] = useState(false);
+  const [originalUnitId, setOriginalUnitId] = useState<string | null>(null);
 
   // Load draft from localStorage
   const loadDraft = () => {
@@ -161,10 +162,13 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
             fixedAmount: tenant.serviceCharge.fixedAmount || 0,
             percentage: tenant.serviceCharge.percentage || 0,
             perSqFtRate: tenant.serviceCharge.perSqFtRate || 0,
-            vatType: tenant.serviceCharge.vatType || 'NOT_APPLICABLE', // NEW
-            vatRate: tenant.serviceCharge.vatRate || 0 // NEW
+            vatType: tenant.serviceCharge.vatType || 'NOT_APPLICABLE',
+            vatRate: tenant.serviceCharge.vatRate || 0
           } : undefined
         });
+        
+        // Store original unit ID for tracking changes
+        setOriginalUnitId(tenant.unitId);
         
         // Set selected unit when editing tenant
         if (tenant.unit) {
@@ -200,6 +204,7 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
       serviceCharge: undefined
     });
     setSelectedUnit(null);
+    setOriginalUnitId(null);
     setError('');
   };
 
@@ -221,6 +226,7 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
       };
       
       // When creating a new tenant, only show vacant units
+      // When editing a tenant, show all units (vacant + current tenant's unit)
       if (!tenant) {
         params.status = 'VACANT';
       }
@@ -269,6 +275,9 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
   const handleUnitChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
     const unitId = e.target.value;
     
+    // Check if this is a unit transfer (editing tenant and changing unit)
+    const isUnitTransfer = tenant && originalUnitId && unitId !== originalUnitId;
+    
     // Update the unitId in form data
     const newFormData = {
       ...formData,
@@ -299,6 +308,13 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
     if (unit) {
       setSelectedUnit(unit);
       
+      // If this is a unit transfer, check if the unit is vacant
+      if (isUnitTransfer && unit.status !== 'VACANT') {
+        setError('The selected unit is occupied. Please select a vacant unit.');
+        // Don't auto-populate rent if unit is not vacant
+        return;
+      }
+      
       // Auto-populate the rent field with the unit's rentAmount
       const updatedFormData = {
         ...newFormData,
@@ -307,6 +323,11 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
       
       setFormData(updatedFormData);
       saveDraft(updatedFormData);
+      
+      // Clear any previous unit-related errors
+      if (error && error.includes('unit')) {
+        setError('');
+      }
     }
   };
 
@@ -363,8 +384,8 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
           fixedAmount: 0,
           percentage: 0,
           perSqFtRate: 0,
-          vatType: 'NOT_APPLICABLE', // NEW
-          vatRate: 0 // NEW
+          vatType: 'NOT_APPLICABLE',
+          vatRate: 0
         }
       };
     } else {
@@ -564,6 +585,18 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
         throw new Error('Selected unit does not belong to this property');
       }
 
+      // For editing tenant: if unit is being changed, verify target unit is vacant
+      if (tenant && originalUnitId && submitData.unitId !== originalUnitId) {
+        const targetUnit = units.find(u => u.id === submitData.unitId);
+        if (targetUnit && targetUnit.status !== 'VACANT') {
+          throw new Error('Cannot move tenant to an occupied unit. Please select a vacant unit.');
+        }
+        // Check if target unit has any tenant assigned
+        if (targetUnit && targetUnit.tenant !== null) {
+          throw new Error('Target unit is already assigned to another tenant.');
+        }
+      }
+
       // Validate VAT fields
       if (submitData.vatType === 'INCLUSIVE' || submitData.vatType === 'EXCLUSIVE') {
         if (!submitData.vatRate || submitData.vatRate <= 0) {
@@ -665,11 +698,14 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
       case 'BI_ANNUALLY':
         return 'Bi-Annually (Every 6 months)';
       case 'BI_ENNIAL':
-        return 'Bi-Ennial (Every 2 years)'; // NEW
+        return 'Bi-Ennial (Every 2 years)';
       default:
         return frequency;
     }
   };
+
+  // Check if unit is being changed (for editing mode)
+  const isUnitBeingChanged = tenant && originalUnitId && formData.unitId !== originalUnitId && formData.unitId !== '';
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -701,6 +737,22 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
       {error && error.includes('Warning') && (
         <div className="px-4 py-3 rounded bg-amber-50 border border-amber-200 text-amber-600">
           {error}
+        </div>
+      )}
+
+      {/* Unit Transfer Warning */}
+      {isUnitBeingChanged && (
+        <div className="px-4 py-3 rounded bg-amber-50 border border-amber-200 text-amber-700">
+          <p className="font-medium">⚠️ Unit Transfer in Progress</p>
+          <p className="text-sm mt-1">
+            You are moving this tenant from unit {units.find(u => u.id === originalUnitId)?.unitNo || 'current'} to unit {units.find(u => u.id === formData.unitId)?.unitNo || 'new'}.
+            The current unit will be set to vacant after the transfer.
+          </p>
+          {selectedUnit && selectedUnit.rentAmount !== formData.rent && (
+            <p className="text-sm mt-1 text-amber-600">
+              Note: The rent for the new unit ({formatCurrency(selectedUnit.rentAmount)}) is different from the current rent.
+            </p>
+          )}
         </div>
       )}
 
@@ -784,18 +836,33 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
               }
             </option>
           ) : (
-            units.map(unit => (
-              <option 
-                key={unit.id} 
-                value={unit.id} 
-                className="text-gray-900"
-                disabled={!tenant && unit.status !== 'VACANT'}
-              >
-                {getUnitDisplayName(unit)}
-                {!tenant && unit.status !== 'VACANT' && ' (Occupied)'}
-                {unit.status === 'VACANT' && ' (Vacant)'}
-              </option>
-            ))
+            units.map(unit => {
+              // For editing tenant: show all units, but mark occupied ones as disabled
+              // For new tenant: only show vacant units
+              const isDisabled = !tenant && unit.status !== 'VACANT';
+              const isCurrentUnit = tenant && unit.id === originalUnitId;
+              const isOccupied = unit.status === 'OCCUPIED';
+              
+              // For editing: allow selecting the current unit (even if occupied) and vacant units
+              // For new: only vacant units
+              const shouldShow = tenant ? true : unit.status === 'VACANT';
+              
+              if (!shouldShow) return null;
+              
+              return (
+                <option 
+                  key={unit.id} 
+                  value={unit.id} 
+                  className="text-gray-900"
+                  disabled={isDisabled}
+                >
+                  {getUnitDisplayName(unit)}
+                  {isCurrentUnit && ' (Current Unit)'}
+                  {isOccupied && !isCurrentUnit && ' (Occupied - Not Available)'}
+                  {unit.status === 'VACANT' && ' (Vacant)'}
+                </option>
+              );
+            })
           )}
         </select>
         
@@ -807,11 +874,15 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
         
         {/* Display unit rent information when a unit is selected */}
         {selectedUnit && (
-          <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-md">
-            <p className="text-sm text-blue-700">
+          <div className={`mt-2 p-3 rounded-md ${
+            selectedUnit.status === 'VACANT' ? 'bg-green-50 border border-green-200' : 
+            tenant && selectedUnit.id === originalUnitId ? 'bg-blue-50 border border-blue-200' :
+            'bg-amber-50 border border-amber-200'
+          }`}>
+            <p className="text-sm text-gray-700">
               <strong>Unit Rent:</strong> {formatCurrency(selectedUnit.rentAmount)}
               {selectedUnit.rentType && (
-                <span className="ml-2 text-blue-600">
+                <span className="ml-2 text-gray-600">
                   ({selectedUnit.rentType.replace(/_/g, ' ').toLowerCase()})
                 </span>
               )}
@@ -820,9 +891,13 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
               <p className="text-xs text-green-600 mt-1">
                 ✓ This unit is currently vacant and available for occupancy.
               </p>
+            ) : tenant && selectedUnit.id === originalUnitId ? (
+              <p className="text-xs text-blue-600 mt-1">
+                ℹ This is the tenant's current unit. You can move them to a vacant unit.
+              </p>
             ) : (
               <p className="text-xs text-amber-600 mt-1">
-                ⚠ This unit is currently occupied. {tenant ? 'You are editing the current tenant.' : 'Cannot assign to new tenant.'}
+                ⚠ This unit is currently occupied. {tenant ? 'Select a vacant unit to move the tenant.' : 'Cannot assign to new tenant.'}
               </p>
             )}
           </div>
@@ -892,7 +967,7 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
             <option value="" className="text-gray-500">Select Frequency</option>
             <option value="ANNUALLY" className="text-gray-900">Annually</option>
             <option value="BI_ANNUALLY" className="text-gray-900">Bi-Annually (Every 6 months)</option>
-            <option value="BI_ENNIAL" className="text-gray-900">Bi-Ennial (Every 2 years)</option> {/* NEW */}
+            <option value="BI_ENNIAL" className="text-gray-900">Bi-Ennial (Every 2 years)</option>
           </select>
           {formData.escalationFrequency === 'BI_ENNIAL' && (
             <p className="mt-1 text-xs text-blue-600">

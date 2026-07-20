@@ -979,6 +979,10 @@ export interface Income {
 
 export type ChargeFrequency = 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'QUARTERLY' | 'ANNUAL';
 
+// =============================================
+// SERVICE PROVIDER TYPES
+// =============================================
+
 export interface ServiceProvider {
   id: string;
   propertyId: string;
@@ -991,8 +995,136 @@ export interface ServiceProvider {
   chargeFrequency: ChargeFrequency;
   createdAt: string;
   updatedAt: string;
+  attachments?: ServiceProviderAttachment[];
 }
 
+export interface CreateServiceProviderRequest {
+  propertyId: string;
+  name: string;
+  contact?: string;
+  contractPeriod?: string;
+  serviceContract?: string;
+  chargeAmount: number;
+  chargeFrequency: ChargeFrequency;
+}
+
+export interface UpdateServiceProviderRequest {
+  name?: string;
+  contact?: string;
+  contractPeriod?: string;
+  serviceContract?: string;
+  chargeAmount?: number;
+  chargeFrequency?: ChargeFrequency;
+}
+
+// =============================================
+// SERVICE PROVIDER ATTACHMENT TYPES
+// =============================================
+
+export interface ServiceProviderAttachment {
+  id: string;
+  serviceProviderId: string;
+  fileName: string;
+  fileUrl: string;
+  fileType: string;
+  fileSize: number;
+  description?: string | null;
+  category?: string | null;
+  version?: string | null;
+  expiryDate?: string | null;
+  isActive: boolean;
+  uploadedAt: string;
+  uploadedById: string;
+  uploadedBy?: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  serviceProvider?: {
+    id: string;
+    name: string;
+    propertyId: string;
+  };
+}
+
+export interface ServiceProviderAttachmentWithUrls extends ServiceProviderAttachment {
+  previewUrl: string;
+  downloadUrl: string;
+}
+
+// Service Provider Attachment Request Types
+export interface UploadServiceProviderAttachmentRequest {
+  file: File;
+  description?: string;
+  category?: string;
+  expiryDate?: string;
+  version?: string;
+}
+
+export interface UpdateServiceProviderAttachmentRequest {
+  description?: string;
+  category?: string;
+  expiryDate?: string;
+  version?: string;
+  isActive?: boolean;
+}
+
+// Service Provider Attachment Response Types
+export interface ServiceProviderAttachmentUploadResponse {
+  success: boolean;
+  data: ServiceProviderAttachmentWithUrls;
+  message: string;
+}
+
+export interface ServiceProviderAttachmentsListResponse {
+  success: boolean;
+  data: ServiceProviderAttachmentWithUrls[];
+}
+
+export interface ServiceProviderAttachmentResponse {
+  success: boolean;
+  data: ServiceProviderAttachmentWithUrls;
+}
+
+export interface ServiceProviderAttachmentUrlResponse {
+  success: boolean;
+  data: {
+    id: string;
+    fileName: string;
+    fileUrl: string;
+    downloadUrl: string;
+    previewUrl: string;
+    fileType: string;
+    fileSize: number;
+    isActive: boolean;
+    category?: string | null;
+    description?: string | null;
+    uploadedAt: string;
+  };
+}
+
+export interface ServiceProviderDeleteAttachmentResponse {
+  success: boolean;
+  message: string;
+}
+
+// Category types for filtering
+export type ServiceProviderAttachmentCategory = 
+  | 'CONTRACT'
+  | 'CERTIFICATE'
+  | 'INVOICE'
+  | 'LICENSE'
+  | 'INSURANCE'
+  | 'OTHER';
+
+// Optional: Helper type for attachment statistics
+export interface ServiceProviderAttachmentStats {
+  total: number;
+  byCategory: Record<string, number>;
+  totalSize: number;
+  active: number;
+  expired: number;
+}
 export interface Lead {
   id: string;
   name: string;

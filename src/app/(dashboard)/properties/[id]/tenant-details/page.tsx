@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, JSX } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { motion, Variants } from 'framer-motion';
 import { Tenant, Invoice, InvoiceStatus, PaymentReport, PaymentPreview, CreatePaymentReportResponse, PaymentStatus, BillInvoice, PaymentPolicy, DemandLetter, DemandLetterStatus, CreatePaymentReportRequest } from '@/types';
@@ -1225,6 +1225,154 @@ export default function TenantDetailPage() {
   const { rent, serviceCharge, vat, totalDue, monthlyEquivalent } = calculatePaymentAmounts();
   const partialPaymentsCount = paymentReports.filter(p => p.status === 'PARTIAL' && p.arrears > 0).length;
 
+  // ==============================================
+  // ACTION BUTTONS CONFIGURATION
+  // ==============================================
+  interface ActionButtonConfig {
+    id: string;
+    label: string;
+    icon: JSX.Element;
+    onClick: () => void;
+    variant: 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger' | 'success' | 'warning' | 'info';
+    permission: boolean;
+    badge?: number;
+    badgeColor?: string;
+    description?: string;
+    group?: 'invoices' | 'payments' | 'bills' | 'demand' | 'reports';
+  }
+
+  const actionButtons: ActionButtonConfig[] = [
+    // Invoices Group
+    {
+      id: 'generate-invoice',
+      label: 'Generate Invoice',
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+        </svg>
+      ),
+      onClick: () => setShowInvoiceDialog(true),
+      variant: 'primary',
+      permission: isAdmin || isManager || permissions.invoices.canCreate,
+      description: 'Create new invoice',
+      group: 'invoices'
+    },
+    {
+      id: 'view-invoices',
+      label: 'View Invoices',
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
+      ),
+      onClick: () => setShowInvoicesList(true),
+      variant: 'outline',
+      permission: isAdmin || isManager || permissions.invoices.canView,
+      badge: invoices.length,
+      badgeColor: 'blue',
+      description: `View all ${invoices.length} invoices`,
+      group: 'invoices'
+    },
+    // Payments Group
+    {
+      id: 'record-payment',
+      label: 'Record Payment',
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+        </svg>
+      ),
+      onClick: () => setShowCreatePaymentDialog(true),
+      variant: 'success',
+      permission: isAdmin || isManager || permissions.payments.canCreate,
+      description: 'Record new payment',
+      group: 'payments'
+    },
+    {
+      id: 'payment-reports',
+      label: 'Payment Reports',
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+        </svg>
+      ),
+      onClick: () => setShowPaymentReportsDialog(true),
+      variant: 'info',
+      permission: isAdmin || isManager || permissions.payments.canView,
+      badge: paymentReports.length,
+      badgeColor: 'green',
+      description: partialPaymentsCount > 0 
+        ? `${partialPaymentsCount} partial payments` 
+        : `View all ${paymentReports.length} reports`,
+      group: 'payments'
+    },
+    // Bills Group
+    {
+      id: 'bill-invoices',
+      label: 'Bill Invoices',
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
+      ),
+      onClick: () => setShowBillInvoicesDialog(true),
+      variant: 'warning',
+      permission: isAdmin || isManager || permissions.billInvoices.canView,
+      badge: billInvoices.length,
+      badgeColor: 'purple',
+      description: `View all ${billInvoices.length} bill invoices`,
+      group: 'bills'
+    },
+    {
+      id: 'my-bills',
+      label: 'My Bills',
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+        </svg>
+      ),
+      onClick: () => router.push(`/properties/${params.id}/tenant-details/bills`),
+      variant: 'secondary',
+      permission: true, // Available to all logged in users
+      description: 'View your bills',
+      group: 'bills'
+    },
+    // Demand Letters Group
+    {
+      id: 'demand-letter',
+      label: 'Demand Letter',
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+        </svg>
+      ),
+      onClick: () => setShowDemandLetterDialog(true),
+      variant: 'danger',
+      permission: isAdmin || isManager || permissions.demandLetters.canCreate,
+      description: 'Generate demand letter',
+      group: 'demand'
+    },
+    {
+      id: 'view-demand-letters',
+      label: 'View Demand Letters',
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
+      ),
+      onClick: () => setShowDemandLettersListDialog(true),
+      variant: 'outline',
+      permission: isAdmin || isManager || permissions.demandLetters.canView,
+      badge: demandLetters.length,
+      badgeColor: 'orange',
+      description: `View all ${demandLetters.length} demand letters`,
+      group: 'demand'
+    },
+  ];
+
+  // Filter buttons based on permissions
+  const visibleButtons = actionButtons.filter(btn => btn.permission);
+
   return (
     <motion.div
       initial="hidden"
@@ -1236,7 +1384,7 @@ export default function TenantDetailPage() {
       <motion.div variants={itemVariants}>
         <Button
           onClick={() => router.back()}
-          className="group px-6 py-3 bg-gray-100 text-black hover:bg-gray-100 transition-all duration-300 shadow-sm hover:shadow-md rounded-lg"
+          className="group px-6 py-3 bg-gray-100 text-black hover:bg-gray-200 transition-all duration-300 shadow-sm hover:shadow-md rounded-lg"
         >
           <motion.span className="flex items-center gap-2" whileHover={{ x: -2 }}>
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1277,120 +1425,138 @@ export default function TenantDetailPage() {
           </div>
         </div>
 
-        {/* Action Buttons - Conditionally rendered based on permissions */}
-        <div className="flex flex-wrap gap-3">
-          {/* Generate Invoice Button - ADMIN, MANAGER, or user with CREATE_INVOICE permission */}
-          {(isAdmin || isManager || permissions.invoices.canCreate) && (
-            <Button
-              onClick={() => setShowInvoiceDialog(true)}
-              className="px-6 py-3 bg-primary text-white hover:bg-primary/90 transition-all duration-300 shadow-md hover:shadow-lg rounded-lg flex items-center gap-2"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              Generate Invoice
-            </Button>
-          )}
-          
-          {/* View Invoices Button - ADMIN, MANAGER, or user with VIEW_INVOICES permission */}
-          {(isAdmin || isManager || permissions.invoices.canView) && (
-            <Button
-              onClick={() => setShowInvoicesList(true)}
-              variant="outline"
-              className="px-6 py-3 border-2 border-primary text-primary hover:bg-primary/5 transition-all duration-300 rounded-lg flex items-center gap-2"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              View Invoices ({invoices.length})
-            </Button>
-          )}
-          
-          {/* Record Payment Button - ADMIN, MANAGER, or user with RECORD_PAYMENTS permission */}
-          {(isAdmin || isManager || permissions.payments.canCreate) && (
-            <Button
-              onClick={() => setShowCreatePaymentDialog(true)}
-              className="px-6 py-3 bg-blue-600 text-white hover:bg-blue-700 transition-all duration-300 shadow-md hover:shadow-lg rounded-lg flex items-center gap-2"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              Record Payment
-            </Button>
-          )}
-          
-          {/* Payment Reports Button - ADMIN, MANAGER, or user with VIEW_PAYMENT_REPORTS permission */}
-          {(isAdmin || isManager || permissions.payments.canView) && (
-            <Button
-              onClick={() => setShowPaymentReportsDialog(true)}
-              variant="outline"
-              className="px-6 py-3 border-2 border-green-600 text-green-600 hover:bg-green-50 transition-all duration-300 rounded-lg flex items-center gap-2"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-              </svg>
-              Payment Reports ({paymentReports.length})
-              {partialPaymentsCount > 0 && (
-                <span className="ml-1 px-2 py-0.5 bg-yellow-500 text-white text-xs rounded-full">
-                  {partialPaymentsCount} partial
+        {/* ============================================ */}
+        {/* IMPROVED ACTION BUTTONS SECTION */}
+        {/* ============================================ */}
+        <div className="w-full lg:w-auto">
+          {/* Desktop: Grid layout with cards */}
+          <div className="hidden lg:grid lg:grid-cols-4 gap-3">
+            {visibleButtons.slice(0, 8).map((btn) => (
+              <motion.button
+                key={btn.id}
+                whileHover={{ y: -2, scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={btn.onClick}
+                className={`
+                  group relative flex flex-col items-center justify-center p-4 rounded-xl 
+                  transition-all duration-300 border-2 shadow-sm hover:shadow-lg
+                  ${btn.variant === 'primary' && 'bg-primary border-primary hover:bg-primary/90 text-white'}
+                  ${btn.variant === 'secondary' && 'bg-gray-100 border-gray-200 hover:bg-gray-200 text-gray-800'}
+                  ${btn.variant === 'outline' && 'bg-white border-gray-300 hover:border-primary hover:bg-primary/5 text-gray-700'}
+                  ${btn.variant === 'success' && 'bg-green-600 border-green-600 hover:bg-green-700 text-white'}
+                  ${btn.variant === 'info' && 'bg-blue-600 border-blue-600 hover:bg-blue-700 text-white'}
+                  ${btn.variant === 'warning' && 'bg-amber-600 border-amber-600 hover:bg-amber-700 text-white'}
+                  ${btn.variant === 'danger' && 'bg-red-600 border-red-600 hover:bg-red-700 text-white'}
+                `}
+              >
+                {/* Icon with background circle */}
+                <div className={`
+                  flex items-center justify-center w-10 h-10 rounded-full mb-2
+                  ${btn.variant === 'primary' && 'bg-white/20 text-white'}
+                  ${btn.variant === 'secondary' && 'bg-gray-200 text-gray-700'}
+                  ${btn.variant === 'outline' && 'bg-gray-100 text-gray-600 group-hover:bg-primary/10 group-hover:text-primary'}
+                  ${btn.variant === 'success' && 'bg-white/20 text-white'}
+                  ${btn.variant === 'info' && 'bg-white/20 text-white'}
+                  ${btn.variant === 'warning' && 'bg-white/20 text-white'}
+                  ${btn.variant === 'danger' && 'bg-white/20 text-white'}
+                `}>
+                  {btn.icon}
+                </div>
+                
+                {/* Label */}
+                <span className="text-sm font-semibold text-center leading-tight">
+                  {btn.label}
                 </span>
-              )}
-            </Button>
-          )}
-          
-          {/* Bill Invoices Button - ADMIN, MANAGER, or user with VIEW_BILL_INVOICES permission */}
-          {(isAdmin || isManager || permissions.billInvoices.canView) && (
-            <Button
-              onClick={() => setShowBillInvoicesDialog(true)}
-              variant="outline"
-              className="px-6 py-3 border-2 border-purple-600 text-purple-600 hover:bg-purple-50 transition-all duration-300 rounded-lg flex items-center gap-2"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              Bill Invoices ({billInvoices.length})
-            </Button>
-          )}
-          
-          {/* My Bills Button - Available to all logged in users */}
-          <Button
-            onClick={() => router.push(`/properties/${params.id}/tenant-details/bills`)}
-            variant="outline"
-            className="px-6 py-3 border-2 border-blue-600 text-blue-600 hover:bg-blue-50 transition-all duration-300 rounded-lg flex items-center gap-2"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-            </svg>
-            My Bills
-          </Button>
-          
-          {/* Demand Letter Button - ADMIN, MANAGER, or user with CREATE_DEMAND_LETTER permission */}
-          {(isAdmin || isManager || permissions.demandLetters.canCreate) && (
-            <Button
-              onClick={() => setShowDemandLetterDialog(true)}
-              variant="outline"
-              className="px-6 py-3 border-2 border-red-600 text-red-600 hover:bg-red-50 transition-all duration-300 rounded-lg flex items-center gap-2"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-              Demand Letter
-            </Button>
-          )}
-          
-          {/* View Demand Letters Button - ADMIN, MANAGER, or user with VIEW_DEMAND_LETTERS permission */}
-          {(isAdmin || isManager || permissions.demandLetters.canView) && (
-            <Button
-              onClick={() => setShowDemandLettersListDialog(true)}
-              variant="outline"
-              className="px-6 py-3 border-2 border-orange-600 text-orange-600 hover:bg-orange-50 transition-all duration-300 rounded-lg flex items-center gap-2"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              View Demand Letters ({demandLetters.length})
-            </Button>
-          )}
+                
+                {/* Badge */}
+                {btn.badge !== undefined && btn.badge > 0 && (
+                  <span className={`
+                    absolute -top-1 -right-1 flex items-center justify-center
+                    min-w-5 h-5 px-1.5 rounded-full text-xs font-bold text-white
+                    ${btn.badgeColor === 'blue' && 'bg-blue-500'}
+                    ${btn.badgeColor === 'green' && 'bg-green-500'}
+                    ${btn.badgeColor === 'purple' && 'bg-purple-500'}
+                    ${btn.badgeColor === 'orange' && 'bg-orange-500'}
+                    ${btn.badgeColor === 'red' && 'bg-red-500'}
+                    ${!btn.badgeColor && 'bg-gray-500'}
+                  `}>
+                    {btn.badge > 99 ? '99+' : btn.badge}
+                  </span>
+                )}
+                
+                {/* Description tooltip on hover */}
+                {btn.description && (
+                  <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none">
+                    <span className="text-[10px] bg-gray-900 text-white px-2 py-1 rounded whitespace-nowrap">
+                      {btn.description}
+                    </span>
+                  </div>
+                )}
+              </motion.button>
+            ))}
+          </div>
+
+          {/* Mobile/Tablet: Horizontal scrollable row */}
+          <div className="lg:hidden relative">
+            <div className="flex overflow-x-auto gap-3 pb-2 px-1 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
+              {visibleButtons.map((btn) => (
+                <motion.button
+                  key={btn.id}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={btn.onClick}
+                  className={`
+                    group relative flex flex-col items-center justify-center p-3 rounded-xl 
+                    transition-all duration-300 border-2 shadow-sm hover:shadow-lg min-w-20 shrink-0
+                    ${btn.variant === 'primary' && 'bg-primary border-primary hover:bg-primary/90 text-white'}
+                    ${btn.variant === 'secondary' && 'bg-gray-100 border-gray-200 hover:bg-gray-200 text-gray-800'}
+                    ${btn.variant === 'outline' && 'bg-white border-gray-300 hover:border-primary hover:bg-primary/5 text-gray-700'}
+                    ${btn.variant === 'success' && 'bg-green-600 border-green-600 hover:bg-green-700 text-white'}
+                    ${btn.variant === 'info' && 'bg-blue-600 border-blue-600 hover:bg-blue-700 text-white'}
+                    ${btn.variant === 'warning' && 'bg-amber-600 border-amber-600 hover:bg-amber-700 text-white'}
+                    ${btn.variant === 'danger' && 'bg-red-600 border-red-600 hover:bg-red-700 text-white'}
+                  `}
+                >
+                  <div className="flex items-center justify-center w-8 h-8 rounded-full mb-1">
+                    {btn.icon}
+                  </div>
+                  <span className="text-xs font-semibold text-center leading-tight">
+                    {btn.label}
+                  </span>
+                  {btn.badge !== undefined && btn.badge > 0 && (
+                    <span className={`
+                      absolute -top-1 -right-1 flex items-center justify-center
+                      min-w-4 h-4 px-1 rounded-full text-[10px] font-bold text-white
+                      ${btn.badgeColor === 'blue' && 'bg-blue-500'}
+                      ${btn.badgeColor === 'green' && 'bg-green-500'}
+                      ${btn.badgeColor === 'purple' && 'bg-purple-500'}
+                      ${btn.badgeColor === 'orange' && 'bg-orange-500'}
+                      ${btn.badgeColor === 'red' && 'bg-red-500'}
+                      ${!btn.badgeColor && 'bg-gray-500'}
+                    `}>
+                      {btn.badge > 99 ? '99+' : btn.badge}
+                    </span>
+                  )}
+                </motion.button>
+              ))}
+            </div>
+            {/* Scroll indicator */}
+            {visibleButtons.length > 4 && (
+              <div className="absolute right-0 top-1/2 -translate-y-1/2 bg-linear-to-l from-white via-white/80 to-transparent w-12 h-full pointer-events-none" />
+            )}
+          </div>
+
+          {/* Category labels for better UX */}
+          <div className="hidden lg:flex lg:flex-wrap gap-1 mt-2 justify-center">
+            {['invoices', 'payments', 'bills', 'demand'].map((group) => {
+              const groupButtons = visibleButtons.filter(b => b.group === group);
+              if (groupButtons.length === 0) return null;
+              return (
+                <span key={group} className="text-[10px] text-gray-400 uppercase tracking-wider font-medium px-2">
+                  {group}
+                </span>
+              );
+            })}
+          </div>
         </div>
       </motion.div>
 

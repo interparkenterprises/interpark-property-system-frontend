@@ -1447,8 +1447,13 @@ export default function PropertyDetailPage() {
                               </svg>
                             </div>
                             <div>
-                              <h3 className="text-lg font-bold text-heading-color">{unit.type || 'Unit'}</h3>
-                              <p className="text-sm text-gray-500">ID: {unit.id.slice(0, 8)}</p>
+                              <h3 className="text-lg font-bold text-heading-color">
+                                {unit.unitNo ? `Unit ${unit.unitNo}` : unit.type || 'Unit'}
+                              </h3>
+                              {unit.floor && (
+                                <p className="text-sm text-gray-500">{unit.floor}</p>
+                              )}
+                              <p className="text-xs text-gray-400">ID: {unit.id.slice(0, 8)}</p>
                             </div>
                           </div>
                           <motion.span

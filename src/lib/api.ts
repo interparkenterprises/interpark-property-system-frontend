@@ -86,6 +86,16 @@ import {
   AttachmentUploadResponse,
   DeleteAttachmentResponse,
   UpdateAttachmentRequest,
+  CreateServiceProviderRequest,
+  ServiceProviderAttachment,
+  ServiceProviderAttachmentResponse,
+  ServiceProviderAttachmentsListResponse,
+  ServiceProviderAttachmentUploadResponse,
+  ServiceProviderAttachmentUrlResponse,
+  ServiceProviderAttachmentWithUrls,
+  ServiceProviderDeleteAttachmentResponse,
+  UpdateServiceProviderAttachmentRequest,
+  UpdateServiceProviderRequest,
 } from '@/types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.interparkpropertysystem.co.ke/api';
@@ -1301,6 +1311,14 @@ export const incomesAPI = {
 };
 
 export const serviceProvidersAPI = {
+  // =============================================
+  // SERVICE PROVIDER CRUD OPERATIONS
+  // =============================================
+
+  /**
+   * Get all service providers
+   * @returns {Promise<ServiceProvider[]>} List of all service providers
+   */
   getAll: async (): Promise<ServiceProvider[]> => {
     try {
       const response = await api.get('/service-providers');
@@ -1309,6 +1327,12 @@ export const serviceProvidersAPI = {
       return handleApiError(error);
     }
   },
+
+  /**
+   * Get service providers by property
+   * @param {string} propertyId - The property ID
+   * @returns {Promise<ServiceProvider[]>} List of service providers for the property
+   */
   getByProperty: async (propertyId: string): Promise<ServiceProvider[]> => {
     try {
       const response = await api.get(`/service-providers/property/${propertyId}`);
@@ -1317,6 +1341,12 @@ export const serviceProvidersAPI = {
       return handleApiError(error);
     }
   },
+
+  /**
+   * Get single service provider by ID
+   * @param {string} id - The service provider ID
+   * @returns {Promise<ServiceProvider>} The service provider
+   */
   getById: async (id: string): Promise<ServiceProvider> => {
     try {
       const response = await api.get(`/service-providers/${id}`);
@@ -1325,7 +1355,13 @@ export const serviceProvidersAPI = {
       return handleApiError(error);
     }
   },
-  create: async (data: Partial<ServiceProvider>): Promise<ServiceProvider> => {
+
+  /**
+   * Create a new service provider
+   * @param {CreateServiceProviderRequest} data - Service provider data
+   * @returns {Promise<ServiceProvider>} The created service provider
+   */
+  create: async (data: CreateServiceProviderRequest): Promise<ServiceProvider> => {
     try {
       const response = await api.post('/service-providers', data);
       return response.data;
@@ -1333,7 +1369,14 @@ export const serviceProvidersAPI = {
       return handleApiError(error);
     }
   },
-  update: async (id: string, data: Partial<ServiceProvider>): Promise<ServiceProvider> => {
+
+  /**
+   * Update a service provider
+   * @param {string} id - The service provider ID
+   * @param {UpdateServiceProviderRequest} data - Updated service provider data
+   * @returns {Promise<ServiceProvider>} The updated service provider
+   */
+  update: async (id: string, data: UpdateServiceProviderRequest): Promise<ServiceProvider> => {
     try {
       const response = await api.put(`/service-providers/${id}`, data);
       return response.data;
@@ -1341,12 +1384,438 @@ export const serviceProvidersAPI = {
       return handleApiError(error);
     }
   },
-  delete: async (id: string): Promise<void> => {
+
+  /**
+   * Delete a service provider
+   * @param {string} id - The service provider ID
+   * @returns {Promise<{ message: string; attachmentsDeleted: number }>} Deletion confirmation
+   */
+  delete: async (id: string): Promise<{ message: string; attachmentsDeleted: number }> => {
     try {
-      await api.delete(`/service-providers/${id}`);
+      const response = await api.delete(`/service-providers/${id}`);
+      return response.data;
     } catch (error) {
       return handleApiError(error);
     }
+  },
+
+  // =============================================
+  // SERVICE PROVIDER ATTACHMENT OPERATIONS
+  // =============================================
+
+  /**
+   * Get all attachments for a service provider
+   * @param {string} serviceProviderId - The service provider ID
+   * @returns {Promise<ServiceProviderAttachmentWithUrls[]>} List of attachments with URLs
+   */
+  getAttachments: async (serviceProviderId: string): Promise<ServiceProviderAttachmentWithUrls[]> => {
+    try {
+      const response = await api.get<ServiceProviderAttachmentsListResponse>(
+        `/service-providers/${serviceProviderId}/attachments`
+      );
+      return response.data.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  /**
+   * Get attachments by category
+   * @param {string} serviceProviderId - The service provider ID
+   * @param {string} category - The category to filter by
+   * @returns {Promise<ServiceProviderAttachmentWithUrls[]>} Filtered list of attachments
+   */
+  getAttachmentsByCategory: async (
+    serviceProviderId: string,
+    category: string
+  ): Promise<ServiceProviderAttachmentWithUrls[]> => {
+    try {
+      const response = await api.get<ServiceProviderAttachmentsListResponse>(
+        `/service-providers/${serviceProviderId}/attachments/category/${category}`
+      );
+      return response.data.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  /**
+   * Upload an attachment for a service provider
+   * @param {string} serviceProviderId - The service provider ID
+   * @param {File} file - The file to upload
+   * @param {Object} metadata - Optional metadata for the attachment
+   * @param {string} metadata.description - Description of the attachment
+   * @param {string} metadata.category - Category (CONTRACT, CERTIFICATE, etc.)
+   * @param {string} metadata.expiryDate - Expiry date (YYYY-MM-DD)
+   * @param {string} metadata.version - Version of the document
+   * @returns {Promise<ServiceProviderAttachmentUploadResponse>} Upload response with attachment data
+   */
+  uploadAttachment: async (
+    serviceProviderId: string,
+    file: File,
+    metadata?: {
+      description?: string;
+      category?: string;
+      expiryDate?: string;
+      version?: string;
+    }
+  ): Promise<ServiceProviderAttachmentUploadResponse> => {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      if (metadata?.description) {
+        formData.append('description', metadata.description);
+      }
+      if (metadata?.category) {
+        formData.append('category', metadata.category);
+      }
+      if (metadata?.expiryDate) {
+        formData.append('expiryDate', metadata.expiryDate);
+      }
+      if (metadata?.version) {
+        formData.append('version', metadata.version);
+      }
+
+      const response = await api.post<ServiceProviderAttachmentUploadResponse>(
+        `/service-providers/${serviceProviderId}/attachments`,
+        formData,
+        {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+        }
+      );
+      
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  /**
+   * Get single attachment details
+   * @param {string} attachmentId - The attachment ID
+   * @returns {Promise<ServiceProviderAttachmentWithUrls>} The attachment with URLs
+   */
+  getAttachment: async (attachmentId: string): Promise<ServiceProviderAttachmentWithUrls> => {
+    try {
+      const response = await api.get<ServiceProviderAttachmentResponse>(
+        `/service-providers/attachments/${attachmentId}`
+      );
+      return response.data.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  /**
+   * Update attachment metadata
+   * @param {string} attachmentId - The attachment ID
+   * @param {UpdateServiceProviderAttachmentRequest} data - Updated metadata
+   * @returns {Promise<ServiceProviderAttachmentWithUrls>} The updated attachment
+   */
+  updateAttachment: async (
+    attachmentId: string,
+    data: UpdateServiceProviderAttachmentRequest
+  ): Promise<ServiceProviderAttachmentWithUrls> => {
+    try {
+      const response = await api.put<ServiceProviderAttachmentResponse>(
+        `/service-providers/attachments/${attachmentId}`,
+        data
+      );
+      return response.data.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  /**
+   * Delete an attachment
+   * @param {string} attachmentId - The attachment ID
+   * @returns {Promise<ServiceProviderDeleteAttachmentResponse>} Deletion confirmation
+   */
+  deleteAttachment: async (attachmentId: string): Promise<ServiceProviderDeleteAttachmentResponse> => {
+    try {
+      const response = await api.delete<ServiceProviderDeleteAttachmentResponse>(
+        `/service-providers/attachments/${attachmentId}`
+      );
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  /**
+   * Get attachment URLs (preview and download)
+   * @param {string} attachmentId - The attachment ID
+   * @returns {Promise<ServiceProviderAttachmentUrlResponse['data']>} URLs for preview and download
+   */
+  getAttachmentUrls: async (attachmentId: string): Promise<ServiceProviderAttachmentUrlResponse['data']> => {
+    try {
+      const response = await api.get<ServiceProviderAttachmentUrlResponse>(
+        `/service-providers/attachments/${attachmentId}/url`
+      );
+      return response.data.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  // =============================================
+  // ATTACHMENT UTILITY METHODS
+  // =============================================
+
+  /**
+   * Get preview URL for an attachment
+   * @param {string} attachmentId - The attachment ID
+   * @returns {string} The preview URL
+   */
+  getPreviewUrl: (attachmentId: string): string => {
+    return `/api/service-providers/attachments/${attachmentId}/preview`;
+  },
+
+  /**
+   * Get download URL for an attachment
+   * @param {string} attachmentId - The attachment ID
+   * @returns {string} The download URL
+   */
+  getDownloadUrl: (attachmentId: string): string => {
+    return `/api/service-providers/attachments/${attachmentId}/download`;
+  },
+
+  /**
+   * Preview attachment in a new browser tab
+   * @param {string} attachmentId - The attachment ID
+   */
+  previewInNewTab: (attachmentId: string): void => {
+    const previewUrl = serviceProvidersAPI.getPreviewUrl(attachmentId);
+    window.open(previewUrl, '_blank');
+  },
+
+  /**
+   * Download attachment as a blob
+   * @param {string} attachmentId - The attachment ID
+   * @returns {Promise<Blob>} The file as a blob
+   */
+  downloadAttachmentBlob: async (attachmentId: string): Promise<Blob> => {
+    try {
+      const response = await api.get(
+        `/service-providers/attachments/${attachmentId}/download`,
+        {
+          responseType: 'blob',
+        }
+      );
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  /**
+   * Trigger download of an attachment
+   * @param {string} attachmentId - The attachment ID
+   * @param {string} fileName - Optional custom file name for download
+   */
+  triggerDownload: async (attachmentId: string, fileName?: string): Promise<void> => {
+    try {
+      const blob = await serviceProvidersAPI.downloadAttachmentBlob(attachmentId);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      
+      if (fileName) {
+        link.download = fileName;
+      } else {
+        // Try to get filename from the API
+        try {
+          const attachment = await serviceProvidersAPI.getAttachmentUrls(attachmentId);
+          link.download = attachment.fileName;
+        } catch {
+          // Fallback to attachment ID if fileName not available
+          link.download = `attachment-${attachmentId}`;
+        }
+      }
+      
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Download failed:', error);
+      throw error;
+    }
+  },
+
+  // =============================================
+  // ATTACHMENT STATISTICS
+  // =============================================
+
+  /**
+   * Get attachment statistics for a service provider
+   * @param {string} serviceProviderId - The service provider ID
+   * @returns {Promise<Object>} Statistics about attachments
+   */
+  getAttachmentStats: async (serviceProviderId: string): Promise<{
+    total: number;
+    byCategory: Record<string, number>;
+    totalSize: number;
+    active: number;
+    expired: number;
+    expiringSoon: number;
+  }> => {
+    try {
+      const attachments = await serviceProvidersAPI.getAttachments(serviceProviderId);
+      
+      const stats = {
+        total: attachments.length,
+        byCategory: {} as Record<string, number>,
+        totalSize: 0,
+        active: 0,
+        expired: 0,
+        expiringSoon: 0,
+      };
+
+      const now = new Date();
+      const thirtyDaysFromNow = new Date();
+      thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
+
+      attachments.forEach(att => {
+        // Count by category
+        const category = att.category || 'UNCATEGORIZED';
+        stats.byCategory[category] = (stats.byCategory[category] || 0) + 1;
+        
+        // Total size
+        stats.totalSize += att.fileSize;
+        
+        // Active status
+        if (att.isActive) {
+          stats.active++;
+        }
+        
+        // Expiry status
+        if (att.expiryDate) {
+          const expiry = new Date(att.expiryDate);
+          if (expiry < now) {
+            stats.expired++;
+          } else if (expiry <= thirtyDaysFromNow) {
+            stats.expiringSoon++;
+          }
+        }
+      });
+
+      return stats;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  /**
+   * Check if an attachment is previewable
+   * @param {string} fileType - The file type/extension
+   * @returns {boolean} True if previewable in browser
+   */
+  isPreviewable: (fileType: string): boolean => {
+    const previewableTypes = ['PDF', 'JPG', 'JPEG', 'PNG', 'GIF', 'WEBP', 'SVG', 'BMP', 'TIFF'];
+    return previewableTypes.includes(fileType.toUpperCase());
+  },
+
+  /**
+   * Get file icon based on file type
+   * @param {string} fileType - The file type/extension
+   * @returns {string} Emoji icon for the file type
+   */
+  getFileIcon: (fileType: string): string => {
+    const icons: Record<string, string> = {
+      'PDF': '📄',
+      'DOC': '📝',
+      'DOCX': '📝',
+      'XLS': '📊',
+      'XLSX': '📊',
+      'PPT': '📽️',
+      'PPTX': '📽️',
+      'JPG': '🖼️',
+      'JPEG': '🖼️',
+      'PNG': '🖼️',
+      'GIF': '🖼️',
+      'WEBP': '🖼️',
+      'SVG': '🖼️',
+      'BMP': '🖼️',
+      'TIFF': '🖼️',
+      'ZIP': '📦',
+      'RAR': '📦',
+      '7Z': '📦',
+      'TXT': '📃',
+      'CSV': '📊',
+      'JSON': '📋',
+      'XML': '📋',
+      'HTML': '🌐',
+      'MP4': '🎬',
+      'MP3': '🎵',
+      'WAV': '🎵',
+    };
+    return icons[fileType.toUpperCase()] || '📎';
+  },
+
+  /**
+   * Format file size to human readable format
+   * @param {number} bytes - File size in bytes
+   * @returns {string} Formatted file size
+   */
+  formatFileSize: (bytes: number): string => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  },
+
+  /**
+   * Get file category based on file type
+   * @param {string} fileType - The file type/extension
+   * @returns {string} Category (IMAGE, PDF, DOCUMENT, ARCHIVE, OTHER)
+   */
+  getFileCategory: (fileType: string): string => {
+    const imageTypes = ['JPG', 'JPEG', 'PNG', 'GIF', 'WEBP', 'SVG', 'BMP', 'TIFF'];
+    const docTypes = ['DOC', 'DOCX', 'XLS', 'XLSX', 'PPT', 'PPTX'];
+    const archiveTypes = ['ZIP', 'RAR', '7Z', 'GZIP'];
+    const pdfTypes = ['PDF'];
+    
+    const upperType = fileType.toUpperCase();
+    if (imageTypes.includes(upperType)) return 'IMAGE';
+    if (pdfTypes.includes(upperType)) return 'PDF';
+    if (docTypes.includes(upperType)) return 'DOCUMENT';
+    if (archiveTypes.includes(upperType)) return 'ARCHIVE';
+    return 'OTHER';
+  },
+
+  /**
+   * Get days until expiry for an attachment
+   * @param {ServiceProviderAttachment} attachment - The attachment
+   * @returns {number | null} Days until expiry or null if no expiry date
+   */
+  getDaysUntilExpiry: (attachment: ServiceProviderAttachment): number | null => {
+    if (!attachment.expiryDate) return null;
+    const expiry = new Date(attachment.expiryDate);
+    const now = new Date();
+    const diffTime = expiry.getTime() - now.getTime();
+    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  },
+
+  /**
+   * Get expiry status for an attachment
+   * @param {ServiceProviderAttachment} attachment - The attachment
+   * @returns {string} Status: EXPIRED, EXPIRING_SOON, VALID, UNKNOWN
+   */
+  getExpiryStatus: (attachment: ServiceProviderAttachment): 'EXPIRED' | 'EXPIRING_SOON' | 'VALID' | 'UNKNOWN' => {
+    if (!attachment.expiryDate) return 'UNKNOWN';
+    
+    const daysUntilExpiry = serviceProvidersAPI.getDaysUntilExpiry(attachment);
+    if (daysUntilExpiry === null) return 'UNKNOWN';
+    
+    if (daysUntilExpiry < 0) return 'EXPIRED';
+    if (daysUntilExpiry <= 30) return 'EXPIRING_SOON';
+    return 'VALID';
   },
 };
 
