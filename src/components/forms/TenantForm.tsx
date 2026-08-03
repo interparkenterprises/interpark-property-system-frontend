@@ -10,7 +10,7 @@ interface TenantFormProps {
   tenant?: Tenant;
   onSuccess?: () => void;
   onCancel?: () => void;
-  propertyId: string; // REQUIRED - propertyId must always be provided
+  propertyId: string;
 }
 
 interface ServiceChargeFormData {
@@ -40,6 +40,11 @@ interface TenantFormData {
   vatType: VATType;
   paymentPolicy: 'MONTHLY' | 'QUARTERLY' | 'ANNUAL';
   serviceCharge?: ServiceChargeFormData;
+  // ========== WITHHOLDING TAX FIELDS ==========
+  withholdingTaxRate: number;
+  withholdingVatRate: number;
+  isWithholdingTaxExempt: boolean;
+  // ============================================
 }
 
 // Draft storage key generator
@@ -70,7 +75,12 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
     vatRate: 0,
     vatType: 'NOT_APPLICABLE',
     paymentPolicy: 'MONTHLY',
-    serviceCharge: undefined
+    serviceCharge: undefined,
+    // ========== WITHHOLDING TAX DEFAULTS ==========
+    withholdingTaxRate: 0,
+    withholdingVatRate: 0,
+    isWithholdingTaxExempt: false,
+    // ============================================
   });
   const [units, setUnits] = useState<Unit[]>([]);
   const [loading, setLoading] = useState(false);
@@ -164,7 +174,12 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
             perSqFtRate: tenant.serviceCharge.perSqFtRate || 0,
             vatType: tenant.serviceCharge.vatType || 'NOT_APPLICABLE',
             vatRate: tenant.serviceCharge.vatRate || 0
-          } : undefined
+          } : undefined,
+          // ========== LOAD WITHHOLDING TAX DATA ==========
+          withholdingTaxRate: tenant.withholdingTaxRate || 0,
+          withholdingVatRate: tenant.withholdingVatRate || 0,
+          isWithholdingTaxExempt: tenant.isWithholdingTaxExempt || false,
+          // ==============================================
         });
         
         // Store original unit ID for tracking changes
@@ -201,7 +216,10 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
       vatRate: 0,
       vatType: 'NOT_APPLICABLE',
       paymentPolicy: 'MONTHLY',
-      serviceCharge: undefined
+      serviceCharge: undefined,
+      withholdingTaxRate: 0,
+      withholdingVatRate: 0,
+      isWithholdingTaxExempt: false,
     });
     setSelectedUnit(null);
     setOriginalUnitId(null);
@@ -350,6 +368,35 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
     }
   };
 
+  // ========== WITHHOLDING TAX HANDLERS ==========
+  const handleWithholdingTaxChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value, type } = e.target;
+    
+    let parsedValue: any;
+    if (type === 'checkbox') {
+      // Handle checkbox for exemption
+      const checkbox = e.target as HTMLInputElement;
+      parsedValue = checkbox.checked;
+    } else if (type === 'number') {
+      parsedValue = parseFloat(value) || 0;
+    } else {
+      parsedValue = value;
+    }
+    
+    const newFormData = {
+      ...formData,
+      [name]: parsedValue
+    };
+    
+    setFormData(newFormData);
+    saveDraft(newFormData);
+    
+    if (!hasDraft) {
+      setHasDraft(true);
+    }
+  };
+  // ==============================================
+
   const handleServiceChargeChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
     
@@ -473,7 +520,10 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
             perSqFtRate: tenant.serviceCharge.perSqFtRate || 0,
             vatType: tenant.serviceCharge.vatType || 'NOT_APPLICABLE',
             vatRate: tenant.serviceCharge.vatRate || 0
-          } : undefined
+          } : undefined,
+          withholdingTaxRate: tenant.withholdingTaxRate || 0,
+          withholdingVatRate: tenant.withholdingVatRate || 0,
+          isWithholdingTaxExempt: tenant.isWithholdingTaxExempt || false,
         });
         
         if (tenant.unit) {
@@ -511,6 +561,11 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
         vatRate: formData.vatRate > 0 ? formData.vatRate : undefined,
         vatType: formData.vatType,
         paymentPolicy: formData.paymentPolicy,
+        // ========== WITHHOLDING TAX DATA ==========
+        withholdingTaxRate: formData.withholdingTaxRate > 0 ? formData.withholdingTaxRate : 0,
+        withholdingVatRate: formData.withholdingVatRate > 0 ? formData.withholdingVatRate : 0,
+        isWithholdingTaxExempt: formData.isWithholdingTaxExempt,
+        // ===========================================
       };
 
       // Handle service charge properly
@@ -606,6 +661,18 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
           throw new Error('VAT rate cannot exceed 100%');
         }
       }
+
+      // ========== VALIDATE WITHHOLDING TAX FIELDS ==========
+      // Validate withholding tax rate
+      if (submitData.withholdingTaxRate < 0 || submitData.withholdingTaxRate > 100) {
+        throw new Error('Withholding tax rate must be between 0 and 100');
+      }
+      
+      // Validate withholding VAT rate
+      if (submitData.withholdingVatRate < 0 || submitData.withholdingVatRate > 100) {
+        throw new Error('Withholding VAT rate must be between 0 and 100');
+      }
+      // =====================================================
 
       // Validate service charge fields if present
       if (submitData.serviceCharge && typeof submitData.serviceCharge === 'object') {
@@ -1067,6 +1134,101 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
           </div>
         )}
       </div>
+
+      {/* ========== WITHHOLDING TAX SECTION ========== */}
+      <div className="border-t pt-4 mt-4">
+        <h3 className="text-lg font-medium text-gray-900 mb-4">Withholding Tax Configuration</h3>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <Input
+              label="Withholding Tax Rate (%)"
+              name="withholdingTaxRate"
+              type="number"
+              step="0.01"
+              value={formData.withholdingTaxRate}
+              onChange={handleWithholdingTaxChange}
+              min="0"
+              max="100"
+              placeholder="5.0"
+              className="text-gray-900 placeholder:text-gray-500"
+              disabled={loading}
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              % of rent withheld for tax (e.g., 5%)
+            </p>
+          </div>
+
+          <div>
+            <Input
+              label="Withholding VAT Rate (%)"
+              name="withholdingVatRate"
+              type="number"
+              step="0.01"
+              value={formData.withholdingVatRate}
+              onChange={handleWithholdingTaxChange}
+              min="0"
+              max="100"
+              placeholder="2.0"
+              className="text-gray-900 placeholder:text-gray-500"
+              disabled={loading}
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              % of VAT amount withheld (e.g., 2%)
+            </p>
+          </div>
+        </div>
+
+        {/* Withholding Tax Exemption - Simplified */}
+        <div className="mt-4 p-4 border border-gray-200 rounded-md">
+          <div className="flex items-start space-x-3">
+            <input
+              type="checkbox"
+              id="isWithholdingTaxExempt"
+              name="isWithholdingTaxExempt"
+              checked={formData.isWithholdingTaxExempt}
+              onChange={handleWithholdingTaxChange}
+              className="mt-1 h-4 w-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+              disabled={loading}
+            />
+            <div className="flex-1">
+              <label htmlFor="isWithholdingTaxExempt" className="font-medium text-gray-900">
+                Exempt from Withholding Tax
+              </label>
+              <p className="mt-1 text-sm text-gray-500">
+                Check this if the tenant is tax-exempt (e.g., churches, NGOs, government institutions). 
+                This will override all withholding tax rates above.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Simplified impact summary */}
+        {(formData.withholdingTaxRate > 0 || formData.withholdingVatRate > 0 || formData.isWithholdingTaxExempt) && (
+          <div className="mt-3 p-3 bg-gray-50 border border-gray-200 rounded-md">
+            <p className="text-sm font-medium text-gray-700">Withholding Tax Status:</p>
+            <div className="mt-1 text-sm text-gray-600">
+              {formData.isWithholdingTaxExempt ? (
+                <p className="text-green-600 font-medium">✅ Exempt - No withholding tax will be deducted</p>
+              ) : (
+                <p>
+                  {formData.withholdingTaxRate > 0 && (
+                    <span>WHT: <span className="font-medium">{formData.withholdingTaxRate}%</span> of rent </span>
+                  )}
+                  {formData.withholdingTaxRate > 0 && formData.withholdingVatRate > 0 && <span>| </span>}
+                  {formData.withholdingVatRate > 0 && (
+                    <span>WH VAT: <span className="font-medium">{formData.withholdingVatRate}%</span> of VAT</span>
+                  )}
+                  {formData.withholdingTaxRate === 0 && formData.withholdingVatRate === 0 && (
+                    <span className="text-gray-500">No withholding tax configured</span>
+                  )}
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+      {/* ============================================ */}
 
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">

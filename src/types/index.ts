@@ -182,7 +182,7 @@ export interface Tenant {
   contact: string;
   KRAPin: string;
   POBox?: string;
-  email?: string; // Added email field
+  email?: string;
   unitId: string;
   unit?: Unit;
   leaseTerm: string;
@@ -203,7 +203,13 @@ export interface Tenant {
   billInvoices?: BillInvoice[];
   createdAt: string;
   updatedAt: string;
-  // Add these new properties from API response
+  
+  // ========== WITHHOLDING TAX FIELDS ==========
+  withholdingTaxRate?: number;        // Percentage (e.g., 5 for 5%)
+  withholdingVatRate?: number;        // Percentage (e.g., 2 for 2%)
+  isWithholdingTaxExempt?: boolean;   // Exempt from withholding tax
+  // ============================================
+  
   rentInfo?: RentInfo;
   rentSchedule?: RentScheduleItem[];
   paymentSummary?: PaymentSummary;
@@ -334,8 +340,23 @@ export interface NextPaymentDetails {
   amount: NextPaymentAmount;
   status: string;
   policy: PaymentPolicy;
+  // Enhanced fields from backend
+  paymentsBehind?: number;
+  totalPaid?: number;
+  totalExpected?: number;
+  expectedPeriods?: number;
+  totalDuePerPeriod?: number;
+  isInGracePeriod?: boolean;
+  daysUntilGraceEnd?: number | null;
+  gracePeriodEnd?: string | null;
+  // Additional fields from backend
+  outstandingBalance?: number;
+  regularPeriodAmount?: number;
+  // NEW: Overdue tracking fields
+  overdueSince?: string | null;
+  overdueSinceRaw?: string | null;
+  daysOverdue?: number;
 }
-
 export interface RentEscalation {
   rate: number;
   frequency: EscalationFrequency;
@@ -366,6 +387,8 @@ export interface NextPaymentsSummary {
   total: number;
   overdue: number;
   upcoming: number;
+  inGracePeriod?: number;  // NEW: Tenants in grace period
+  dueToday?: number;       // NEW: Tenants with payments due today
   amounts: {
     outstanding: number;
     upcoming: number;
@@ -2715,6 +2738,174 @@ export interface PaymentStatusSummaryResponse {
       needsPayment: boolean;
     }>;
   };
+}
+
+// ==============================================
+// OTHER INCOME TYPES
+// ==============================================
+
+export type OtherIncomeCategory = 
+  | 'CONSULTANCY'
+  | 'PROPERTY_SALES'
+  | 'LEASING'
+  | 'PROJECT_MANAGEMENT'
+  | 'REFERRAL'
+  | 'DOCUMENTATION'
+  | 'INSPECTION'
+  | 'TRAINING'
+  | 'OTHER';
+
+export interface OtherIncome {
+  id: string;
+  invoiceNumber: string;
+  title: string;
+  description: string | null;
+  amount: number;
+  vatRate: number | null;
+  vatAmount: number | null;
+  vatType: VATType;
+  totalAmount: number;
+  category: OtherIncomeCategory;
+  subCategory: string | null;
+  clientName: string;
+  clientEmail: string | null;
+  clientPhone: string | null;
+  clientAddress: string | null;
+  clientCompany: string | null;
+  issueDate: string;
+  dueDate: string | null;
+  status: InvoiceStatus;
+  paidDate: string | null;
+  paymentMethod: string | null;
+  transactionRef: string | null;
+  bankName: string | null;
+  accountName: string | null;
+  accountNumber: string | null;
+  branch: string | null;
+  bankCode: string | null;
+  swiftCode: string | null;
+  currency: string;
+  managerId: string;
+  manager?: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  createdById: string;
+  createdBy?: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  pdfUrl: string | null;
+  attachments?: OtherIncomeAttachment[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OtherIncomeAttachment {
+  id: string;
+  otherIncomeId: string;
+  fileName: string;
+  fileUrl: string;
+  fileType: string;
+  fileSize: number;
+  description: string | null;
+  uploadedAt: string;
+  uploadedById: string;
+  uploadedBy?: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  isActive: boolean;
+}
+
+export interface CreateOtherIncomeRequest {
+  title: string;
+  description?: string;
+  amount: number;
+  vatRate?: number;
+  vatType: VATType;
+  category: OtherIncomeCategory;
+  subCategory?: string;
+  clientName: string;
+  clientEmail?: string;
+  clientPhone?: string;
+  clientAddress?: string;
+  clientCompany?: string;
+  dueDate?: string;
+  bankName?: string;
+  accountName?: string;
+  accountNumber?: string;
+  branch?: string;
+  bankCode?: string;
+  swiftCode?: string;
+  currency?: string;
+  managerId: string;
+}
+
+export interface UpdateOtherIncomeRequest {
+  title?: string;
+  description?: string;
+  amount?: number;
+  vatRate?: number;
+  vatType?: VATType;
+  category?: OtherIncomeCategory;
+  subCategory?: string;
+  clientName?: string;
+  clientEmail?: string;
+  clientPhone?: string;
+  clientAddress?: string;
+  clientCompany?: string;
+  dueDate?: string;
+  bankName?: string;
+  accountName?: string;
+  accountNumber?: string;
+  branch?: string;
+  bankCode?: string;
+  swiftCode?: string;
+  currency?: string;
+  status?: InvoiceStatus;
+}
+
+export interface MarkOtherIncomeAsPaidRequest {
+  paymentMethod?: string;
+  transactionRef?: string;
+}
+
+export interface OtherIncomeStatsResponse {
+  success: boolean;
+  data: {
+    monthlyData: Record<string, number>;
+    categoryData: Record<string, number>;
+    statusData: Record<string, number>;
+    totalIncome: number;
+    count: number;
+  };
+}
+
+export interface OtherIncomeListResponse {
+  success: boolean;
+  data: OtherIncome[];
+  stats: {
+    totalCount: number;
+    totalAmount: number;
+    totalVat: number;
+    totalBaseAmount: number;
+  };
+  statusBreakdown: Array<{
+    status: InvoiceStatus;
+    _count: number;
+    _sum: {
+      totalAmount: number;
+    };
+  }>;
+}
+
+export interface UploadOtherIncomeAttachmentRequest {
+  file: File;
+  description?: string;
 }
 
 // Permission codes from your backend

@@ -96,6 +96,16 @@ import {
   ServiceProviderDeleteAttachmentResponse,
   UpdateServiceProviderAttachmentRequest,
   UpdateServiceProviderRequest,
+  OtherIncome,
+  OtherIncomeCategory,
+  OtherIncomeAttachment,
+  CreateOtherIncomeRequest,
+  UpdateOtherIncomeRequest,
+  MarkOtherIncomeAsPaidRequest,
+  OtherIncomeStatsResponse,
+  OtherIncomeListResponse,
+  UploadOtherIncomeAttachmentRequest,
+  VATType, 
 } from '@/types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.interparkpropertysystem.co.ke/api';
@@ -3901,6 +3911,561 @@ export const employeesAPI = {
       const message = error?.response?.data?.error || error?.message || 'Failed to fetch payment summary';
       throw new Error(message);
     }
+  },
+};
+
+// ==============================================
+// OTHER INCOME API
+// ==============================================
+
+export const otherIncomeAPI = {
+  /**
+   * Get all other incomes for a manager
+   * @param {string} managerId - The manager's ID
+   * @param {Object} params - Query parameters
+   * @param {string} params.status - Filter by status (UNPAID, PAID, PARTIAL, OVERDUE, CANCELLED)
+   * @param {string} params.category - Filter by category
+   * @param {string} params.startDate - Filter by start date (YYYY-MM-DD)
+   * @param {string} params.endDate - Filter by end date (YYYY-MM-DD)
+   * @returns {Promise<OtherIncomeListResponse>} List of other incomes with stats
+   */
+  getMyIncomes: async (
+    managerId: string,
+    params?: {
+      status?: InvoiceStatus;
+      category?: OtherIncomeCategory;
+      startDate?: string;
+      endDate?: string;
+    }
+  ): Promise<OtherIncomeListResponse> => {
+    try {
+      const response = await api.get(`/other-income/manager/${managerId}`, { params });
+      
+      if (!response.data || !response.data.success) {
+        throw new Error(response.data?.message || 'Invalid response from server');
+      }
+
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to fetch other incomes:', error);
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to fetch other incomes';
+      throw new Error(message);
+    }
+  },
+
+  /**
+   * Get a single other income by ID
+   * @param {string} id - The other income ID
+   * @returns {Promise<OtherIncome>} The other income details
+   */
+  getById: async (id: string): Promise<OtherIncome> => {
+    try {
+      const response = await api.get(`/other-income/${id}`);
+      
+      if (!response.data || !response.data.success) {
+        throw new Error(response.data?.message || 'Invalid response from server');
+      }
+
+      return response.data.data;
+    } catch (error: any) {
+      console.error('Failed to fetch other income:', error);
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to fetch other income';
+      throw new Error(message);
+    }
+  },
+
+  /**
+   * Create a new other income
+   * @param {CreateOtherIncomeRequest} data - The other income data
+   * @returns {Promise<OtherIncome>} The created other income
+   */
+  create: async (data: CreateOtherIncomeRequest): Promise<OtherIncome> => {
+    try {
+      const response = await api.post('/other-income', data);
+      
+      if (!response.data || !response.data.success) {
+        throw new Error(response.data?.message || 'Invalid response from server');
+      }
+
+      return response.data.data;
+    } catch (error: any) {
+      console.error('Failed to create other income:', error);
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to create other income';
+      throw new Error(message);
+    }
+  },
+
+  /**
+   * Update an existing other income
+   * @param {string} id - The other income ID
+   * @param {UpdateOtherIncomeRequest} data - The updated data
+   * @returns {Promise<OtherIncome>} The updated other income
+   */
+  update: async (id: string, data: UpdateOtherIncomeRequest): Promise<OtherIncome> => {
+    try {
+      const response = await api.put(`/other-income/${id}`, data);
+      
+      if (!response.data || !response.data.success) {
+        throw new Error(response.data?.message || 'Invalid response from server');
+      }
+
+      return response.data.data;
+    } catch (error: any) {
+      console.error('Failed to update other income:', error);
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to update other income';
+      throw new Error(message);
+    }
+  },
+
+  /**
+   * Delete an other income
+   * @param {string} id - The other income ID
+   * @returns {Promise<{ success: boolean; message: string }>} Deletion confirmation
+   */
+  delete: async (id: string): Promise<{ success: boolean; message: string }> => {
+    try {
+      const response = await api.delete(`/other-income/${id}`);
+      
+      if (!response.data || !response.data.success) {
+        throw new Error(response.data?.message || 'Invalid response from server');
+      }
+
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to delete other income:', error);
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to delete other income';
+      throw new Error(message);
+    }
+  },
+
+  /**
+   * Mark an other income as paid
+   * @param {string} id - The other income ID
+   * @param {MarkOtherIncomeAsPaidRequest} data - Payment details
+   * @returns {Promise<OtherIncome>} The updated other income
+   */
+  markAsPaid: async (id: string, data?: MarkOtherIncomeAsPaidRequest): Promise<OtherIncome> => {
+    try {
+      const response = await api.patch(`/other-income/${id}/mark-paid`, data || {});
+      
+      if (!response.data || !response.data.success) {
+        throw new Error(response.data?.message || 'Invalid response from server');
+      }
+
+      return response.data.data;
+    } catch (error: any) {
+      console.error('Failed to mark income as paid:', error);
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to mark income as paid';
+      throw new Error(message);
+    }
+  },
+
+  /**
+   * Download the invoice PDF for an other income
+   * @param {string} id - The other income ID
+   * @returns {Promise<Blob>} The PDF blob
+   */
+  downloadInvoice: async (id: string): Promise<Blob> => {
+    try {
+      const response = await api.get(`/other-income/${id}/download`, {
+        responseType: 'blob',
+      });
+      
+      // Check if we got a valid blob response
+      if (!response.data || response.data.size === 0) {
+        throw new Error('Received empty PDF file');
+      }
+      
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to download invoice:', error);
+      
+      // Check if it's a JSON error response in the blob
+      if (error.response?.data instanceof Blob) {
+        try {
+          const errorText = await error.response.data.text();
+          const errorData = JSON.parse(errorText);
+          throw new Error(errorData.message || 'Failed to download invoice');
+        } catch (parseError) {
+          throw new Error('Failed to download invoice: Invalid PDF format');
+        }
+      }
+      
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to download invoice';
+      throw new Error(message);
+    }
+  },
+
+  /**
+   * Upload an attachment for an other income
+   * @param {string} id - The other income ID
+   * @param {File} file - The file to upload
+   * @param {string} description - Optional description
+   * @returns {Promise<OtherIncomeAttachment>} The uploaded attachment
+   */
+  uploadAttachment: async (
+    id: string,
+    file: File,
+    description?: string
+  ): Promise<OtherIncomeAttachment> => {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      if (description) {
+        formData.append('description', description);
+      }
+
+      const response = await api.post(`/other-income/${id}/attachments`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      
+      if (!response.data || !response.data.success) {
+        throw new Error(response.data?.message || 'Invalid response from server');
+      }
+
+      return response.data.data;
+    } catch (error: any) {
+      console.error('Failed to upload attachment:', error);
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to upload attachment';
+      throw new Error(message);
+    }
+  },
+
+  /**
+   * Delete an attachment
+   * @param {string} attachmentId - The attachment ID
+   * @returns {Promise<{ success: boolean; message: string }>} Deletion confirmation
+   */
+  deleteAttachment: async (attachmentId: string): Promise<{ success: boolean; message: string }> => {
+    try {
+      const response = await api.delete(`/other-income/attachments/${attachmentId}`);
+      
+      if (!response.data || !response.data.success) {
+        throw new Error(response.data?.message || 'Invalid response from server');
+      }
+
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to delete attachment:', error);
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to delete attachment';
+      throw new Error(message);
+    }
+  },
+
+  /**
+   * Get statistics for other income
+   * @param {string} managerId - The manager's ID
+   * @param {Object} params - Query parameters
+   * @param {string} params.year - The year to get stats for
+   * @returns {Promise<OtherIncomeStatsResponse>} Statistics data
+   */
+  getStats: async (
+    managerId: string,
+    params?: {
+      year?: string;
+    }
+  ): Promise<OtherIncomeStatsResponse> => {
+    try {
+      const response = await api.get(`/other-income/stats/${managerId}`, { params });
+      
+      if (!response.data || !response.data.success) {
+        throw new Error(response.data?.message || 'Invalid response from server');
+      }
+
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to fetch income stats:', error);
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to fetch income statistics';
+      throw new Error(message);
+    }
+  },
+
+  /**
+   * Get the preview URL for an attachment
+   * @param {string} attachmentId - The attachment ID
+   * @returns {string} The preview URL
+   */
+  getAttachmentPreviewUrl: (attachmentId: string): string => {
+    return `/api/other-income/attachments/${attachmentId}/preview`;
+  },
+
+  /**
+   * Get the download URL for an attachment
+   * @param {string} attachmentId - The attachment ID
+   * @returns {string} The download URL
+   */
+  getAttachmentDownloadUrl: (attachmentId: string): string => {
+    return `/api/other-income/attachments/${attachmentId}/download`;
+  },
+
+  /**
+   * Preview an attachment in a new browser tab
+   * @param {string} attachmentId - The attachment ID
+   */
+  previewAttachment: (attachmentId: string): void => {
+    const previewUrl = otherIncomeAPI.getAttachmentPreviewUrl(attachmentId);
+    window.open(previewUrl, '_blank');
+  },
+
+  /**
+   * Download an attachment as a blob
+   * @param {string} attachmentId - The attachment ID
+   * @returns {Promise<Blob>} The file as a blob
+   */
+  downloadAttachmentBlob: async (attachmentId: string): Promise<Blob> => {
+    try {
+      const response = await api.get(
+        `/other-income/attachments/${attachmentId}/download`,
+        {
+          responseType: 'blob',
+        }
+      );
+      return response.data;
+    } catch (error: any) {
+      console.error('Failed to download attachment:', error);
+      const message =
+        error?.response?.data?.message ||
+        error?.message ||
+        'Failed to download attachment';
+      throw new Error(message);
+    }
+  },
+
+  /**
+   * Trigger download of an attachment
+   * @param {string} attachmentId - The attachment ID
+   * @param {string} fileName - Optional custom file name
+   */
+  triggerAttachmentDownload: async (attachmentId: string, fileName?: string): Promise<void> => {
+    try {
+      const blob = await otherIncomeAPI.downloadAttachmentBlob(attachmentId);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName || `attachment-${attachmentId}`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Download failed:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Check if a file type is previewable in browser
+   * @param {string} fileType - The file MIME type
+   * @returns {boolean} True if previewable
+   */
+  isPreviewable: (fileType: string): boolean => {
+    const previewableTypes = [
+      'image/jpeg',
+      'image/jpg',
+      'image/png',
+      'image/gif',
+      'image/webp',
+      'image/svg+xml',
+      'application/pdf',
+    ];
+    return previewableTypes.includes(fileType.toLowerCase());
+  },
+
+  /**
+   * Format file size for display
+   * @param {number} bytes - File size in bytes
+   * @returns {string} Formatted file size
+   */
+  formatFileSize: (bytes: number): string => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  },
+
+  /**
+   * Get file icon based on file type
+   * @param {string} fileType - The file MIME type
+   * @returns {string} Emoji icon
+   */
+  getFileIcon: (fileType: string): string => {
+    const icons: Record<string, string> = {
+      'application/pdf': '📄',
+      'image/jpeg': '🖼️',
+      'image/jpg': '🖼️',
+      'image/png': '🖼️',
+      'image/gif': '🖼️',
+      'image/webp': '🖼️',
+      'image/svg+xml': '🖼️',
+      'application/msword': '📝',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '📝',
+      'application/vnd.ms-excel': '📊',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '📊',
+      'application/vnd.ms-powerpoint': '📽️',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation': '📽️',
+      'text/plain': '📃',
+      'text/csv': '📊',
+      'application/zip': '📦',
+      'application/x-rar-compressed': '📦',
+    };
+    return icons[fileType.toLowerCase()] || '📎';
+  },
+
+  /**
+   * Get income category label for display
+   * @param {OtherIncomeCategory} category - The category
+   * @returns {string} Human-readable category label
+   */
+  getCategoryLabel: (category: OtherIncomeCategory): string => {
+    const labels: Record<OtherIncomeCategory, string> = {
+      CONSULTANCY: 'Consultancy',
+      PROPERTY_SALES: 'Property Sales',
+      LEASING: 'Leasing',
+      PROJECT_MANAGEMENT: 'Project Management',
+      REFERRAL: 'Referral',
+      DOCUMENTATION: 'Documentation',
+      INSPECTION: 'Inspection',
+      TRAINING: 'Training',
+      OTHER: 'Other',
+    };
+    return labels[category] || category;
+  },
+
+  /**
+   * Get all available categories for dropdown
+   * @returns {Array<{ value: OtherIncomeCategory; label: string }>} List of categories
+   */
+  getCategories: (): Array<{ value: OtherIncomeCategory; label: string }> => {
+    return [
+      { value: 'CONSULTANCY', label: 'Consultancy' },
+      { value: 'PROPERTY_SALES', label: 'Property Sales' },
+      { value: 'LEASING', label: 'Leasing' },
+      { value: 'PROJECT_MANAGEMENT', label: 'Project Management' },
+      { value: 'REFERRAL', label: 'Referral' },
+      { value: 'DOCUMENTATION', label: 'Documentation' },
+      { value: 'INSPECTION', label: 'Inspection' },
+      { value: 'TRAINING', label: 'Training' },
+      { value: 'OTHER', label: 'Other' },
+    ];
+  },
+
+  /**
+   * Get VAT type options for dropdown
+   * @returns {Array<{ value: VATType; label: string }>} List of VAT types
+   */
+  getVatTypes: (): Array<{ value: VATType; label: string }> => {
+    return [
+      { value: 'EXCLUSIVE', label: 'Exclusive (Add VAT)' },
+      { value: 'INCLUSIVE', label: 'Inclusive (VAT Included)' },
+      { value: 'NOT_APPLICABLE', label: 'Not Applicable' },
+    ];
+  },
+
+  /**
+   * Calculate VAT and total amounts
+   * @param {number} amount - The base amount
+   * @param {number} vatRate - The VAT rate (percentage)
+   * @param {VATType} vatType - The VAT type
+   * @returns {{ vatAmount: number; totalAmount: number }} Calculated amounts
+   */
+  calculateVat: (
+    amount: number,
+    vatRate: number,
+    vatType: VATType
+  ): { vatAmount: number; totalAmount: number } => {
+    let vatAmount = 0;
+    let totalAmount = amount;
+
+    if (vatType === 'EXCLUSIVE') {
+      vatAmount = (amount * vatRate) / 100;
+      totalAmount = amount + vatAmount;
+    } else if (vatType === 'INCLUSIVE') {
+      vatAmount = (amount * vatRate) / (100 + vatRate);
+      totalAmount = amount;
+    }
+
+    return { vatAmount, totalAmount };
+  },
+
+  /**
+   * Generate a description for the invoice
+   * @param {string} title - The income title
+   * @param {string} clientName - The client name
+   * @param {string} category - The income category
+   * @returns {string} Generated description
+   */
+  generateDescription: (title: string, clientName: string, category: OtherIncomeCategory): string => {
+    const categoryLabel = otherIncomeAPI.getCategoryLabel(category);
+    return `${categoryLabel} services for ${clientName} - ${title}`;
+  },
+
+  /**
+   * Validate form data before submission
+   * @param {CreateOtherIncomeRequest} data - The form data
+   * @returns {{ valid: boolean; errors: string[] }} Validation result
+   */
+  validateForm: (data: CreateOtherIncomeRequest): { valid: boolean; errors: string[] } => {
+    const errors: string[] = [];
+
+    if (!data.title || data.title.trim().length === 0) {
+      errors.push('Title is required');
+    }
+
+    if (!data.clientName || data.clientName.trim().length === 0) {
+      errors.push('Client name is required');
+    }
+
+    if (!data.amount || data.amount <= 0) {
+      errors.push('Amount must be greater than 0');
+    }
+
+    if (data.vatType !== 'NOT_APPLICABLE') {
+      if (data.vatRate === undefined || data.vatRate === null || data.vatRate < 0) {
+        errors.push('VAT rate is required when VAT is applicable');
+      }
+    }
+
+    if (!data.managerId) {
+      errors.push('Manager ID is required');
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors,
+    };
   },
 };
 export default api;
