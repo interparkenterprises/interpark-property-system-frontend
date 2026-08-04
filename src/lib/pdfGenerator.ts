@@ -34,25 +34,19 @@ const extractNumericValue = (text: string): number => {
 
 // Helper function to group payment reports by period and consolidate
 const consolidatePaymentReports = (paymentReports: PaymentReport[]) => {
-  // Sort reports by date (oldest first)
-  const sorted = [...paymentReports].sort(
-    (a, b) => new Date(a.datePaid).getTime() - new Date(b.datePaid).getTime()
-  );
-
-  // Group by period
+  // Group by period (using actual period date)
   const periodGroups = new Map<string, PaymentReport[]>();
-  sorted.forEach(report => {
-    const periodKey = new Date(report.paymentPeriod).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short'
-    });
+  
+  paymentReports.forEach(report => {
+    const periodDate = new Date(report.paymentPeriod);
+    const periodKey = periodDate.toISOString().split('T')[0]; // YYYY-MM-DD
     if (!periodGroups.has(periodKey)) {
       periodGroups.set(periodKey, []);
     }
     periodGroups.get(periodKey)!.push(report);
   });
 
-  // For each period, get the latest report (final state) and sum all payments
+  // Consolidate each period
   let consolidatedRent = 0;
   let consolidatedServiceCharge = 0;
   let consolidatedVat = 0;
@@ -62,18 +56,25 @@ const consolidatePaymentReports = (paymentReports: PaymentReport[]) => {
   let periodCount = 0;
 
   periodGroups.forEach((reports, periodKey) => {
-    // Get the most recent report for this period (final state)
+    // Sort reports within period by datePaid (most recent first)
     const sortedByDate = reports.sort(
       (a, b) => new Date(b.datePaid).getTime() - new Date(a.datePaid).getTime()
     );
+    
+    // Get the latest report for this period (final state)
     const latestReport = sortedByDate[0];
-
-    // Use the latest report's values as the consolidated amounts
+    
+    // CRITICAL FIX: Use the latest report's values for the period
     consolidatedRent += latestReport.rent;
     consolidatedServiceCharge += latestReport.serviceCharge || 0;
     consolidatedVat += latestReport.vat || 0;
     consolidatedTotalDue += latestReport.totalDue;
-    totalPaidAll += reports.reduce((sum, r) => sum + r.amountPaid, 0);
+    
+    // For total paid, sum ALL payments made in this period
+    const totalPaidForPeriod = reports.reduce((sum, r) => sum + r.amountPaid, 0);
+    totalPaidAll += totalPaidForPeriod;
+    
+    // CRITICAL FIX: Use latest report's arrears (final state), not sum
     consolidatedArrears += latestReport.arrears;
     periodCount++;
   });
