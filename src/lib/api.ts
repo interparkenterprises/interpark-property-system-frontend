@@ -108,7 +108,13 @@ import {
   VATType, 
 } from '@/types';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.interparkpropertysystem.co.ke/api';
+// Keep one and only one trailing /api segment. This supports both documented
+// configurations (http://host:port and http://host:port/api) without producing
+// /api/api or dropping the API prefix.
+const configuredApiUrl = (
+  process.env.NEXT_PUBLIC_API_URL || 'https://api.interparkpropertysystem.co.ke/api'
+).replace(/\/+$/, '');
+export const API_BASE_URL = `${configuredApiUrl.replace(/(?:\/api)+$/i, '')}/api`;
 
 const api = axios.create({
   baseURL: API_BASE_URL,

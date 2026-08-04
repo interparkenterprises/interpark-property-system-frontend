@@ -35,13 +35,24 @@ export default function Sidebar() {
 
   // Define all possible menu items with their access requirements
   const allMenuItems: MenuItem[] = useMemo(() => [
-    { 
+    {
       name: 'Dashboard', 
       href: '/dashboard',
       requiredRole: ['ADMIN', 'MANAGER', 'USER'], // Everyone
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+        </svg>
+      )
+    },
+    {
+      name: 'Analytics',
+      href: '/analytics',
+      requiredPermissions: ['VIEW_PAYMENT_REPORTS', 'VIEW_UNITS', 'VIEW_TENANTS'],
+      requiredRole: ['ADMIN', 'MANAGER', 'USER'],
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 19V9m5 10V5m5 14v-7m5 7V3M3 19h18" />
         </svg>
       )
     },
@@ -229,6 +240,12 @@ export default function Sidebar() {
           case 'VIEW_COMMISSIONS':
           case 'VIEW_EMPLOYEES':
             return permissions?.employees?.canView || false
+          case 'VIEW_PAYMENT_REPORTS':
+            return isAdmin || isManager || permissions?.payments?.canView || false
+          case 'VIEW_UNITS':
+            return isAdmin || isManager || permissions?.units?.canView || false
+          case 'VIEW_TENANTS':
+            return isAdmin || isManager || permissions?.tenants?.canView || false
           case 'MANAGE_USERS':
             return canManageUsers
           case 'MANAGE_ROLES':
@@ -247,7 +264,7 @@ export default function Sidebar() {
   // Filter menu items based on access - memoized for performance
   const visibleMenuItems = useMemo(() => 
     allMenuItems.filter(shouldShowItem), 
-    [allMenuItems, isManagedUser, isAdmin, isManager, canViewProperties, canViewLeads, canViewLandlords, canViewOffers, permissions?.employees?.canView]
+    [allMenuItems, isManagedUser, isAdmin, isManager, canViewProperties, canViewLeads, canViewLandlords, canViewOffers, permissions?.employees?.canView, permissions?.payments?.canView, permissions?.units?.canView, permissions?.tenants?.canView]
   )
   
   const visibleAdminManagerItems = useMemo(() => 
@@ -350,7 +367,7 @@ export default function Sidebar() {
         <div className="flex-1 overflow-y-auto">
           <nav className="space-y-1 px-2 py-4">
             {visibleMenuItems.map((item) => {
-              const isActive = pathname === item.href
+              const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`)
               return (
                 <Link
                   key={item.name}
@@ -394,7 +411,7 @@ export default function Sidebar() {
                 </div>
                 
                 {visibleAdminManagerItems.map((item) => {
-                  const isActive = pathname === item.href
+                  const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`)
                   return (
                     <Link
                       key={item.name}
