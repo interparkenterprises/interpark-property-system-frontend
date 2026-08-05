@@ -383,6 +383,7 @@ export default function TenantBillsPage() {
     }
   };
 
+  // FIXED: handlePayBill function with proper validation and precision handling
   const handlePayBill = async () => {
     if (!canPayBill) {
       toast.error('You do not have permission to pay bills');
@@ -397,18 +398,44 @@ export default function TenantBillsPage() {
       return;
     }
     
-    const remainingBalance = selectedBill.grandTotal - (selectedBill.amountPaid || 0);
     const tolerance = 0.01;
+    const remainingBalance = selectedBill.grandTotal - (selectedBill.amountPaid || 0);
     const roundedRemainingBalance = Math.round(remainingBalance * 100) / 100;
     const roundedAmount = Math.round(amount * 100) / 100;
     
+    // Check if the bill is already fully paid (within tolerance)
+    if (roundedRemainingBalance <= tolerance) {
+      toast.info('This bill is already fully paid. No payment needed.');
+      setShowPayDialog(false);
+      setSelectedBill(null);
+      setPaymentAmount('');
+      return;
+    }
+    
+    // Check if amount exceeds remaining balance
     if (roundedAmount > roundedRemainingBalance + tolerance) {
-      toast.error(`Payment amount cannot exceed the remaining balance of Ksh ${remainingBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+      toast.error(`Payment amount cannot exceed the remaining balance of Ksh ${roundedRemainingBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+      return;
+    }
+    
+    // Check if amount is too small
+    if (roundedAmount < 0.01) {
+      toast.error('Payment amount must be at least Ksh 0.01');
       return;
     }
     
     const isFullPayment = Math.abs(roundedAmount - roundedRemainingBalance) <= tolerance;
-    const finalPaymentAmount = isFullPayment ? remainingBalance : amount;
+    // If it's a full payment, use the exact remaining balance to avoid precision issues
+    const finalPaymentAmount = isFullPayment ? roundedRemainingBalance : roundedAmount;
+    
+    // Additional check: if finalPaymentAmount is 0 or very small, don't proceed
+    if (finalPaymentAmount <= tolerance) {
+      toast.info('Payment amount is too small. No payment needed.');
+      setShowPayDialog(false);
+      setSelectedBill(null);
+      setPaymentAmount('');
+      return;
+    }
     
     try {
       setPaying(true);
@@ -423,7 +450,7 @@ export default function TenantBillsPage() {
         // Update the bill in the bills state immediately
         updateBillAfterPayment(selectedBill.id, finalPaymentAmount);
         
-        // ✅ IMPORTANT: Refresh bill invoices to show the newly generated invoice
+        // Refresh bill invoices to show the newly generated invoice
         if (canViewBillInvoices) {
           await fetchBillInvoices();
         }
@@ -440,14 +467,23 @@ export default function TenantBillsPage() {
     } catch (error: any) {
       console.error('Error paying bill:', error);
       
-      if (error.message?.includes('exceeds bill total') || error.message?.includes('maximum payment')) {
+      // Check if the error is about the bill already being fully paid
+      if (error.message?.includes('already fully paid') || 
+          error.message?.includes('No balance remaining')) {
+        toast.info('This bill is already fully paid.');
+        // Refresh to update the UI
+        await fetchBills();
+        setShowPayDialog(false);
+        setSelectedBill(null);
+        setPaymentAmount('');
+      } else if (error.message?.includes('exceeds bill total') || error.message?.includes('maximum payment')) {
         toast.error(error.message);
       } else if (error.message?.includes('Duplicate payment')) {
         toast.error('This payment appears to have already been processed');
       } else if (error.message?.includes('precision') || error.message?.includes('decimal')) {
         toast.error('Please enter payment amount with up to 2 decimal places');
       } else {
-        toast.error('Failed to record payment. Please try again.');
+        toast.error(error.message || 'Failed to record payment. Please try again.');
       }
     } finally {
       setPaying(false);
@@ -493,6 +529,7 @@ export default function TenantBillsPage() {
     }
   };
 
+  // FIXED: handleRecordBillInvoicePayment function with proper validation and precision handling
   const handleRecordBillInvoicePayment = async () => {
     if (!canRecordBillInvoicePayment) {
       toast.error('You do not have permission to record bill invoice payments');
@@ -507,23 +544,53 @@ export default function TenantBillsPage() {
       return;
     }
     
-    const remainingBalance = selectedBillInvoice.grandTotal - selectedBillInvoice.amountPaid;
+    // Use a small tolerance for floating-point comparisons
     const tolerance = 0.01;
+    const remainingBalance = selectedBillInvoice.grandTotal - selectedBillInvoice.amountPaid;
     const roundedRemainingBalance = Math.round(remainingBalance * 100) / 100;
     const roundedAmount = Math.round(amount * 100) / 100;
     
-    if (roundedAmount > roundedRemainingBalance + tolerance) {
-      toast.error(`Payment amount cannot exceed the remaining balance of Ksh ${remainingBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+    // Check if the invoice is already fully paid (within tolerance)
+    if (roundedRemainingBalance <= tolerance) {
+      toast.info('This invoice is already fully paid. No payment needed.');
+      setShowPayDialog(false);
+      setSelectedBillInvoice(null);
+      setPaymentAmount('');
+      // Refresh to update the UI
+      await fetchBillInvoices();
       return;
     }
     
+    // Check if amount exceeds remaining balance
+    if (roundedAmount > roundedRemainingBalance + tolerance) {
+      toast.error(`Payment amount cannot exceed the remaining balance of Ksh ${roundedRemainingBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+      return;
+    }
+    
+    // Check if amount is too small
+    if (roundedAmount < 0.01) {
+      toast.error('Payment amount must be at least Ksh 0.01');
+      return;
+    }
+    
+    // Check if this is a full payment (within tolerance)
     const isFullPayment = Math.abs(roundedAmount - roundedRemainingBalance) <= tolerance;
-    const finalPaymentAmount = isFullPayment ? remainingBalance : amount;
+    // If it's a full payment, use the exact remaining balance to avoid precision issues
+    const finalPaymentAmount = isFullPayment ? roundedRemainingBalance : roundedAmount;
+    
+    // Additional check: if finalPaymentAmount is 0 or very small, don't proceed
+    if (finalPaymentAmount <= tolerance) {
+      toast.info('Payment amount is too small. No payment needed.');
+      setShowPayDialog(false);
+      setSelectedBillInvoice(null);
+      setPaymentAmount('');
+      return;
+    }
     
     try {
       setRecordingPayment(true);
       
-      await billInvoicesAPI.recordPayment(selectedBillInvoice.id, {
+      const response = await billInvoicesAPI.recordPayment(selectedBillInvoice.id, {
         amountPaid: parseFloat(finalPaymentAmount.toFixed(2)),
         paymentDate: new Date().toISOString().split('T')[0],
         notes: `Payment recorded for bill invoice ${selectedBillInvoice.invoiceNumber}`
@@ -539,26 +606,14 @@ export default function TenantBillsPage() {
         // Find the associated bill and update its amount paid
         const associatedBill = bills.find(bill => bill.id === selectedBillInvoice.billId);
         if (associatedBill) {
-          // Calculate total paid across all invoices for this bill
-          const updatedInvoices = billInvoices.map(invoice => 
-            invoice.id === selectedBillInvoice.id 
-              ? { ...invoice, amountPaid: invoice.amountPaid + finalPaymentAmount }
-              : invoice
-          );
-          
-          const totalPaidOnBill = updatedInvoices
-            .filter(inv => inv.billId === selectedBillInvoice.billId)
-            .reduce((sum, inv) => sum + inv.amountPaid, 0);
-          
-          // Update the bill with the new total paid amount
           updateBillAfterPayment(selectedBillInvoice.billId, finalPaymentAmount);
         }
         
-        // ✅ Refresh bills to ensure they're in sync
+        // Refresh bills to ensure they're in sync
         await fetchBills();
       }
       
-      // ✅ Refresh bill invoices to ensure all data is up to date
+      // Refresh bill invoices to ensure all data is up to date
       await fetchBillInvoices();
       
       setShowPayDialog(false);
@@ -567,10 +622,20 @@ export default function TenantBillsPage() {
     } catch (error: any) {
       console.error('Error recording bill invoice payment:', error);
       
-      if (error.message?.includes('precision') || error.message?.includes('decimal')) {
+      // Check if the error is about the invoice already being fully paid
+      if (error.message?.includes('already fully paid') || 
+          error.message?.includes('No balance remaining') ||
+          error.message?.includes('balance is 0')) {
+        toast.info('This invoice is already fully paid.');
+        // Refresh to update the UI
+        await fetchBillInvoices();
+        setShowPayDialog(false);
+        setSelectedBillInvoice(null);
+        setPaymentAmount('');
+      } else if (error.message?.includes('precision') || error.message?.includes('decimal')) {
         toast.error('Please enter payment amount with up to 2 decimal places');
       } else {
-        toast.error('Failed to record payment');
+        toast.error(error.message || 'Failed to record payment');
       }
     } finally {
       setRecordingPayment(false);
@@ -1064,7 +1129,8 @@ export default function TenantBillsPage() {
                       balanceDisplay = bill.grandTotal.toFixed(2);
                     }
 
-                    const showPayButton = !isFullyPaid && !isCancelled && canPayBill;
+                    // FIXED: Show Pay button only if balance > 0.01
+                    const showPayButton = !isFullyPaid && !isCancelled && canPayBill && balance > 0.01;
                     const showGenerateInvoiceButton = !isCancelled && canCreateBillInvoice;
 
                     return (
@@ -1645,7 +1711,7 @@ export default function TenantBillsPage() {
         </Dialog>
       )}
 
-      {/* Pay Bill Dialog */}
+      {/* FIXED: Pay Bill Dialog */}
       <Dialog open={showPayDialog} onOpenChange={setShowPayDialog}>
         <DialogContent className="sm:max-w-125">
           <DialogHeader>
@@ -1660,6 +1726,25 @@ export default function TenantBillsPage() {
           </DialogHeader>
           {(selectedBill || selectedBillInvoice) && (
             <div className="space-y-4 py-4">
+              {/* Status indicator for OVERDUE bills */}
+              {(selectedBill && (selectedBill.status === 'OVERDUE' || selectedBill.status === 'UNPAID')) && (
+                <div className={`rounded-lg p-3 ${
+                  selectedBill.status === 'OVERDUE' 
+                    ? 'bg-orange-50 border border-orange-200' 
+                    : 'bg-red-50 border border-red-200'
+                }`}>
+                  <p className={`text-sm font-medium ${
+                    selectedBill.status === 'OVERDUE' 
+                      ? 'text-orange-800' 
+                      : 'text-red-800'
+                  }`}>
+                    {selectedBill.status === 'OVERDUE' 
+                      ? '⚠️ This bill is OVERDUE. Payment will update the status to PARTIAL or PAID.' 
+                      : '⚠️ This bill is UNPAID.'}
+                  </p>
+                </div>
+              )}
+              
               <div className="bg-gray-50 rounded-lg p-4 space-y-2">
                 {selectedBill && (
                   <>
@@ -1677,7 +1762,7 @@ export default function TenantBillsPage() {
                     </div>
                     <div className="flex justify-between text-sm font-medium">
                       <span className="text-gray-900">Current Balance:</span>
-                      <span className="font-bold text-yellow-600">Ksh {(selectedBill.grandTotal - (selectedBill.amountPaid || 0)).toLocaleString()}</span>
+                      <span className="font-bold text-yellow-600">Ksh {Math.max(0, (selectedBill.grandTotal - (selectedBill.amountPaid || 0))).toLocaleString()}</span>
                     </div>
                   </>
                 )}
@@ -1697,7 +1782,7 @@ export default function TenantBillsPage() {
                     </div>
                     <div className="flex justify-between text-sm font-medium">
                       <span className="text-gray-900">Current Balance:</span>
-                      <span className="font-bold text-yellow-600">Ksh {(selectedBillInvoice.grandTotal - selectedBillInvoice.amountPaid).toLocaleString()}</span>
+                      <span className="font-bold text-yellow-600">Ksh {Math.max(0, (selectedBillInvoice.grandTotal - selectedBillInvoice.amountPaid)).toLocaleString()}</span>
                     </div>
                   </>
                 )}
@@ -1717,28 +1802,59 @@ export default function TenantBillsPage() {
                 <p className="text-xs text-gray-600">
                   Maximum: Ksh {
                     selectedBill 
-                      ? (selectedBill.grandTotal - (selectedBill.amountPaid || 0)).toLocaleString()
+                      ? Math.max(0, (selectedBill.grandTotal - (selectedBill.amountPaid || 0))).toLocaleString()
                       : selectedBillInvoice
-                      ? (selectedBillInvoice.grandTotal - selectedBillInvoice.amountPaid).toLocaleString()
+                      ? Math.max(0, (selectedBillInvoice.grandTotal - selectedBillInvoice.amountPaid)).toLocaleString()
                       : '0'
                   }
                 </p>
               </div>
-              {paymentAmount && (
-                <div className="bg-blue-50 rounded-lg p-4">
-                  <p className="text-sm text-gray-600 mb-1">Payment Status:</p>
-                  <p className="text-lg font-bold text-blue-700">
-                    {parseFloat(paymentAmount) >= (
-                      selectedBill 
-                        ? selectedBill.grandTotal - (selectedBill.amountPaid || 0)
-                        : selectedBillInvoice
-                        ? selectedBillInvoice.grandTotal - selectedBillInvoice.amountPaid
-                        : 0
-                    )
-                      ? 'PAID IN FULL'
-                      : 'PARTIAL PAYMENT'}
-                  </p>
-                </div>
+              
+              {/* FIXED: Payment Status Preview with proper precision handling */}
+              {paymentAmount && parseFloat(paymentAmount) > 0 && (selectedBill || selectedBillInvoice) && (
+                (() => {
+                  const remainingBalance = selectedBill 
+                    ? selectedBill.grandTotal - (selectedBill.amountPaid || 0)
+                    : selectedBillInvoice
+                    ? selectedBillInvoice.grandTotal - selectedBillInvoice.amountPaid
+                    : 0;
+                  const roundedRemaining = Math.max(0, Math.round(remainingBalance * 100) / 100);
+                  const enteredAmount = Math.round(parseFloat(paymentAmount) * 100) / 100;
+                  const isFullPayment = Math.abs(enteredAmount - roundedRemaining) <= 0.01;
+                  const newBalance = Math.max(0, roundedRemaining - enteredAmount);
+                  
+                  // Don't show preview if invoice is already fully paid
+                  if (roundedRemaining <= 0.01) {
+                    return null;
+                  }
+                  
+                  return (
+                    <div className={`rounded-lg p-4 ${
+                      isFullPayment 
+                        ? 'bg-green-50 border border-green-200' 
+                        : 'bg-blue-50 border border-blue-200'
+                    }`}>
+                      <p className="text-sm text-gray-600 mb-1">Payment Status:</p>
+                      <p className={`text-lg font-bold ${
+                        isFullPayment 
+                          ? 'text-green-700' 
+                          : 'text-blue-700'
+                      }`}>
+                        {isFullPayment ? 'PAID IN FULL' : 'PARTIAL PAYMENT'}
+                      </p>
+                      {!isFullPayment && newBalance > 0.01 && (
+                        <p className="text-xs text-gray-600 mt-1">
+                          Remaining balance after payment: Ksh {newBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </p>
+                      )}
+                      {!isFullPayment && newBalance <= 0.01 && newBalance > 0 && (
+                        <p className="text-xs text-green-600 mt-1">
+                          This payment will clear the remaining balance
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()
               )}
             </div>
           )}
@@ -1751,14 +1867,28 @@ export default function TenantBillsPage() {
                 setSelectedBillInvoice(null);
                 setPaymentAmount('');
               }}
-              disabled={(paying || recordingPayment) || !paymentAmount || parseFloat(paymentAmount) <= 0}
+              disabled={paying || recordingPayment}
             >
               Cancel
             </Button>
             <Button
               onClick={selectedBillInvoice ? handleRecordBillInvoicePayment : handlePayBill}
-              disabled={(paying || recordingPayment) || !paymentAmount}
-              className="bg-green-600 hover:bg-green-700"
+              disabled={
+                (paying || recordingPayment) || 
+                !paymentAmount || 
+                parseFloat(paymentAmount) <= 0 ||
+                (() => {
+                  const remainingBalance = selectedBill 
+                    ? selectedBill.grandTotal - (selectedBill.amountPaid || 0)
+                    : selectedBillInvoice
+                    ? selectedBillInvoice.grandTotal - selectedBillInvoice.amountPaid
+                    : 0;
+                  const roundedRemaining = Math.max(0, Math.round(remainingBalance * 100) / 100);
+                  // Disable if remaining balance is 0 or payment exceeds remaining balance
+                  return roundedRemaining <= 0.01 || parseFloat(paymentAmount) > roundedRemaining + 0.01;
+                })()
+              }
+              className="bg-green-600 hover:bg-green-700 text-white"
             >
               {(paying || recordingPayment) ? (
                 <>
@@ -1888,7 +2018,7 @@ export default function TenantBillsPage() {
         </Dialog>
       )}
 
-      {/* Bill Invoices Dialog */}
+      {/* FIXED: Bill Invoices Dialog */}
       {canViewBillInvoices && (
         <Dialog open={showBillInvoicesDialog} onOpenChange={setShowBillInvoicesDialog}>
           <DialogContent className="sm:max-w-200 max-h-[80vh] overflow-y-auto">
@@ -1921,75 +2051,82 @@ export default function TenantBillsPage() {
                     <p className="text-gray-700">No bill invoices generated yet</p>
                   </div>
                 ) : (
-                  billInvoices.map((invoice) => (
-                    <motion.div
-                      key={invoice.id}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
-                    >
-                      <div className="flex items-start justify-between mb-3">
-                        <div>
-                          <h4 className="font-semibold text-lg text-gray-900">{invoice.invoiceNumber}</h4>
-                          <p className="text-sm text-gray-700">
-                            {invoice.billType} - {new Date(invoice.issueDate).toLocaleDateString()}
-                          </p>
+                  billInvoices.map((invoice) => {
+                    // Calculate balance with proper rounding
+                    const balance = Math.max(0, Math.round((invoice.grandTotal - invoice.amountPaid) * 100) / 100);
+                    const isFullyPaid = balance <= 0.01;
+                    
+                    return (
+                      <motion.div
+                        key={invoice.id}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
+                      >
+                        <div className="flex items-start justify-between mb-3">
+                          <div>
+                            <h4 className="font-semibold text-lg text-gray-900">{invoice.invoiceNumber}</h4>
+                            <p className="text-sm text-gray-700">
+                              {invoice.billType} - {new Date(invoice.issueDate).toLocaleDateString()}
+                            </p>
+                          </div>
+                          <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getStatusColor(invoice.status)}`}>
+                            {invoice.status}
+                          </span>
                         </div>
-                        <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getStatusColor(invoice.status)}`}>
-                          {invoice.status}
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm mb-3">
-                        <div className="bg-gray-50 p-3 rounded">
-                          <p className="text-gray-700 text-xs mb-1">Units</p>
-                          <p className="font-semibold text-gray-900">{invoice.units.toFixed(2)}</p>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm mb-3">
+                          <div className="bg-gray-50 p-3 rounded">
+                            <p className="text-gray-700 text-xs mb-1">Units</p>
+                            <p className="font-semibold text-gray-900">{invoice.units.toFixed(2)}</p>
+                          </div>
+                          <div className="bg-gray-50 p-3 rounded">
+                            <p className="text-gray-700 text-xs mb-1">Rate</p>
+                            <p className="font-semibold text-gray-900">Ksh {invoice.chargePerUnit.toFixed(2)}</p>
+                          </div>
+                          <div className="bg-blue-50 p-3 rounded">
+                            <p className="text-gray-700 text-xs mb-1">Total Amount</p>
+                            <p className="font-semibold text-blue-700">Ksh {invoice.totalAmount.toLocaleString()}</p>
+                          </div>
+                          <div className="bg-green-50 p-3 rounded">
+                            <p className="text-gray-700 text-xs mb-1">Amount Paid</p>
+                            <p className="font-semibold text-green-700">Ksh {invoice.amountPaid.toLocaleString()}</p>
+                          </div>
                         </div>
-                        <div className="bg-gray-50 p-3 rounded">
-                          <p className="text-gray-700 text-xs mb-1">Rate</p>
-                          <p className="font-semibold text-gray-900">Ksh {invoice.chargePerUnit.toFixed(2)}</p>
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <p className="text-sm text-gray-700">Due Date: {new Date(invoice.dueDate).toLocaleDateString()}</p>
+                            <p className={`text-sm font-semibold ${balance > 0.01 ? 'text-red-600' : 'text-green-600'}`}>
+                              Balance: Ksh {balance.toLocaleString()}
+                            </p>
+                          </div>
+                          <div className="flex gap-2">
+                            {/* FIXED: Only show Pay button if balance > 0.01 */}
+                            {balance > 0.01 && canRecordBillInvoicePayment && (
+                              <Button
+                                onClick={() => openPayBillInvoiceDialog(invoice)}
+                                size="sm"
+                                className="bg-green-600 hover:bg-green-700 text-white"
+                              >
+                                Pay
+                              </Button>
+                            )}
+                            {canDownloadBillInvoice && (
+                              <Button
+                                onClick={() => handleDownloadBillInvoice(invoice.id, invoice.invoiceNumber)}
+                                variant="outline"
+                                size="sm"
+                              >
+                                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                                Download PDF
+                              </Button>
+                            )}
+                          </div>
                         </div>
-                        <div className="bg-blue-50 p-3 rounded">
-                          <p className="text-gray-700 text-xs mb-1">Total Amount</p>
-                          <p className="font-semibold text-blue-700">Ksh {invoice.totalAmount.toLocaleString()}</p>
-                        </div>
-                        <div className="bg-green-50 p-3 rounded">
-                          <p className="text-gray-700 text-xs mb-1">Amount Paid</p>
-                          <p className="font-semibold text-green-700">Ksh {invoice.amountPaid.toLocaleString()}</p>
-                        </div>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <div>
-                          <p className="text-sm text-gray-700">Due Date: {new Date(invoice.dueDate).toLocaleDateString()}</p>
-                          <p className={`text-sm font-semibold ${invoice.balance > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                            Balance: Ksh {invoice.balance.toLocaleString()}
-                          </p>
-                        </div>
-                        <div className="flex gap-2">
-                          {invoice.balance > 0 && canRecordBillInvoicePayment && (
-                            <Button
-                              onClick={() => openPayBillInvoiceDialog(invoice)}
-                              size="sm"
-                              className="bg-green-600 hover:bg-green-700 text-white"
-                            >
-                              Pay
-                            </Button>
-                          )}
-                          {canDownloadBillInvoice && (
-                            <Button
-                              onClick={() => handleDownloadBillInvoice(invoice.id, invoice.invoiceNumber)}
-                              variant="outline"
-                              size="sm"
-                            >
-                              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                              </svg>
-                              Download PDF
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    </motion.div>
-                  ))
+                      </motion.div>
+                    );
+                  })
                 )}
               </div>
             </div>
