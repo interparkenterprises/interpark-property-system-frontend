@@ -52,10 +52,15 @@ const consolidatePaymentReports = (paymentReports: PaymentReport[]) => {
   let consolidatedVat = 0;
   let consolidatedTotalDue = 0;
   let totalPaidAll = 0;
-  let consolidatedArrears = 0;
   let periodCount = 0;
+  
+  // Track the latest period's arrears
+  let latestArrears = 0;
+  let latestPeriodDate = new Date(0);
 
   periodGroups.forEach((reports, periodKey) => {
+    const periodDate = new Date(periodKey);
+    
     // Sort reports within period by datePaid (most recent first)
     const sortedByDate = reports.sort(
       (a, b) => new Date(b.datePaid).getTime() - new Date(a.datePaid).getTime()
@@ -64,7 +69,7 @@ const consolidatePaymentReports = (paymentReports: PaymentReport[]) => {
     // Get the latest report for this period (final state)
     const latestReport = sortedByDate[0];
     
-    // CRITICAL FIX: Use the latest report's values for the period
+    // Use the latest report's values for the period
     consolidatedRent += latestReport.rent;
     consolidatedServiceCharge += latestReport.serviceCharge || 0;
     consolidatedVat += latestReport.vat || 0;
@@ -74,10 +79,18 @@ const consolidatePaymentReports = (paymentReports: PaymentReport[]) => {
     const totalPaidForPeriod = reports.reduce((sum, r) => sum + r.amountPaid, 0);
     totalPaidAll += totalPaidForPeriod;
     
-    // CRITICAL FIX: Use latest report's arrears (final state), not sum
-    consolidatedArrears += latestReport.arrears;
+    // Track the latest period's arrears
+    if (periodDate > latestPeriodDate) {
+      latestPeriodDate = periodDate;
+      latestArrears = latestReport.arrears;
+    }
+    
     periodCount++;
   });
+
+  // Use the latest period's arrears as the current arrears
+  // This represents the current outstanding balance
+  const consolidatedArrears = latestArrears;
 
   return {
     consolidatedRent,
@@ -85,11 +98,10 @@ const consolidatePaymentReports = (paymentReports: PaymentReport[]) => {
     consolidatedVat,
     consolidatedTotalDue,
     totalPaidAll,
-    consolidatedArrears,
+    consolidatedArrears, // Uses the latest period's arrears
     periodCount
   };
 };
-
 // Helper function to consolidate bill invoices by period
 const consolidateBillInvoices = (billInvoices: BillInvoice[]) => {
   // Group by period (month/year of issue date)
