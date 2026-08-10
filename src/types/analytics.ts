@@ -93,3 +93,16 @@ export interface AnalyticsApiFailure {
   message: string;
   backendUnavailable: boolean;
 }
+
+export interface DomainDistributionItem { label: string; count: number; amount: number }
+export interface DomainTrendPoint { period: string; count: number; amount: number }
+export interface DomainPropertyPoint { propertyId: string; propertyName: string; count: number; amount: number }
+export interface DomainAnalytics {
+  scope?: 'ORGANIZATION' | 'MANAGER';
+  summary: Record<string, number | null>;
+  trend: DomainTrendPoint[];
+  byProperty: DomainPropertyPoint[] | null;
+  statusDistribution: DomainDistributionItem[];
+  categoryDistribution: DomainDistributionItem[];
+  paymentDistribution?: DomainDistributionItem[];
+}

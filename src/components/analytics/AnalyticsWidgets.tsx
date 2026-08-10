@@ -11,15 +11,17 @@ import type {
   CollectionTrendPoint, PropertyRevenue, ReceivablesStatusDistribution,
   ReceivablesTrendPoint
 } from '@/types/analytics';
+import { formatCompactKes, formatExactKes } from '@/lib/numberFormat';
 
 const money = new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES', maximumFractionDigits: 0 });
 const number = new Intl.NumberFormat('en-KE');
 
 export const formatMoney = (value: number | null | undefined) => value == null ? 'Not available' : money.format(value);
+export const formatCompactMoney = (value: number | null | undefined) => value == null ? 'Not available' : formatCompactKes(value);
 export const formatPercent = (value: number | null | undefined) => value == null ? 'Not available' : `${value.toFixed(2)}%`;
 
-export function KpiCard({ label, value, detail, href, tone = 'sky' }: {
-  label: string; value: string; detail?: string; href?: string; tone?: 'sky' | 'emerald' | 'amber' | 'rose';
+export function KpiCard({ label, value, detail, href, fullValueTitle, tone = 'sky' }: {
+  label: string; value: string; detail?: string; href?: string; fullValueTitle?: string; tone?: 'sky' | 'emerald' | 'amber' | 'rose';
 }) {
   const tones = {
     sky: 'from-sky-500/20 to-sky-900/10 border-sky-500/30',
@@ -29,11 +31,13 @@ export function KpiCard({ label, value, detail, href, tone = 'sky' }: {
   };
   const content = <div className={`h-full rounded-2xl border bg-linear-to-br p-5 shadow-lg ${tones[tone]}`}>
     <div className="flex items-start justify-between gap-3"><p className="text-sm font-medium text-slate-300">{label}</p>{href && <ArrowUpRight className="h-4 w-4 text-slate-400" />}</div>
-    <p className="mt-3 break-words text-2xl font-bold tracking-tight text-white">{value}</p>
+    <p className="kpi-value mt-3 font-bold tracking-tight text-white" title={fullValueTitle}>{value}</p>
     {detail && <p className="mt-2 text-xs text-slate-400">{detail}</p>}
   </div>;
   return href ? <Link href={href} className="block rounded-2xl focus:outline-none focus:ring-2 focus:ring-sky-400">{content}</Link> : content;
 }
+
+export const exactMoneyTitle = (value: number | null | undefined) => value == null ? undefined : formatExactKes(value);
 
 export function ChartPanel({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return <section className="min-w-0 rounded-2xl border border-slate-700 bg-slate-800/70 p-5 shadow-xl">
@@ -93,6 +97,13 @@ export function DataQualityNotices({ values }: { values: Record<string, boolean 
   if (Number(merged.excludedCreditCount) > 0 || Number(merged.excludedPrepaidCount) > 0) notices.push(`${Number(merged.excludedCreditCount) || 0} credit and ${Number(merged.excludedPrepaidCount) || 0} prepaid payment records were excluded from cash trends.`);
   if (Number(merged.occupiedWithoutTenant) > 0) notices.push(`${merged.occupiedWithoutTenant} occupied unit(s) have no linked tenant record.`);
   if (merged.lifecycleStatusUnavailable) notices.push('Tenant count represents current tenant records; tenant lifecycle history is unavailable.');
+  if (merged.contractedChargesOnly) notices.push('Service-provider values are configured contracted charges, not invoices, payments, or actual expenses.');
+  if (merged.amountsAreDocumentSnapshots) notices.push('Demand-letter amounts are document snapshots. Current arrears continue to come from rent invoices.');
+  if (merged.billOverdueIsNotRentArrears) notices.push('Overdue Bill Invoice balances are utility-bill receivables, not rent arrears. Current rent arrears use Invoice.');
+  if (merged.propertyAttributionUnavailable) notices.push('This source has no reliable property relationship, so results are restricted to organization or manager scope.');
+  if (merged.paidAmountIsDocumentStatusValue) notices.push('Paid Other Income is the value of documents marked PAID; partial cash collection is unavailable.');
+  if (merged.configuredSalaryNotNormalized) notices.push('Configured salaries are not normalized across daily, weekly, bi-weekly, and monthly frequencies.');
+  if (Number(merged.excludedNonKesRecords) > 0) notices.push(`${merged.excludedNonKesRecords} non-KES record(s) were excluded to prevent mixed-currency totals.`);
   if (!notices.length) return null;
   return <aside className="rounded-xl border border-amber-500/30 bg-amber-950/20 p-4 text-sm text-amber-100"><div className="flex gap-3"><AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" /><div><p className="font-semibold">Data-quality notes</p><ul className="mt-2 list-disc space-y-1 pl-5">{notices.map(notice => <li key={notice}>{notice}</li>)}</ul></div></div></aside>;
 }

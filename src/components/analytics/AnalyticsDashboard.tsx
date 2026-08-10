@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
 import { Building2 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { propertiesAPI } from '@/lib/api';
@@ -13,9 +12,10 @@ import type {
   ReceivablesSummary, ReceivablesTrendPoint, TenantsSummary
 } from '@/types/analytics';
 import { AnalyticsFilters } from './AnalyticsFilters';
+import { AnalyticsPageHeader } from './AnalyticsNavigation';
 import { AnalyticsError, AnalyticsLoading, AnalyticsUnauthorized } from './AnalyticsStates';
 import {
-  ChartPanel, CollectionsTrendChart, DataQualityNotices, formatMoney, formatPercent,
+  ChartPanel, CollectionsTrendChart, DataQualityNotices, exactMoneyTitle, formatCompactMoney, formatPercent,
   Freshness, KpiCard, ReceivablesTrendChart, RevenueByPropertyChart, RevenueTable,
   StatusDistributionChart
 } from './AnalyticsWidgets';
@@ -39,13 +39,6 @@ const initialFilters = (): FilterValues => {
   const now = new Date();
   return { dateFrom: dateString(new Date(now.getFullYear(), now.getMonth(), 1)), dateTo: dateString(now), asOf: dateString(now), grain: 'month' };
 };
-
-const tabs = [
-  { href: '/analytics', label: 'Overview' },
-  { href: '/analytics/rent', label: 'Rent' },
-  { href: '/analytics/occupancy', label: 'Occupancy' },
-  { href: '/analytics/workforce', label: 'Workforce' },
-];
 
 export default function AnalyticsDashboard({ mode }: { mode: Mode }) {
   const auth = useAuth();
@@ -106,22 +99,18 @@ export default function AnalyticsDashboard({ mode }: { mode: Mode }) {
   const meta = data?.meta[0];
   const notices = useMemo(() => data?.meta.map(item => item.dataQuality) || [], [data]);
 
-  if (!authorized) return <AnalyticsUnauthorized detail="This view requires the matching payment, arrears, unit, and tenant permissions enforced by the analytics API." />;
-
   return <div className="space-y-6 text-white">
-    <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-      <div><p className="text-sm font-semibold uppercase tracking-[0.2em] text-sky-400">Interpark intelligence</p><h1 className="mt-2 text-3xl font-bold tracking-tight">{title}</h1><p className="mt-2 text-slate-400">{description}</p></div>
-      <nav className="flex flex-wrap gap-2" aria-label="Analytics sections">{tabs.map(tab => <Link key={tab.href} href={tab.href} className={`rounded-lg px-3 py-2 text-sm font-medium ${((mode === 'overview' && tab.href === '/analytics') || tab.href.endsWith(`/${mode}`)) ? 'bg-[#0078a3] text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>{tab.label}</Link>)}</nav>
-    </header>
+    <AnalyticsPageHeader title={title} description={description} />
+    {!authorized ? <AnalyticsUnauthorized detail="This view requires the matching payment, arrears, unit, and tenant permissions enforced by the analytics API." /> : <>
     <AnalyticsFilters value={draftFilters} properties={properties} disabled={loading} onChange={setDraftFilters} onApply={() => setFilters({ ...draftFilters, asOf: draftFilters.dateTo })} />
     {loading ? <AnalyticsLoading /> : error ? <AnalyticsError message={error.message} backendUnavailable={error.backendUnavailable} retry={load} /> : data ? <>
       {notices.length > 0 && <DataQualityNotices values={notices} />}
       {mode !== 'occupancy' && summary && <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <KpiCard label="Billed rent account" value={formatMoney(summary.billed)} detail={`${summary.invoiceCount} invoice(s) due in range`} tone="sky" />
-        <KpiCard label="Allocated rent-account collections" value={formatMoney(summary.paid)} detail="Invoice amountPaid; not cash-date totals" tone="emerald" />
+        <KpiCard label="Billed rent account" value={formatCompactMoney(summary.billed)} fullValueTitle={exactMoneyTitle(summary.billed)} detail={`${summary.invoiceCount} invoice(s) due in range`} tone="sky" />
+        <KpiCard label="Allocated rent-account collections" value={formatCompactMoney(summary.paid)} fullValueTitle={exactMoneyTitle(summary.paid)} detail="Invoice amountPaid; not cash-date totals" tone="emerald" />
         <KpiCard label="Invoice collection rate" value={formatPercent(summary.collectionRate)} detail="Allocated collections ÷ billed" tone="amber" />
-        <KpiCard label="Outstanding rent" value={formatMoney(summary.outstanding)} detail={`${summary.openInvoiceCount} open invoice(s)`} tone="rose" />
-        <KpiCard label="Rent arrears" value={formatMoney(summary.arrears)} detail={`Positive balances past due as of ${filters.asOf}`} tone="rose" />
+        <KpiCard label="Outstanding rent" value={formatCompactMoney(summary.outstanding)} fullValueTitle={exactMoneyTitle(summary.outstanding)} detail={`${summary.openInvoiceCount} open invoice(s)`} tone="rose" />
+        <KpiCard label="Rent arrears" value={formatCompactMoney(summary.arrears)} fullValueTitle={exactMoneyTitle(summary.arrears)} detail={`Positive balances past due as of ${filters.asOf}`} tone="rose" />
       </div>}
       {(mode === 'overview' || mode === 'occupancy') && occupancy && tenants && <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <KpiCard label="Current occupancy rate" value={formatPercent(occupancy.occupancyRate)} detail={`${occupancy.totalUnits} current unit(s)`} tone="sky" />
@@ -138,6 +127,6 @@ export default function AnalyticsDashboard({ mode }: { mode: Mode }) {
       {mode !== 'occupancy' && data.revenue && <section className="rounded-2xl border border-slate-700 bg-slate-800/70 p-5 shadow-xl"><div className="mb-4 flex items-center gap-3"><Building2 className="h-5 w-5 text-sky-400" /><div><h2 className="text-lg font-semibold">Revenue by property</h2><p className="text-sm text-slate-400">Backend-calculated invoice metrics for the active scope.</p></div></div><RevenueTable data={data.revenue} /></section>}
       {mode !== 'occupancy' && !hasFinancialRecords && !data.collections?.length && !data.revenue?.length && <div className="rounded-xl border border-slate-700 bg-slate-800 p-6 text-slate-300">No supported financial records matched this range. Values above are supported empty-dataset results, not placeholders.</div>}
       {meta && <Freshness generatedAt={meta.generatedAt} definition={meta.definitionsVersion} />}
-    </> : null}
+    </> : null}</>}
   </div>;
 }

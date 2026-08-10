@@ -12,6 +12,7 @@ import type {
   ReceivablesTrendResponse,
   RevenueByPropertyResponse,
   TenantsSummary,
+  DomainAnalytics,
 } from '@/types/analytics';
 
 const params = (filters: AnalyticsFilters) => ({
@@ -60,4 +61,6 @@ export const analyticsAPI = {
     (await api.get<AnalyticsResponse<OccupancySummary>>('analytics/occupancy/summary', { params: params(filters) })).data,
   getTenantsSummary: async (filters: AnalyticsFilters) =>
     (await api.get<AnalyticsResponse<TenantsSummary>>('analytics/tenants/summary', { params: params(filters) })).data,
+  getDomain: async (domain: string, filters: AnalyticsFilters) =>
+    (await api.get<AnalyticsResponse<DomainAnalytics>>(`analytics/${domain}`, { params: params(filters) })).data,
 };

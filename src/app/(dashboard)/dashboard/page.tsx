@@ -7,6 +7,7 @@ import { useAuth } from '@/context/AuthContext';
 import { propertiesAPI, landlordsAPI, commissionsAPI } from '@/lib/api';
 import { Property } from '@/types';
 import AdminUserManagement from '@/components/admin/AdminUserManagement';
+import { formatCompactKes, formatExactKes } from '@/lib/numberFormat';
 
 interface DashboardStats {
   properties: number;
@@ -58,15 +59,6 @@ export default function DashboardPage() {
   const canAccessProperties = canViewProperties || (isManagedUser && accessiblePropertyIds.length > 0);
   // Commissions are only viewable by admins and managers
   const canViewCommissionStats = false && (isAdmin || isManager);
-
-  const formatCurrency = useCallback((amount: number) => {
-    return new Intl.NumberFormat('en-KE', {
-      style: 'currency',
-      currency: 'KES',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(amount);
-  }, []);
 
   const fetchStats = useCallback(async (skipCache = false) => {
     if (!user) return;
@@ -395,11 +387,11 @@ export default function DashboardPage() {
                       />
                     </svg>
                   </div>
-                  <div>
+                  <div className="kpi-card-content">
                     <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
                       Properties
                     </h3>
-                    <p className="mt-1 text-3xl font-bold text-slate-50">{stats.properties}</p>
+                    <p className="kpi-value mt-1 font-bold text-slate-50">{stats.properties}</p>
                   </div>
                 </div>
               </div>
@@ -420,11 +412,11 @@ export default function DashboardPage() {
                       />
                     </svg>
                   </div>
-                  <div>
+                  <div className="kpi-card-content">
                     <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
                       Landlords
                     </h3>
-                    <p className="mt-1 text-3xl font-bold text-slate-50">{stats.landlords}</p>
+                    <p className="kpi-value mt-1 font-bold text-slate-50">{stats.landlords}</p>
                   </div>
                 </div>
               </div>
@@ -446,12 +438,12 @@ export default function DashboardPage() {
                       />
                     </svg>
                   </div>
-                  <div>
+                  <div className="kpi-card-content">
                     <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
                       Total Income
                     </h3>
-                    <p className="mt-1 text-2xl font-bold text-slate-50 sm:text-3xl">
-                      {formatCurrency(stats.totalIncome)}
+                    <p className="kpi-value mt-1 font-bold text-slate-50" title={formatExactKes(stats.totalIncome)}>
+                      {formatCompactKes(stats.totalIncome)}
                     </p>
                     <p className="mt-1 text-xs font-medium text-slate-400">Paid Commissions</p>
                   </div>
@@ -625,8 +617,8 @@ export default function DashboardPage() {
             <h2 className="text-lg font-bold text-slate-50">Commission Overview</h2>
             <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-3">
               <div className="rounded-xl border border-green-500/25 bg-green-500/10 p-5 text-center">
-                <div className="text-2xl font-bold text-green-300">
-                  {formatCurrency(stats.totalIncome)}
+                <div className="kpi-value font-bold text-green-300" title={formatExactKes(stats.totalIncome)}>
+                  {formatCompactKes(stats.totalIncome)}
                 </div>
                 <div className="mt-1 text-sm font-semibold text-green-200">Paid Commissions</div>
               </div>

@@ -5,10 +5,11 @@ import type { Property } from '@/types';
 import type { AnalyticsFilters as FilterValues, AnalyticsGrain } from '@/types/analytics';
 import { Button } from '@/components/ui/button';
 
-export function AnalyticsFilters({ value, properties, disabled, onChange, onApply }: {
+export function AnalyticsFilters({ value, properties, showProperty = true, disabled, onChange, onApply }: {
   value: FilterValues;
   properties: Property[];
   disabled?: boolean;
+  showProperty?: boolean;
   onChange: (value: FilterValues) => void;
   onApply: () => void;
 }) {
@@ -27,12 +28,12 @@ export function AnalyticsFilters({ value, properties, disabled, onChange, onAppl
             <option value="day">Day</option><option value="week">Week</option><option value="month">Month</option>
           </select>
         </label>
-        <label className="text-sm font-medium text-slate-200">Property
+        {showProperty && <label className="text-sm font-medium text-slate-200">Property
           <select value={value.propertyId || ''} onChange={event => onChange({ ...value, propertyId: event.target.value || undefined })} className="mt-1 block h-10 w-full rounded-md border border-slate-600 bg-slate-900 px-3 text-white">
             <option value="">All accessible properties</option>
             {properties.map(property => <option key={property.id} value={property.id}>{property.name}</option>)}
           </select>
-        </label>
+        </label>}
         <Button type="submit" disabled={disabled} className="h-10 bg-[#0078a3] hover:bg-[#005478]">Apply filters</Button>
       </div>
     </form>

@@ -27,6 +27,7 @@ import {
 import { toast } from 'sonner';
 import { useGlobalPermissions } from '@/app/providers/PermissionsProvider';
 import { PermissionCode } from '@/types';
+import { formatCompactKes, formatExactKes } from '@/lib/numberFormat';
 
 interface BillFormData {
   type: BillType;
@@ -946,7 +947,7 @@ export default function TenantBillsPage() {
               </div>
               <h3 className="text-sm font-semibold text-gray-600">Total Bills</h3>
             </div>
-            <p className="text-3xl font-bold text-gray-900">{totalBills}</p>
+            <p className="kpi-value font-bold text-gray-900">{totalBills}</p>
           </div>
           <div className="bg-white rounded-2xl p-6 shadow-lg border border-gray-200">
             <div className="flex items-center gap-3 mb-2">
@@ -957,7 +958,7 @@ export default function TenantBillsPage() {
               </div>
               <h3 className="text-sm font-semibold text-gray-600">Paid Bills</h3>
             </div>
-            <p className="text-3xl font-bold text-green-600">
+            <p className="kpi-value font-bold text-green-600">
               {bills.filter(b => b.status === 'PAID').length}
             </p>
           </div>
@@ -970,7 +971,7 @@ export default function TenantBillsPage() {
               </div>
               <h3 className="text-sm font-semibold text-gray-600">Unpaid Bills</h3>
             </div>
-            <p className="text-3xl font-bold text-red-600">
+            <p className="kpi-value font-bold text-red-600">
               {bills.filter(b => b.status === 'UNPAID' || b.status === 'OVERDUE').length}
             </p>
           </div>
@@ -983,8 +984,8 @@ export default function TenantBillsPage() {
               </div>
               <h3 className="text-sm font-semibold text-gray-600">Total Amount</h3>
             </div>
-            <p className="text-3xl font-bold text-purple-600">
-              Ksh {bills.reduce((sum, b) => sum + b.grandTotal, 0).toLocaleString()}
+            <p className="kpi-value font-bold text-purple-600" title={formatExactKes(bills.reduce((sum, b) => sum + b.grandTotal, 0))}>
+              {formatCompactKes(bills.reduce((sum, b) => sum + b.grandTotal, 0))}
             </p>
           </div>
         </motion.div>

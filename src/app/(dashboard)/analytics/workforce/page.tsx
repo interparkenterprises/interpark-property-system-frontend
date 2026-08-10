@@ -1,2 +1,2 @@
-import WorkforceAnalytics from '@/components/analytics/WorkforceAnalytics';
-export default function WorkforceAnalyticsPage() { return <WorkforceAnalytics />; }
+import DomainAnalyticsDashboard from '@/components/analytics/DomainAnalyticsDashboard';
+export default function WorkforceAnalyticsPage() { return <DomainAnalyticsDashboard domain="employees" />; }
