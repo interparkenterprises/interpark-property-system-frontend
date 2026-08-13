@@ -1,7 +1,6 @@
 'use client';
 
 import { useAuth } from '@/context/AuthContext';
-import Header from './Header';
 import Sidebar from './Sidebar';
 
 interface DashboardLayoutProps {
@@ -14,13 +13,11 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   if (!user) return null;
 
   return (
-    <div className="flex h-screen bg-gray-100">
+    <div className="flex h-screen bg-slate-950">
       <Sidebar />
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <Header />
-        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100">
-          {/* Added left padding for mobile to prevent hamburger menu overlap */}
-          <div className="container mx-auto px-6 py-8 md:pl-6 pl-16">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-slate-950">
+        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-slate-950">
+          <div className="container mx-auto px-4 pb-8 pt-20 sm:px-6 md:px-6 md:py-8">
             {children}
           </div>
         </main>

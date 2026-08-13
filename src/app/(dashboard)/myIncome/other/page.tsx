@@ -11,6 +11,7 @@ import {
   OtherIncomeListResponse,
 } from '@/types';
 import IncomeFormModal from '@/components/forms/IncomeFormModal';
+import { formatCompactKes, formatExactKes } from '@/lib/numberFormat';
 
 // =============================================
 // SKELETON LOADING
@@ -45,10 +46,12 @@ const TableSkeleton = () => (
 function SummaryCard({
   title,
   value,
+  fullValueTitle,
   tone = 'blue',
 }: {
   title: string;
   value: string;
+  fullValueTitle?: string;
   tone?: 'blue' | 'green' | 'amber' | 'purple';
 }) {
   const tones = {
@@ -61,7 +64,7 @@ function SummaryCard({
   return (
     <div className={`rounded-xl border p-4 ${tones[tone]}`}>
       <p className="text-sm font-medium">{title}</p>
-      <p className="mt-2 text-2xl font-bold">{value}</p>
+      <p className="kpi-value mt-2 font-bold" title={fullValueTitle}>{value}</p>
     </div>
   );
 }
@@ -301,8 +304,8 @@ export default function OtherIncomePage() {
 
         <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
           <SummaryCard title="Total Invoices" value={summary.totalCount.toString()} tone="blue" />
-          <SummaryCard title="Total Value" value={`KSH ${formatCurrency(summary.totalAmount)}`} tone="green" />
-          <SummaryCard title="Total VAT" value={`KSH ${formatCurrency(summary.totalVat)}`} tone="purple" />
+          <SummaryCard title="Total Value" value={formatCompactKes(summary.totalAmount)} fullValueTitle={formatExactKes(summary.totalAmount)} tone="green" />
+          <SummaryCard title="Total VAT" value={formatCompactKes(summary.totalVat)} fullValueTitle={formatExactKes(summary.totalVat)} tone="purple" />
           <SummaryCard title="Open / Overdue" value={summary.unpaidCount.toString()} tone="amber" />
         </div>
 

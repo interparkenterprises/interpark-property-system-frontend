@@ -20,6 +20,7 @@ import { usePermissions } from '@/hooks/usePermission';
 import { PermissionCode } from '@/types';
 import { PermissionGuard } from '@/components/auth/PermissionGuard';
 import { exportCombinedArrearsToPDF } from '@/lib/arrearsPdfGenerator';
+import { formatCompactKes, formatExactKes } from '@/lib/numberFormat';
 
 type TabType = 'income' | 'commissions' | 'payments' | 'arrears' | 'UpcomingPayments' | 'rentReport' | 'billsReport';
 
@@ -2314,23 +2315,23 @@ export default function PropertyDetailInfoPage() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                   <div className="bg-linear-to-br from-green-50 to-green-100 rounded-xl p-6 border border-green-200">
                     <div className="text-sm font-medium text-green-700 mb-2">Total Income</div>
-                    <div className="text-2xl font-bold text-green-900">
-                      Ksh {totals.totalIncome.toLocaleString()}
+                    <div className="kpi-value font-bold text-green-900" title={formatExactKes(totals.totalIncome)}>
+                      {formatCompactKes(totals.totalIncome)}
                     </div>
                   </div>
                   {/* Only show commissions summary if user has permission */}
                   {(isAdmin || isManager || hasPermission(PermissionCode.VIEW_COMMISSIONS)) && (
                     <div className="bg-linear-to-br from-blue-50 to-blue-100 rounded-xl p-6 border border-blue-200">
                       <div className="text-sm font-medium text-blue-700 mb-2">Total Commissions</div>
-                      <div className="text-2xl font-bold text-blue-900">
-                        Ksh {totals.totalCommissions.toLocaleString()}
+                      <div className="kpi-value font-bold text-blue-900" title={formatExactKes(totals.totalCommissions)}>
+                        {formatCompactKes(totals.totalCommissions)}
                       </div>
                     </div>
                   )}
                   <div className="bg-linear-to-br from-purple-50 to-purple-100 rounded-xl p-6 border border-purple-200">
                     <div className="text-sm font-medium text-purple-700 mb-2">Net Income</div>
-                    <div className="text-2xl font-bold text-purple-900">
-                      Ksh {(totals.totalIncome - (isAdmin || isManager || hasPermission(PermissionCode.VIEW_COMMISSIONS) ? totals.totalCommissions : 0)).toLocaleString()}
+                    <div className="kpi-value font-bold text-purple-900" title={formatExactKes(totals.totalIncome - (isAdmin || isManager || hasPermission(PermissionCode.VIEW_COMMISSIONS) ? totals.totalCommissions : 0))}>
+                      {formatCompactKes(totals.totalIncome - (isAdmin || isManager || hasPermission(PermissionCode.VIEW_COMMISSIONS) ? totals.totalCommissions : 0))}
                     </div>
                   </div>
                 </div>
@@ -2727,8 +2728,8 @@ export default function PropertyDetailInfoPage() {
                             </svg>
                           </div>
                         </div>
-                        <div className="text-2xl font-bold text-green-900">
-                          Ksh {nextPaymentsData.summary.amounts.upcoming.toLocaleString()}
+                        <div className="kpi-value font-bold text-green-900" title={formatExactKes(nextPaymentsData.summary.amounts.upcoming)}>
+                          {formatCompactKes(nextPaymentsData.summary.amounts.upcoming)}
                         </div>
                         <div className="text-xs text-green-600 mt-1">Expected in upcoming periods</div>
                       </motion.div>
@@ -2745,8 +2746,8 @@ export default function PropertyDetailInfoPage() {
                             </svg>
                           </div>
                         </div>
-                        <div className="text-2xl font-bold text-red-900">
-                          Ksh {nextPaymentsData.summary.amounts.outstanding.toLocaleString()}
+                        <div className="kpi-value font-bold text-red-900" title={formatExactKes(nextPaymentsData.summary.amounts.outstanding)}>
+                          {formatCompactKes(nextPaymentsData.summary.amounts.outstanding)}
                         </div>
                         <div className="text-xs text-red-600 mt-1">Total outstanding balance</div>
                       </motion.div>
@@ -3418,11 +3419,11 @@ export default function PropertyDetailInfoPage() {
                       </div>
                       <div className="bg-linear-to-br from-blue-50 to-blue-100 rounded-xl p-5 border border-blue-200">
                         <div className="text-sm font-medium text-blue-700 mb-1">Total Collected</div>
-                        <div className="text-2xl font-bold text-gray-900">Ksh {rentReportData.summary.totalRentCollected.toLocaleString()}</div>
+                        <div className="kpi-value font-bold text-gray-900" title={formatExactKes(rentReportData.summary.totalRentCollected)}>{formatCompactKes(rentReportData.summary.totalRentCollected)}</div>
                       </div>
                       <div className="bg-linear-to-br from-red-50 to-red-100 rounded-xl p-5 border border-red-200">
                         <div className="text-sm font-medium text-red-700 mb-1">Total Arrears</div>
-                        <div className="text-2xl font-bold text-gray-900">Ksh {rentReportData.summary.totalArrears.toLocaleString()}</div>
+                        <div className="kpi-value font-bold text-gray-900" title={formatExactKes(rentReportData.summary.totalArrears)}>{formatCompactKes(rentReportData.summary.totalArrears)}</div>
                       </div>
                       <div className="bg-linear-to-br from-purple-50 to-purple-100 rounded-xl p-5 border border-purple-200">
                         <div className="text-sm font-medium text-purple-700 mb-1">Total Tenants</div>
@@ -3700,7 +3701,7 @@ export default function PropertyDetailInfoPage() {
                       </div>
                       <div className="bg-linear-to-br from-red-50 to-red-100 rounded-xl p-5 border border-red-200">
                         <div className="text-sm font-medium text-red-700 mb-1">Total Arrears</div>
-                        <div className="text-2xl font-bold text-gray-900">Ksh {billsReportData.summary.overall.totalArrears.toLocaleString()}</div>
+                        <div className="kpi-value font-bold text-gray-900" title={formatExactKes(billsReportData.summary.overall.totalArrears)}>{formatCompactKes(billsReportData.summary.overall.totalArrears)}</div>
                       </div>
                       <div className="bg-linear-to-br from-purple-50 to-purple-100 rounded-xl p-5 border border-purple-200">
                         <div className="text-sm font-medium text-purple-700 mb-1">Delinquent Bills</div>

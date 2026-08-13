@@ -363,7 +363,7 @@ export default function PropertiesPage() {
                 </svg>
               </div>
               <div>
-                <p className="text-2xl font-bold text-gray-900">{properties.length}</p>
+                <p className="kpi-value font-bold text-gray-900">{properties.length}</p>
                 <p className="text-gray-600 text-sm">
                   {isAdmin ? 'Total Properties' : isManager ? 'Managed Properties' : 'Accessible Properties'}
                 </p>
@@ -379,7 +379,7 @@ export default function PropertiesPage() {
                 </svg>
               </div>
               <div>
-                <p className="text-2xl font-bold text-gray-900">
+                <p className="kpi-value font-bold text-gray-900">
                   {properties.reduce((total, property) => total + (property.units?.length || 0), 0)}
                 </p>
                 <p className="text-gray-600 text-sm">Total Units</p>
@@ -395,7 +395,7 @@ export default function PropertiesPage() {
                 </svg>
               </div>
               <div>
-                <p className="text-2xl font-bold text-gray-900">
+                <p className="kpi-value font-bold text-gray-900">
                   {new Set(properties.map((p) => p.landlord?.id).filter(Boolean)).size}
                 </p>
                 <p className="text-gray-600 text-sm">Active Landlords</p>

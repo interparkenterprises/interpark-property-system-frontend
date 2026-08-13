@@ -1,9 +1,11 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
-import { useState, useEffect, JSX, useMemo } from 'react'
+import { usePathname, useRouter } from 'next/navigation'
+import { useState, useEffect, JSX, useMemo, useRef } from 'react'
 import { useGlobalPermissions } from '@/app/providers/PermissionsProvider'
+import { LogOut, PanelLeftClose, PanelLeftOpen, UserCircle } from 'lucide-react'
+import { useAuth } from '@/context/AuthContext'
 
 // Define menu items with their required permissions
 interface MenuItem {
@@ -18,7 +20,11 @@ interface MenuItem {
 
 export default function Sidebar() {
   const pathname = usePathname()
+  const router = useRouter()
+  const { logout } = useAuth()
   const [isOpen, setIsOpen] = useState(false)
+  const [isCollapsed, setIsCollapsed] = useState(false)
+  const autoCollapseTimer = useRef<number | null>(null)
   const { 
     permissions, 
     isAdmin, 
@@ -33,15 +39,48 @@ export default function Sidebar() {
     canManageRoles
   } = useGlobalPermissions()
 
+  const sidebarStorageKey = user?.id ? `interpark.sidebar.${user.id}` : null
+
+  useEffect(() => {
+    if (!sidebarStorageKey) return
+    const saved = localStorage.getItem(`${sidebarStorageKey}.collapsed`)
+    const autoCollapsed = localStorage.getItem(`${sidebarStorageKey}.autoCollapsed`) === 'true'
+    const manuallySet = localStorage.getItem(`${sidebarStorageKey}.manual`) === 'true'
+
+    setIsCollapsed(saved === 'true')
+    if (saved !== null || autoCollapsed || manuallySet) return
+
+    autoCollapseTimer.current = window.setTimeout(() => {
+      setIsCollapsed(true)
+      localStorage.setItem(`${sidebarStorageKey}.collapsed`, 'true')
+      localStorage.setItem(`${sidebarStorageKey}.autoCollapsed`, 'true')
+    }, 3000)
+    return () => {
+      if (autoCollapseTimer.current !== null) window.clearTimeout(autoCollapseTimer.current)
+      autoCollapseTimer.current = null
+    }
+  }, [sidebarStorageKey])
+
   // Define all possible menu items with their access requirements
   const allMenuItems: MenuItem[] = useMemo(() => [
-    { 
+    {
       name: 'Dashboard', 
       href: '/dashboard',
       requiredRole: ['ADMIN', 'MANAGER', 'USER'], // Everyone
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+        </svg>
+      )
+    },
+    {
+      name: 'Analytics',
+      href: '/analytics',
+      requiredPermissions: ['VIEW_PAYMENT_REPORTS', 'VIEW_UNITS', 'VIEW_TENANTS'],
+      requiredRole: ['ADMIN', 'MANAGER', 'USER'],
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 19V9m5 10V5m5 14v-7m5 7V3M3 19h18" />
         </svg>
       )
     },
@@ -229,6 +268,12 @@ export default function Sidebar() {
           case 'VIEW_COMMISSIONS':
           case 'VIEW_EMPLOYEES':
             return permissions?.employees?.canView || false
+          case 'VIEW_PAYMENT_REPORTS':
+            return isAdmin || isManager || permissions?.payments?.canView || false
+          case 'VIEW_UNITS':
+            return isAdmin || isManager || permissions?.units?.canView || false
+          case 'VIEW_TENANTS':
+            return isAdmin || isManager || permissions?.tenants?.canView || false
           case 'MANAGE_USERS':
             return canManageUsers
           case 'MANAGE_ROLES':
@@ -247,7 +292,7 @@ export default function Sidebar() {
   // Filter menu items based on access - memoized for performance
   const visibleMenuItems = useMemo(() => 
     allMenuItems.filter(shouldShowItem), 
-    [allMenuItems, isManagedUser, isAdmin, isManager, canViewProperties, canViewLeads, canViewLandlords, canViewOffers, permissions?.employees?.canView]
+    [allMenuItems, isManagedUser, isAdmin, isManager, canViewProperties, canViewLeads, canViewLandlords, canViewOffers, permissions?.employees?.canView, permissions?.payments?.canView, permissions?.units?.canView, permissions?.tenants?.canView]
   )
   
   const visibleAdminManagerItems = useMemo(() => 
@@ -261,6 +306,29 @@ export default function Sidebar() {
 
   const closeSidebar = () => {
     setIsOpen(false)
+  }
+
+  const toggleDesktopSidebar = () => {
+    if (!sidebarStorageKey) return
+    if (autoCollapseTimer.current !== null) {
+      window.clearTimeout(autoCollapseTimer.current)
+      autoCollapseTimer.current = null
+    }
+    setIsCollapsed(current => {
+      const next = !current
+      localStorage.setItem(`${sidebarStorageKey}.collapsed`, String(next))
+      localStorage.setItem(`${sidebarStorageKey}.manual`, 'true')
+      return next
+    })
+  }
+
+  const handleLogout = async () => {
+    try {
+      await logout()
+    } catch (error) {
+      console.error('Logout error:', error)
+      router.push('/login')
+    }
   }
 
   // Close sidebar when route changes
@@ -321,59 +389,71 @@ export default function Sidebar() {
       />
 
       {/* Sidebar */}
-      <div
-        className={`bg-slate-900 text-white w-64 flex flex-col fixed inset-y-0 left-0 transform transition-transform duration-300 ease-in-out z-50 shadow-2xl border-r border-slate-700/50 ${
+      <aside
+        className={`bg-slate-900 text-white w-64 flex flex-col fixed inset-y-0 left-0 transform transition-[width,transform] duration-300 ease-in-out z-50 shadow-2xl border-r border-slate-700/50 ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
-        } md:relative md:translate-x-0`}
+        } md:relative md:translate-x-0 ${isCollapsed ? 'md:w-20' : 'md:w-64'}`}
       >
-        {/* Logo/Brand Area - Fixed Header */}
-        <div className="shrink-0 px-4 py-4 border-b border-slate-700/80 bg-slate-900">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-linear-to-r from-[#005478] to-[#00a3d7] rounded-xl flex items-center justify-center shadow-lg">
+        <div className={`shrink-0 border-b border-slate-700/80 bg-slate-900 p-3 ${isCollapsed ? 'md:px-2' : ''}`}>
+          <div className={`flex items-center gap-3 ${isCollapsed ? 'md:flex-col' : ''}`}>
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-linear-to-r from-[#005478] to-[#00a3d7] shadow-lg" title="Interpark" aria-label="Interpark logo">
               <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 2 4 14h7l-1 8 10-13h-7V2Z" />
               </svg>
             </div>
-            <h1 className="text-xl font-bold text-white tracking-wide drop-shadow-sm">INTERPARK</h1>
-          </div>
-          {/* User Role Badge */}
-          {user && (
-            <div className="mt-4">
-              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-linear-to-r from-[#005478] to-[#0078a3] text-white shadow-md border border-sky-500/30">
-                {isAdmin ? 'Administrator' : isManager ? 'Manager' : isManagedUser ? 'Managed User' : user.role}
-              </span>
+            <div className={`min-w-0 flex-1 ${isCollapsed ? 'md:hidden' : ''}`}>
+              <p className="truncate text-base font-bold tracking-[0.16em] text-white">INTERPARK</p>
             </div>
-          )}
+          </div>
+
+          <div className={`mt-4 flex items-center gap-3 ${isCollapsed ? 'md:mt-3 md:flex-col' : ''}`}>
+            <UserCircle className="h-8 w-8 shrink-0 text-sky-300" aria-hidden="true" />
+            <div className={`min-w-0 flex-1 ${isCollapsed ? 'md:hidden' : ''}`}>
+              <p className="truncate text-sm font-semibold text-white" title={user?.name}>{user?.name || 'User'}</p>
+              <p className="truncate text-xs text-slate-400">{isAdmin ? 'Administrator' : isManager ? 'Manager' : isManagedUser ? 'Managed User' : user?.role}</p>
+            </div>
+          </div>
+
+          <div className={`mt-3 flex gap-2 ${isCollapsed ? 'md:flex-col md:items-center' : ''}`}>
+            <button type="button" onClick={handleLogout} className={`inline-flex items-center rounded-lg text-sm font-medium text-slate-300 transition hover:bg-slate-800 hover:text-white focus:outline-none focus:ring-2 focus:ring-sky-400 ${isCollapsed ? 'md:h-10 md:w-10 md:justify-center md:p-0' : 'flex-1 gap-2 px-3 py-2'}`} aria-label="Logout" title={isCollapsed ? 'Logout' : undefined}>
+              <LogOut className="h-5 w-5 shrink-0" /><span className={isCollapsed ? 'md:hidden' : ''}>Logout</span>
+            </button>
+            <button type="button" onClick={toggleDesktopSidebar} className={`hidden items-center rounded-lg text-slate-400 transition hover:bg-slate-800 hover:text-white focus:outline-none focus:ring-2 focus:ring-sky-400 md:inline-flex ${isCollapsed ? 'h-10 w-10 justify-center' : 'px-3 py-2'}`} aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
+              {isCollapsed ? <PanelLeftOpen className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
+            </button>
+          </div>
         </div>
 
         {/* Scrollable Navigation Area */}
         <div className="flex-1 overflow-y-auto">
           <nav className="space-y-1 px-2 py-4">
             {visibleMenuItems.map((item) => {
-              const isActive = pathname === item.href
+              const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`)
               return (
                 <Link
                   key={item.name}
                   href={item.href}
                   onClick={() => setIsOpen(false)}
-                  className={`group flex items-center px-4 py-3 text-sm font-medium rounded-xl transition-all duration-200 ${
+                  aria-label={item.name}
+                  title={isCollapsed ? item.name : undefined}
+                  className={`group flex items-center py-3 text-sm font-medium rounded-xl transition-all duration-200 ${isCollapsed ? 'md:justify-center md:px-2' : 'px-4'} ${
                     isActive
                       ? 'bg-linear-to-r from-[#005478] to-[#0078a3] text-white shadow-lg shadow-sky-900/40 border border-sky-500/30'
                       : 'text-slate-200 hover:bg-slate-800 hover:text-white border border-transparent hover:border-slate-600/50'
                   }`}
                 >
                   <div
-                    className={`mr-3 transition-all duration-200 ${
+                    className={`shrink-0 transition-all duration-200 ${isCollapsed ? 'md:mr-0' : 'mr-3'} ${
                       isActive ? 'text-white scale-110' : 'text-slate-400 group-hover:text-white group-hover:scale-110'
                     }`}
                   >
                     {item.icon}
                   </div>
-                  <span className="flex-1 font-semibold tracking-wide">{item.name}</span>
+                  <span className={`flex-1 font-semibold tracking-wide ${isCollapsed ? 'md:hidden' : ''}`}>{item.name}</span>
 
                   {/* Active indicator */}
                   {isActive && (
-                    <div className="w-2 h-2 bg-white rounded-full ml-2 animate-pulse shadow-sm" />
+                    <div className={`w-2 h-2 bg-white rounded-full ml-2 animate-pulse shadow-sm ${isCollapsed ? 'md:hidden' : ''}`} />
                   )}
                 </Link>
               )
@@ -386,7 +466,7 @@ export default function Sidebar() {
                   <div className="absolute inset-0 flex items-center">
                     <div className="w-full border-t border-slate-700/80"></div>
                   </div>
-                  <div className="relative flex justify-center">
+                  <div className={`relative justify-center ${isCollapsed ? 'md:hidden' : 'flex'}`}>
                     <span className="px-3 bg-slate-900 text-xs font-bold text-slate-400 uppercase tracking-widest">
                       Administration
                     </span>
@@ -394,30 +474,32 @@ export default function Sidebar() {
                 </div>
                 
                 {visibleAdminManagerItems.map((item) => {
-                  const isActive = pathname === item.href
+                  const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`)
                   return (
                     <Link
                       key={item.name}
                       href={item.href}
                       onClick={() => setIsOpen(false)}
-                      className={`group flex items-center px-4 py-3 text-sm font-medium rounded-xl transition-all duration-200 ${
+                      aria-label={item.name}
+                      title={isCollapsed ? item.name : undefined}
+                      className={`group flex items-center py-3 text-sm font-medium rounded-xl transition-all duration-200 ${isCollapsed ? 'md:justify-center md:px-2' : 'px-4'} ${
                         isActive
                           ? 'bg-linear-to-r from-[#005478] to-[#0078a3] text-white shadow-lg shadow-sky-900/40 border border-sky-500/30'
                           : 'text-slate-200 hover:bg-slate-800 hover:text-white border border-transparent hover:border-slate-600/50'
                       }`}
                     >
                       <div
-                        className={`mr-3 transition-all duration-200 ${
+                        className={`shrink-0 transition-all duration-200 ${isCollapsed ? 'md:mr-0' : 'mr-3'} ${
                           isActive ? 'text-white scale-110' : 'text-slate-400 group-hover:text-white group-hover:scale-110'
                         }`}
                       >
                         {item.icon}
                       </div>
-                      <span className="flex-1 font-semibold tracking-wide">{item.name}</span>
+                      <span className={`flex-1 font-semibold tracking-wide ${isCollapsed ? 'md:hidden' : ''}`}>{item.name}</span>
 
                       {/* Active indicator */}
                       {isActive && (
-                        <div className="w-2 h-2 bg-white rounded-full ml-2 animate-pulse shadow-sm" />
+                        <div className={`w-2 h-2 bg-white rounded-full ml-2 animate-pulse shadow-sm ${isCollapsed ? 'md:hidden' : ''}`} />
                       )}
                     </Link>
                   )
@@ -426,7 +508,7 @@ export default function Sidebar() {
             )}
           </nav>
         </div>
-      </div>
+      </aside>
     </>
   )
 }

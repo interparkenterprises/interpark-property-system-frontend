@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
 import { commissionsAPI } from '@/lib/api';
 import { ManagerCommission, CommissionStats, GenerateCommissionInvoiceRequest } from '@/types';
+import { formatCompactKes, formatExactKes } from '@/lib/numberFormat';
 
 // =============================================
 // SKELETON LOADING COMPONENT
@@ -400,10 +401,10 @@ export default function MyIncomePage() {
                     </svg>
                   </div>
                 </div>
-                <div className="ml-4">
+                <div className="kpi-card-content ml-4">
                   <p className="text-sm font-medium text-gray-600">Total Earned</p>
-                  <p className="text-2xl font-bold text-gray-900">
-                    {formatCurrency(incomeData.stats.totalEarned)}
+                  <p className="kpi-value font-bold text-gray-900" title={formatExactKes(incomeData.stats.totalEarned)}>
+                    {formatCompactKes(incomeData.stats.totalEarned)}
                   </p>
                 </div>
               </div>
@@ -418,10 +419,10 @@ export default function MyIncomePage() {
                     </svg>
                   </div>
                 </div>
-                <div className="ml-4">
+                <div className="kpi-card-content ml-4">
                   <p className="text-sm font-medium text-gray-600">Pending</p>
-                  <p className="text-2xl font-bold text-gray-900">
-                    {formatCurrency(incomeData.stats.totalPending)}
+                  <p className="kpi-value font-bold text-gray-900" title={formatExactKes(incomeData.stats.totalPending)}>
+                    {formatCompactKes(incomeData.stats.totalPending)}
                   </p>
                 </div>
               </div>
@@ -436,10 +437,10 @@ export default function MyIncomePage() {
                     </svg>
                   </div>
                 </div>
-                <div className="ml-4">
+                <div className="kpi-card-content ml-4">
                   <p className="text-sm font-medium text-gray-600">Processing</p>
-                  <p className="text-2xl font-bold text-gray-900">
-                    {formatCurrency(incomeData.stats.totalProcessing || 0)}
+                  <p className="kpi-value font-bold text-gray-900" title={formatExactKes(incomeData.stats.totalProcessing || 0)}>
+                    {formatCompactKes(incomeData.stats.totalProcessing || 0)}
                   </p>
                 </div>
               </div>
@@ -454,10 +455,10 @@ export default function MyIncomePage() {
                     </svg>
                   </div>
                 </div>
-                <div className="ml-4">
+                <div className="kpi-card-content ml-4">
                   <p className="text-sm font-medium text-gray-600">Total Paid</p>
-                  <p className="text-2xl font-bold text-gray-900">
-                    {formatCurrency(incomeData.stats.totalPaid)}
+                  <p className="kpi-value font-bold text-gray-900" title={formatExactKes(incomeData.stats.totalPaid)}>
+                    {formatCompactKes(incomeData.stats.totalPaid)}
                   </p>
                 </div>
               </div>
