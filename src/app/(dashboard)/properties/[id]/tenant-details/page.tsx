@@ -109,6 +109,7 @@ export default function TenantDetailPage() {
   const canCreateDemandLetters = isAdmin || isManager ||
     hasPermission(PermissionCode.CREATE_DEMAND_LETTER) ||
     hasPermission(PermissionCode.AUTO_GENERATE_DEMAND_LETTER);
+  const canDeleteDemandLetters = isAdmin || isManager || hasPermission(PermissionCode.DELETE_DEMAND_LETTER);
   
   const canViewOverdueInvoices = isAdmin || isManager || hasPermission(PermissionCode.VIEW_OVERDUE_INVOICES);
   
@@ -169,6 +170,8 @@ export default function TenantDetailPage() {
   const [receiptsMap, setReceiptsMap] = useState<Map<string, PaymentReport>>(new Map());
   const [downloadingReceiptId, setDownloadingReceiptId] = useState<string | null>(null);
   const [deletingPaymentReportId, setDeletingPaymentReportId] = useState<string | null>(null);
+  const [deletingDemandLetterId, setDeletingDemandLetterId] = useState<string | null>(null);
+  const [downloadingDemandLetterId, setDownloadingDemandLetterId] = useState<string | null>(null);
 
   const [invoiceForm, setInvoiceForm] = useState({
     dueDate: '',
@@ -882,11 +885,59 @@ export default function TenantDetailPage() {
 
   const handleDownloadDemandLetter = async (demandLetterId: string) => {
     try {
-      await demandLettersAPI.downloadPDF(demandLetterId);
-      toast.success('Demand letter download started');
-    } catch (error) {
+      setDownloadingDemandLetterId(demandLetterId);
+      toast.loading('Preparing download...');
+      
+      const blob = await demandLettersAPI.downloadPDF(demandLetterId);
+      
+      // Create download link
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `demand_letter_${demandLetterId}.pdf`; // You might want to get the letter number from somewhere else
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      
+      toast.dismiss();
+      toast.success('Demand letter downloaded successfully!');
+    } catch (error: any) {
       console.error('Error downloading demand letter:', error);
-      toast.error('Failed to download demand letter');
+      toast.dismiss();
+      toast.error(error.message || 'Failed to download demand letter');
+    } finally {
+      setDownloadingDemandLetterId(null);
+    }
+  };
+
+  const handleDeleteDemandLetter = async (letterId: string, letterNumber: string) => {
+    if (!canDeleteDemandLetters) {
+      toast.error('You do not have permission to delete demand letters');
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to delete demand letter ${letterNumber}? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      setDeletingDemandLetterId(letterId);
+      toast.loading('Deleting demand letter...');
+      
+      await demandLettersAPI.delete(letterId);
+      
+      toast.dismiss();
+      toast.success(`Demand letter ${letterNumber} deleted successfully!`);
+      
+      // Refresh the list
+      fetchDemandLetters();
+    } catch (error: any) {
+      console.error('Error deleting demand letter:', error);
+      toast.dismiss();
+      toast.error(error.message || 'Failed to delete demand letter');
+    } finally {
+      setDeletingDemandLetterId(null);
     }
   };
 
@@ -3778,17 +3829,63 @@ export default function TenantDetailPage() {
                           </span>
                         </td>
                         <td className="py-3 px-4">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleDownloadDemandLetter(letter.id)}
-                            className="flex items-center gap-2 text-gray-800 hover:text-gray-900 border-gray-400 hover:border-gray-600 bg-white hover:bg-gray-50 font-medium"
-                          >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                            </svg>
-                            Download
-                          </Button>
+                          <div className="flex items-center gap-2">
+                            {/* Download Button */}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleDownloadDemandLetter(letter.id)}
+                              disabled={downloadingDemandLetterId === letter.id || deletingDemandLetterId === letter.id}
+                              className="flex items-center gap-2 text-gray-800 hover:text-gray-900 border-gray-400 hover:border-gray-600 bg-white hover:bg-gray-50 font-medium"
+                            >
+                              {downloadingDemandLetterId === letter.id ? (
+                                <>
+                                  <motion.div
+                                    className="w-4 h-4 border-2 border-gray-600 border-t-transparent rounded-full"
+                                    animate={{ rotate: 360 }}
+                                    transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}
+                                  />
+                                  <span>Downloading...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                  </svg>
+                                  Download
+                                </>
+                              )}
+                            </Button>
+
+                            {/* Delete Button - Only visible with proper permissions */}
+                            {(isAdmin || isManager || hasPermission(PermissionCode.DELETE_DEMAND_LETTER)) && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleDeleteDemandLetter(letter.id, letter.letterNumber)}
+                                disabled={deletingDemandLetterId === letter.id || downloadingDemandLetterId === letter.id}
+                                className="flex items-center gap-2 border-2 border-red-500 text-red-600 hover:bg-red-50 hover:text-red-700 hover:border-red-600 font-medium transition-all duration-200"
+                              >
+                                {deletingDemandLetterId === letter.id ? (
+                                  <>
+                                    <motion.div
+                                      className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full"
+                                      animate={{ rotate: 360 }}
+                                      transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}
+                                    />
+                                    <span>Deleting...</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    </svg>
+                                    <span>Delete</span>
+                                  </>
+                                )}
+                              </Button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}

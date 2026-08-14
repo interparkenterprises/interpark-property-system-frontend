@@ -3436,13 +3436,15 @@ export const demandLettersAPI = {
     }
   },
 
-  // Download demand letter PDF
-  downloadPDF: async (id: string): Promise<{ documentUrl: string; letterNumber: string }> => {
+  // Update the downloadPDF function in lib/api.ts
+  downloadPDF: async (id: string): Promise<Blob> => {
     try {
-      const response = await api.get(`/demand-letters/${id}/download`);
+      const response = await api.get(`/demand-letters/${id}/download`, {
+        responseType: 'blob', // Important: Tell axios to expect binary data
+      });
       
-      // Backend returns { success, data: { documentUrl, letterNumber } }
-      return response.data.data;
+      // Return the blob directly
+      return response.data;
     } catch (error: any) {
       console.error('Failed to download demand letter PDF:', error);
       
