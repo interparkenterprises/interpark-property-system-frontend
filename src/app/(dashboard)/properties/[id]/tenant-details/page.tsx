@@ -1,24 +1,18 @@
 'use client';
-
+import { WhatsAppSendButton } from '@/components/tenant/WhatsAppSendButton';
 import { useEffect, useState, useCallback, useMemo, JSX } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { motion, Variants } from 'framer-motion';
 import { Tenant, Invoice, InvoiceStatus, PaymentReport, PaymentPreview, CreatePaymentReportResponse, PaymentStatus, BillInvoice, PaymentPolicy, DemandLetter, DemandLetterStatus, CreatePaymentReportRequest } from '@/types';
 import { tenantsAPI, invoicesAPI, paymentsAPI, billInvoicesAPI, demandLettersAPI } from '@/lib/api';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Dialog,  DialogContent,  DialogDescription,  DialogFooter,  DialogHeader,  DialogTitle,} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/Switch';
 import { toast } from 'sonner';
+import { useWhatsApp } from '@/hooks/useWhatsApp';
 import { generatePaymentReportPDF, generateBillInvoiceReportPDF, generateComprehensiveReportPDF } from '@/lib/pdfGenerator';
 import { formatDateToOrdinal, getDaysRemaining } from '@/lib/dateUtils';
 import { PermissionGuard } from '@/components/auth/PermissionGuard';
@@ -880,16 +874,16 @@ export default function TenantDetailPage() {
     }
   };
 
-  const handleDownloadDemandLetter = async (demandLetterId: string) => {
-    try {
-      await demandLettersAPI.downloadPDF(demandLetterId);
-      toast.success('Demand letter download started');
-    } catch (error) {
-      console.error('Error downloading demand letter:', error);
-      toast.error('Failed to download demand letter');
-    }
-  };
-
+const handleDownloadDemandLetter = async (demandLetterId: string) => {
+  try {
+    const result = await demandLettersAPI.downloadPDF(demandLetterId);
+    window.open(result.documentUrl, '_blank');
+    toast.success('Demand letter download started');
+  } catch (error) {
+    console.error('Error downloading demand letter:', error);
+    toast.error('Failed to download demand letter');
+  }
+};
   const openPartialPaymentInvoiceDialog = (payment: PaymentReport) => {
     setSelectedPartialPayment(payment);
     setPartialInvoiceForm({
@@ -922,28 +916,34 @@ export default function TenantDetailPage() {
     }
   };
 
-  const handleDownloadPaymentReport = async () => {
-    if (!tenant) return;
-    
-    if (!canDownloadPaymentReports) {
-      toast.error('You do not have permission to download payment reports');
-      return;
-    }
+const { downloadAllPaymentReports } = useWhatsApp();
 
-    try {
-      setGeneratingPDF(true);
-      toast.loading('Generating payment report PDF...');
-      await generatePaymentReportPDF(tenant, paymentReports);
-      toast.dismiss();
+const handleDownloadPaymentReport = async () => {
+  if (!tenant) return;
+
+  if (!canDownloadPaymentReports) {
+    toast.error('You do not have permission to download payment reports');
+    return;
+  }
+
+  try {
+    setGeneratingPDF(true);
+    toast.loading('Generating payment report PDF...');
+    const result = await downloadAllPaymentReports(tenant.id, tenant.fullName);
+    toast.dismiss();
+    if (result.success) {
       toast.success('Payment report downloaded successfully!');
-    } catch (error) {
-      console.error('Error generating payment report:', error);
-      toast.dismiss();
-      toast.error('Failed to generate payment report');
-    } finally {
-      setGeneratingPDF(false);
+    } else {
+      toast.error(result.message || 'Failed to download payment report');
     }
-  };
+  } catch (error) {
+    console.error('Error downloading payment report:', error);
+    toast.dismiss();
+    toast.error('Failed to download payment report');
+  } finally {
+    setGeneratingPDF(false);
+  }
+};
 
   const handleDownloadBillPaymentReport = async () => {
     if (!tenant) return;
@@ -2238,6 +2238,12 @@ export default function TenantDetailPage() {
                       </div>
                       
                       <div className="flex flex-col sm:flex-row lg:flex-col gap-2 shrink-0 w-full sm:w-auto">
+                        <WhatsAppSendButton
+                          tenantId={tenantId}
+                          documentType="Invoice"
+                          documentId={invoice.id}
+                          tenantPhone={tenant.contact}
+                        />
                         <Button
                           onClick={() => handleDownloadInvoice(invoice.id, invoice.invoiceNumber)}
                           variant="outline"
@@ -3069,31 +3075,43 @@ export default function TenantDetailPage() {
             <DialogDescription className="text-gray-700">
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                 <span className="text-sm sm:text-base">All payment reports for {tenant.fullName}</span>
-                {(isAdmin || isManager || permissions.payments.canView) && (
-                  <Button
-                    onClick={handleDownloadPaymentReport}
-                    disabled={generatingPDF || paymentReports.length === 0}
-                    size="sm"
-                    className="w-full sm:w-auto whitespace-nowrap"
-                  >
-                    {generatingPDF ? (
-                      <>
-                        <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        Generating...
-                      </>
-                    ) : (
-                      <>
-                        <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                        </svg>
-                        Download Report
-                      </>
-                    )}
-                  </Button>
-                )}
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  {(isAdmin || isManager || permissions.payments.canView) && (
+                    <Button
+                      onClick={handleDownloadPaymentReport}
+                      disabled={generatingPDF || paymentReports.length === 0}
+                      size="sm"
+                      className="w-full sm:w-auto whitespace-nowrap"
+                    >
+                      {generatingPDF ? (
+                        <>
+                          <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Generating...
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                          </svg>
+                          Download Report
+                        </>
+                      )}
+                    </Button>
+                  )}
+
+                  {(isAdmin || isManager || permissions.payments.canView) && paymentReports.length > 0 && (
+                    <WhatsAppSendButton
+                      tenantId={tenant.id}
+                      documentType="All Payment Reports"
+                      tenantPhone={tenant.contact}
+                      size="sm"
+                      showLabel
+                    />
+                  )}
+                </div>
               </div>
             </DialogDescription>
           </DialogHeader>
@@ -3158,6 +3176,7 @@ export default function TenantDetailPage() {
                       </div>
 
                       <div className="flex flex-row lg:flex-col gap-2 shrink-0 w-full lg:w-auto mt-2 lg:mt-0 pt-3 lg:pt-0 border-t lg:border-t-0 border-gray-100">
+                        
                         {report.status === 'PARTIAL' && report.arrears > 0 && (isAdmin || isManager || permissions.invoices.canCreate) && (
                           <Button
                             onClick={() => openPartialPaymentInvoiceDialog(report)}
@@ -3173,6 +3192,7 @@ export default function TenantDetailPage() {
                         )}
 
                         {(isAdmin || isManager || permissions.payments.canDelete) && (
+
                           <Button
                             onClick={() => handleDeletePaymentReport(report.id, report.paymentPeriod)}
                             variant="outline"
@@ -3311,58 +3331,64 @@ export default function TenantDetailPage() {
             <DialogDescription className="text-gray-700">
               <div className="flex items-center justify-between flex-wrap gap-3">
                 <span>All bill invoices for {tenant.fullName}</span>
-                <div className="flex gap-2">
-                  {(isAdmin || isManager || permissions.billInvoices.canView) && (
-                    <Button
-                      onClick={handleDownloadBillPaymentReport}
-                      disabled={generatingBillPDF || billInvoices.length === 0}
-                      size="sm"
-                      variant="outline"
-                    >
-                      {generatingBillPDF ? (
-                        <>
-                          <svg className="animate-spin -ml-1 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                          </svg>
-                          Generating...
-                        </>
-                      ) : (
-                        <>
-                          <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                          </svg>
-                          Bill Report
-                        </>
-                      )}
-                    </Button>
-                  )}
-                  
-                  {canViewComprehensiveReport && (
-                    <Button
-                      onClick={handleDownloadComprehensiveReport}
-                      disabled={generatingComprehensivePDF || (paymentReports.length === 0 && billInvoices.length === 0)}
-                      size="sm"
-                    >
-                      {generatingComprehensivePDF ? (
-                        <>
-                          <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                          </svg>
-                          Generating...
-                        </>
-                      ) : (
-                        <>
-                          <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                          </svg>
-                          Full Report
-                        </>
-                      )}
-                    </Button>
-                  )}
-                </div>
+                <div className="flex gap-2 flex-wrap">
+  {(isAdmin || isManager || permissions.billInvoices.canView) && (
+    <div className="flex items-center gap-2 p-1.5 rounded-lg border border-gray-200 bg-gray-50">
+      <Button
+        onClick={handleDownloadBillPaymentReport}
+        disabled={generatingBillPDF || billInvoices.length === 0}
+        size="sm"
+        variant="outline"
+      >
+        {generatingBillPDF ? (
+          <>
+            <svg className="animate-spin -ml-1 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            Generating...
+          </>
+        ) : (
+          <>
+            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            Bill Report
+          </>
+        )}
+      </Button>
+      <WhatsAppSendButton tenantId={tenantId} documentType="Bill Report" tenantPhone={tenant.contact} size="sm" />
+    </div>
+  )}
+
+  {canViewComprehensiveReport && (
+    <div className="flex items-center gap-2 p-1.5 rounded-lg border border-gray-200 bg-gray-50">
+      <Button
+        onClick={handleDownloadComprehensiveReport}
+        disabled={generatingComprehensivePDF || (paymentReports.length === 0 && billInvoices.length === 0)}
+        size="sm"
+      >
+        {generatingComprehensivePDF ? (
+          <>
+            <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            Generating...
+          </>
+        ) : (
+          <>
+            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            Full Report
+          </>
+        )}
+      </Button>
+      <WhatsAppSendButton tenantId={tenantId} documentType="Full Report" tenantPhone={tenant.contact} size="sm" />
+    </div>
+  )}
+</div>
               </div>
             </DialogDescription>
           </DialogHeader>
@@ -3437,7 +3463,9 @@ export default function TenantDetailPage() {
                     </div>
                     <div className="flex flex-col gap-2 mt-4">
                       {/* Delete Button - Only visible for ADMIN and MANAGER */}
+                     
                       {(isAdmin || isManager) && (
+                        
                         <Button
                           onClick={() => handleDeleteBillInvoice(billInvoice.id, billInvoice.invoiceNumber)}
                           variant="outline"
@@ -3778,6 +3806,12 @@ export default function TenantDetailPage() {
                           </span>
                         </td>
                         <td className="py-3 px-4">
+                           <WhatsAppSendButton
+                            tenantId={tenantId}
+                            documentType="Demand Letter"
+                            documentId={letter.id}
+                            tenantPhone={tenant.contact}
+                          />
                           <Button
                             size="sm"
                             variant="outline"
