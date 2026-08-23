@@ -65,6 +65,25 @@ export interface ExportRentReportOptions {
   status?: string;
 }
 
+// Helper function to format a date safely
+const formatDateSafe = (dateValue: string | null | undefined, fallback: string = 'No payments'): string => {
+  if (!dateValue) return fallback;
+  
+  try {
+    const date = new Date(dateValue);
+    if (isNaN(date.getTime())) {
+      return fallback;
+    }
+    return date.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
+  } catch (e) {
+    return fallback;
+  }
+};
+
 // Helper function to apply standard cell styling
 const applyHeaderStyle = (cell: ExcelJS.Cell) => {
   cell.fill = {
@@ -324,7 +343,13 @@ export async function exportRentReportToExcel(
       outstandingSheet.getCell(`E${rowNum}`).value = tenant.paidTotal;
       outstandingSheet.getCell(`F${rowNum}`).value = tenant.outstandingBalance;
       outstandingSheet.getCell(`G${rowNum}`).value = tenant.arrears;
-      outstandingSheet.getCell(`H${rowNum}`).value = tenant.lastPaymentDate ? new Date(tenant.lastPaymentDate).toLocaleDateString() : 'No payments';
+      
+      // =============================================
+      // FIX: Safely format the last payment date
+      // =============================================
+      const lastPaymentDisplay = formatDateSafe(tenant.lastPaymentDate, 'No payments');
+      outstandingSheet.getCell(`H${rowNum}`).value = lastPaymentDisplay;
+      
       outstandingSheet.getCell(`I${rowNum}`).value = tenant.paymentStatus;
       outstandingSheet.getCell(`J${rowNum}`).value = tenant.invoiceCount || 0;
       
@@ -404,9 +429,6 @@ export async function exportRentReportToExcel(
       }
       paymentsSheet.getCell(`C${rowNum}`).value = periodDisplay;
       
-      // For CREDIT status, expected amount should be the actual rent amount, not 0
-      // The backend sends expectedAmount: 0 for CREDIT, but we can calculate from the rent
-      // For now, use the value from the API, but note it might be 0
       const expectedAmount = report.expectedAmount;
       const amountPaid = report.amountPaid;
       const arrears = report.arrears;
@@ -417,19 +439,9 @@ export async function exportRentReportToExcel(
       paymentsSheet.getCell(`G${rowNum}`).value = report.status;
       paymentsSheet.getCell(`H${rowNum}`).value = report.invoiceCount;
       
-      // Format date paid
-      let datePaidDisplay = report.datePaid;
-      if (report.datePaid) {
-        try {
-          const date = new Date(report.datePaid);
-          if (!isNaN(date.getTime())) {
-            datePaidDisplay = date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
-          }
-        } catch (e) {
-          // Keep original
-        }
-      }
-      paymentsSheet.getCell(`I${rowNum}`).value = datePaidDisplay || '-';
+      // Format date paid safely
+      const datePaidDisplay = formatDateSafe(report.datePaid, '-');
+      paymentsSheet.getCell(`I${rowNum}`).value = datePaidDisplay;
       
       // Add note for CREDIT status
       let note = '';
@@ -447,11 +459,9 @@ export async function exportRentReportToExcel(
       
       // For CREDIT status, show the amount paid as a credit (positive number)
       if (report.status === 'CREDIT') {
-        // Show credit amount in a different style
         const paidCell = paymentsSheet.getCell(`E${rowNum}`);
         paidCell.font = { color: { argb: 'FF1976D2' }, bold: true };
         
-        // Arrears for credit should be 0 or negative (overpayment)
         if (report.arrears === 0) {
           paymentsSheet.getCell(`F${rowNum}`).value = 0;
         } else if (report.arrears < 0) {
@@ -475,7 +485,6 @@ export async function exportRentReportToExcel(
         statusCell.font = { color: { argb: 'FF2196F3' }, bold: true };
       } else if (report.status === 'CREDIT') {
         statusCell.font = { color: { argb: 'FF1976D2' }, bold: true };
-        // Add background highlight for credit
         statusCell.fill = {
           type: 'pattern',
           pattern: 'solid',
@@ -491,7 +500,6 @@ export async function exportRentReportToExcel(
       paymentsSheet.getColumn(idx + 1).width = width;
     });
     
-    // Auto-filter for better usability
     paymentsSheet.autoFilter = {
       from: 'A3',
       to: 'J3'

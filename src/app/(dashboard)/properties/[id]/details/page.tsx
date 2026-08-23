@@ -387,14 +387,22 @@ export default function PropertyDetailInfoPage() {
     setRentReportLoading(true);
     try {
       const params: any = {};
-      if (rentReportFilters.dateFrom) params.dateFrom = rentReportFilters.dateFrom;
-      if (rentReportFilters.dateTo) params.dateTo = rentReportFilters.dateTo;
+      // Make sure dates are properly formatted
+      if (rentReportFilters.dateFrom) {
+        const fromDate = new Date(rentReportFilters.dateFrom);
+        params.dateFrom = fromDate.toISOString();
+      }
+      if (rentReportFilters.dateTo) {
+        const toDate = new Date(rentReportFilters.dateTo);
+        // Set to end of day
+        toDate.setHours(23, 59, 59, 999);
+        params.dateTo = toDate.toISOString();
+      }
       if (rentReportFilters.status) params.status = rentReportFilters.status;
       if (rentReportFilters.page) params.page = rentReportFilters.page;
       if (rentReportFilters.limit) params.limit = rentReportFilters.limit;
       
       const response = await paymentsAPI.getPropertyRentPaymentReport(propertyId, params);
-      // The response is already the full API response with { success, data }
       setRentReportData(response.data);
     } catch (error) {
       console.error('Error fetching rent report:', error);
