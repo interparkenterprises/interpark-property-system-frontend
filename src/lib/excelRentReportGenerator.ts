@@ -106,16 +106,6 @@ const applyTitleStyle = (cell: ExcelJS.Cell) => {
   cell.alignment = { horizontal: 'center', vertical: 'middle' };
 };
 
-const applySubtitleStyle = (cell: ExcelJS.Cell) => {
-  cell.font = { bold: true, size: 12 };
-  cell.fill = {
-    type: 'pattern',
-    pattern: 'solid',
-    fgColor: { argb: 'FFE8F5E9' }
-  };
-  cell.alignment = { horizontal: 'center', vertical: 'middle' };
-};
-
 const applyNumberStyle = (cell: ExcelJS.Cell) => {
   cell.numFmt = '#,##0.00';
   cell.alignment = { horizontal: 'right', vertical: 'middle' };
@@ -269,13 +259,13 @@ export async function exportRentReportToExcel(
       pageSetup: { paperSize: 9, orientation: 'landscape' }
     });
     
-    trendsSheet.mergeCells('A1:F1');
+    trendsSheet.mergeCells('A1:E1');
     const trendsTitle = trendsSheet.getCell('A1');
     trendsTitle.value = 'MONTHLY TRENDS';
     applyTitleStyle(trendsTitle);
     trendsSheet.getRow(1).height = 25;
     
-    const headers = ['Month', 'Expected (Ksh)', 'Collected (Ksh)', 'Arrears (Ksh)', 'Collection Rate', 'Report Count'];
+    const headers = ['Month', 'Expected (Ksh)', 'Collected (Ksh)', 'Arrears (Ksh)', 'Collection Rate'];
     const headerRow = trendsSheet.getRow(3);
     headers.forEach((header, idx) => {
       const cell = headerRow.getCell(idx + 1);
@@ -293,7 +283,6 @@ export async function exportRentReportToExcel(
       trendsSheet.getCell(`C${rowNum}`).value = trend.collected;
       trendsSheet.getCell(`D${rowNum}`).value = trend.arrears;
       trendsSheet.getCell(`E${rowNum}`).value = `${collectionRate}%`;
-      trendsSheet.getCell(`F${rowNum}`).value = trend.reportCount;
       
       applyNumberStyle(trendsSheet.getCell(`B${rowNum}`));
       applyNumberStyle(trendsSheet.getCell(`C${rowNum}`));
@@ -309,7 +298,6 @@ export async function exportRentReportToExcel(
     trendsSheet.getColumn('C').width = 20;
     trendsSheet.getColumn('D').width = 20;
     trendsSheet.getColumn('E').width = 18;
-    trendsSheet.getColumn('F').width = 15;
   }
 
   // 4. Tenant Outstanding Balances Sheet
@@ -318,13 +306,16 @@ export async function exportRentReportToExcel(
       pageSetup: { paperSize: 9, orientation: 'landscape' }
     });
     
-    outstandingSheet.mergeCells('A1:J1');
+    outstandingSheet.mergeCells('A1:I1');
     const outstandingTitle = outstandingSheet.getCell('A1');
     outstandingTitle.value = 'TENANT OUTSTANDING BALANCES';
     applyTitleStyle(outstandingTitle);
     outstandingSheet.getRow(1).height = 25;
     
-    const headers = ['Tenant Name', 'Unit Number', 'Unit Type', 'Expected Total (Ksh)', 'Paid Total (Ksh)', 'Outstanding Balance (Ksh)', 'Arrears (Ksh)', 'Last Payment Date', 'Payment Status', 'Invoice Count'];
+    // =============================================
+    // FIX: Removed the "Arrears" column since it's redundant
+    // =============================================
+    const headers = ['Tenant Name', 'Unit Number', 'Unit Type', 'Expected Total (Ksh)', 'Paid Total (Ksh)', 'Outstanding Balance (Ksh)', 'Last Payment Date', 'Payment Status', 'Invoice Count'];
     const headerRow = outstandingSheet.getRow(3);
     headers.forEach((header, idx) => {
       const cell = headerRow.getCell(idx + 1);
@@ -342,16 +333,15 @@ export async function exportRentReportToExcel(
       outstandingSheet.getCell(`D${rowNum}`).value = tenant.expectedTotal;
       outstandingSheet.getCell(`E${rowNum}`).value = tenant.paidTotal;
       outstandingSheet.getCell(`F${rowNum}`).value = tenant.outstandingBalance;
-      outstandingSheet.getCell(`G${rowNum}`).value = tenant.arrears;
       
       // =============================================
       // FIX: Safely format the last payment date
       // =============================================
       const lastPaymentDisplay = formatDateSafe(tenant.lastPaymentDate, 'No payments');
-      outstandingSheet.getCell(`H${rowNum}`).value = lastPaymentDisplay;
+      outstandingSheet.getCell(`G${rowNum}`).value = lastPaymentDisplay;
       
-      outstandingSheet.getCell(`I${rowNum}`).value = tenant.paymentStatus;
-      outstandingSheet.getCell(`J${rowNum}`).value = tenant.invoiceCount || 0;
+      outstandingSheet.getCell(`H${rowNum}`).value = tenant.paymentStatus;
+      outstandingSheet.getCell(`I${rowNum}`).value = tenant.invoiceCount || 0;
       
       applyNumberStyle(outstandingSheet.getCell(`D${rowNum}`));
       applyNumberStyle(outstandingSheet.getCell(`E${rowNum}`));
@@ -365,14 +355,8 @@ export async function exportRentReportToExcel(
         applyNumberStyle(outstandingSheet.getCell(`F${rowNum}`));
       }
       
-      if (tenant.arrears > 0) {
-        applyNegativeStyle(outstandingSheet.getCell(`G${rowNum}`));
-      } else {
-        applyNumberStyle(outstandingSheet.getCell(`G${rowNum}`));
-      }
-      
       // Status cell styling
-      const statusCell = outstandingSheet.getCell(`I${rowNum}`);
+      const statusCell = outstandingSheet.getCell(`H${rowNum}`);
       if (tenant.paymentStatus === 'PAID') {
         statusCell.font = { color: { argb: 'FF2E7D32' }, bold: true };
       } else if (tenant.paymentStatus === 'PARTIAL') {
@@ -384,7 +368,7 @@ export async function exportRentReportToExcel(
       }
     });
     
-    const colWidths = [25, 12, 15, 18, 18, 18, 18, 18, 15, 14];
+    const colWidths = [25, 12, 15, 18, 18, 18, 18, 15, 14];
     colWidths.forEach((width, idx) => {
       outstandingSheet.getColumn(idx + 1).width = width;
     });
