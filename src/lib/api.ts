@@ -106,9 +106,11 @@ import {
   OtherIncomeListResponse,
   UploadOtherIncomeAttachmentRequest,
   VATType, 
+  PropertyCollectionStatementRequest,
+  PropertyCollectionStatementResponse,
 } from '@/types';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.interparkpropertysystem.co.ke/api';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ;
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -473,6 +475,28 @@ export const propertiesAPI = {
       } else {
         throw new Error('An unexpected error occurred');
       }
+    }
+  },
+
+    // NEW: Get property collection statement
+  getCollectionStatement: async (
+    id: string, 
+    params?: PropertyCollectionStatementRequest
+  ): Promise<PropertyCollectionStatementResponse> => {
+    try {
+      const queryParams = new URLSearchParams();
+      if (params?.startDate) {
+        queryParams.append('startDate', params.startDate);
+      }
+      if (params?.endDate) {
+        queryParams.append('endDate', params.endDate);
+      }
+      
+      const url = `/properties/${id}/collection-statement${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+      const response = await api.get(url);
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
     }
   },
 

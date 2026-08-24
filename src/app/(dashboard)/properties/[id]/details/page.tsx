@@ -175,6 +175,18 @@ export default function PropertyDetailInfoPage() {
   const [upcomingDateFrom, setUpcomingDateFrom] = useState<string>('');
   const [upcomingDateTo, setUpcomingDateTo] = useState<string>('');
   const [filteredPayments, setFilteredPayments] = useState<NextPaymentItem[]>([]);
+  // State for Collection Statement
+  const [collectionStatement, setCollectionStatement] = useState<any>(null);
+  const [collectionStatementLoading, setCollectionStatementLoading] = useState(false);
+  const [collectionDateFrom, setCollectionDateFrom] = useState<string>(() => {
+    const now = new Date();
+    const threeMonthsAgo = new Date(now);
+    threeMonthsAgo.setMonth(now.getMonth() - 3);
+    return threeMonthsAgo.toISOString().split('T')[0];
+  });
+  const [collectionDateTo, setCollectionDateTo] = useState<string>(() => {
+    return new Date().toISOString().split('T')[0];
+  });
 
   const propertyId = params.id as string;
 
@@ -321,6 +333,35 @@ export default function PropertyDetailInfoPage() {
       setFilteredPayments(filtered);
     }
   }, [nextPaymentsData, upcomingDateFrom, upcomingDateTo]);
+
+  useEffect(() => {
+    // Initial load of collection statement when tab is selected
+    if (activeTab === 'payments') {
+      fetchCollectionStatement();
+    }
+  }, [activeTab, propertyId]);
+
+  // Fetch Collection Statement
+  const fetchCollectionStatement = async () => {
+    if (!propertyId) return;
+    
+    setCollectionStatementLoading(true);
+    try {
+      const params: { startDate?: string; endDate?: string } = {};
+      if (collectionDateFrom) params.startDate = collectionDateFrom;
+      if (collectionDateTo) params.endDate = collectionDateTo;
+      
+      const response = await propertiesAPI.getCollectionStatement(propertyId, params);
+      setCollectionStatement(response.data);
+    } catch (error) {
+      console.error('Error fetching collection statement:', error);
+      setCollectionStatement(null);
+    } finally {
+      setCollectionStatementLoading(false);
+    }
+  };
+
+
 
   const fetchPropertyDetails = async () => {
     try {
@@ -725,7 +766,11 @@ export default function PropertyDetailInfoPage() {
   };
 
   // Open export modal
-  const handleOpenExportModal = () => {
+  const handleOpenExportModal = async () => {
+    // Ensure we have fresh data
+    if (!collectionStatement || collectionDateFrom || collectionDateTo) {
+      await fetchCollectionStatement();
+    }
     setShowExportModal(true);
   };
 
@@ -772,6 +817,7 @@ export default function PropertyDetailInfoPage() {
   };
 
   // Export to Excel using the separated utility
+  // Update the exportToExcel function
   const exportToExcel = async () => {
     if (!property) return;
 
@@ -786,7 +832,15 @@ export default function PropertyDetailInfoPage() {
     setShowExportModal(false);
 
     try {
-      const { buffer, filename } = await exportPropertyToExcel(property, selectedSections, totals);
+      // Use collection statement data if available, otherwise fallback to property data
+      const dataForExport = collectionStatement || property;
+      
+      const { buffer, filename } = await exportPropertyToExcel(
+        property, 
+        selectedSections, 
+        totals,
+        dataForExport
+      );
       
       const blob = new Blob([buffer], {
         type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -798,7 +852,7 @@ export default function PropertyDetailInfoPage() {
       link.click();
       window.URL.revokeObjectURL(url);
 
-      alert('Payment report exported successfully!');
+      alert('Property collection statement exported successfully!');
     } catch (error) {
       console.error('Error exporting to Excel:', error);
       alert('Failed to export report. Please try again.');
@@ -2270,7 +2324,7 @@ export default function PropertyDetailInfoPage() {
           </PermissionGuard>
         )}
 
-        {/* PAYMENTS TAB - Property Statement */}
+        {/* PAYMENTS TAB - Property Collection Statement */}
         {activeTab === 'payments' && (
           <PermissionGuard permission={PermissionCode.VIEW_PAYMENT_REPORTS} fallback={
             <div className="bg-white rounded-2xl p-8 shadow-lg border border-gray-200 text-center">
@@ -2288,7 +2342,8 @@ export default function PropertyDetailInfoPage() {
                 variants={itemVariants}
                 className="bg-white rounded-2xl p-8 shadow-lg border border-gray-200"
               >
-                <div className="flex items-center justify-between mb-6">
+                {/* Header with Date Filter */}
+                <div className="flex flex-wrap items-center justify-between mb-6 gap-4">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
                       <svg
@@ -2305,231 +2360,486 @@ export default function PropertyDetailInfoPage() {
                         />
                       </svg>
                     </div>
-                    <h2 className="text-2xl font-bold text-heading-color">Property Collection Statement</h2>
-                  </div>
-                  <Button
-                    onClick={handleOpenExportModal}
-                    disabled={exporting}
-                    className="px-6 py-2.5 bg-primary text-white hover:bg-primary/90 transition-all duration-300 shadow-md rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <span className="flex items-center gap-2">
-                      <svg
-                        className="w-5 h-5"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                        />
-                      </svg>
-                      Export to Excel
-                    </span>
-                  </Button>
-                </div>
-
-                {/* Report Summary */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                  <div className="bg-linear-to-br from-green-50 to-green-100 rounded-xl p-6 border border-green-200">
-                    <div className="text-sm font-medium text-green-700 mb-2">Total Income</div>
-                    <div className="kpi-value font-bold text-green-900" title={formatExactKes(totals.totalIncome)}>
-                      {formatCompactKes(totals.totalIncome)}
+                    <div>
+                      <h2 className="text-2xl font-bold text-heading-color">Property Collection Statement</h2>
+                      <p className="text-sm text-gray-600 mt-1">
+                        Comprehensive financial overview with date filtering
+                      </p>
                     </div>
                   </div>
-                  {/* Only show commissions summary if user has permission */}
-                  {(isAdmin || isManager || hasPermission(PermissionCode.VIEW_COMMISSIONS)) && (
-                    <div className="bg-linear-to-br from-blue-50 to-blue-100 rounded-xl p-6 border border-blue-200">
-                      <div className="text-sm font-medium text-blue-700 mb-2">Total Commissions</div>
-                      <div className="kpi-value font-bold text-blue-900" title={formatExactKes(totals.totalCommissions)}>
-                        {formatCompactKes(totals.totalCommissions)}
-                      </div>
+                  <div className="flex items-center gap-3">
+                    <Button
+                      onClick={() => {
+                        // Reset date filters to last 3 months
+                        const now = new Date();
+                        const threeMonthsAgo = new Date(now);
+                        threeMonthsAgo.setMonth(now.getMonth() - 3);
+                        setCollectionDateFrom(threeMonthsAgo.toISOString().split('T')[0]);
+                        setCollectionDateTo(now.toISOString().split('T')[0]);
+                        fetchCollectionStatement();
+                      }}
+                      variant="secondary"
+                      className="px-4 py-2.5 bg-gray-100 text-gray-700 hover:bg-gray-200 transition-all duration-300 rounded-lg"
+                    >
+                      Last 3 Months
+                    </Button>
+                    <Button
+                      onClick={fetchCollectionStatement}
+                      disabled={collectionStatementLoading}
+                      className="px-6 py-2.5 bg-purple-600 text-white hover:bg-purple-700 transition-all duration-300 shadow-md rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <span className="flex items-center gap-2">
+                        {collectionStatementLoading ? (
+                          <>
+                            <motion.svg
+                              animate={{ rotate: 360 }}
+                              transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                              className="w-5 h-5"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </motion.svg>
+                            Loading...
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                            Refresh
+                          </>
+                        )}
+                      </span>
+                    </Button>
+                    <Button
+                      onClick={handleOpenExportModal}
+                      disabled={exporting || !collectionStatement}
+                      className="px-6 py-2.5 bg-primary text-white hover:bg-primary/90 transition-all duration-300 shadow-md rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <span className="flex items-center gap-2">
+                        <svg
+                          className="w-5 h-5"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                          />
+                        </svg>
+                        Export to Excel
+                      </span>
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Date Filter Section */}
+                <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-900 mb-1">Date From</label>
+                      <input
+                        type="date"
+                        value={collectionDateFrom}
+                        onChange={(e) => setCollectionDateFrom(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900 bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-900 mb-1">Date To</label>
+                      <input
+                        type="date"
+                        value={collectionDateTo}
+                        onChange={(e) => setCollectionDateTo(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-gray-900 bg-white"
+                      />
+                    </div>
+                    <div className="flex items-end gap-2">
+                      <Button
+                        onClick={fetchCollectionStatement}
+                        disabled={collectionStatementLoading}
+                        className="bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"
+                      >
+                        Apply Filter
+                      </Button>
+                      <Button
+                        onClick={() => {
+                          setCollectionDateFrom('');
+                          setCollectionDateTo('');
+                          fetchCollectionStatement();
+                        }}
+                        variant="secondary"
+                        className="bg-gray-200 text-gray-700 hover:bg-gray-300"
+                      >
+                        Clear
+                      </Button>
+                    </div>
+                  </div>
+                  {(collectionDateFrom || collectionDateTo) && (
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-medium text-gray-700">Active filters:</span>
+                      {collectionDateFrom && (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                          From: {new Date(collectionDateFrom).toLocaleDateString()}
+                        </span>
+                      )}
+                      {collectionDateTo && (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                          To: {new Date(collectionDateTo).toLocaleDateString()}
+                        </span>
+                      )}
                     </div>
                   )}
-                  <div className="bg-linear-to-br from-purple-50 to-purple-100 rounded-xl p-6 border border-purple-200">
-                    <div className="text-sm font-medium text-purple-700 mb-2">Net Income</div>
-                    <div className="kpi-value font-bold text-purple-900" title={formatExactKes(totals.totalIncome - (isAdmin || isManager || hasPermission(PermissionCode.VIEW_COMMISSIONS) ? totals.totalCommissions : 0))}>
-                      {formatCompactKes(totals.totalIncome - (isAdmin || isManager || hasPermission(PermissionCode.VIEW_COMMISSIONS) ? totals.totalCommissions : 0))}
-                    </div>
-                  </div>
                 </div>
 
-                {/* Detailed Breakdown */}
-                <div className="space-y-6">
-                  {/* Tenants & Units Overview */}
-                  <div>
-                    <h3 className="text-lg font-bold text-gray-900 mb-4">Units & Tenants</h3>
-                    <div className="overflow-x-auto">
-                      <table className="w-full">
-                        <thead>
-                          <tr className="border-b-2 border-gray-200">
-                            <th className="text-left py-3 px-4 font-semibold text-gray-900">Unit</th>
-                            <th className="text-left py-3 px-4 font-semibold text-gray-900">
-                              Tenant
-                            </th>
-                            <th className="text-left py-3 px-4 font-semibold text-gray-900">
-                              Monthly Rent
-                            </th>
-                            <th className="text-left py-3 px-4 font-semibold text-gray-900">
-                              Service Charge
-                            </th>
-                            <th className="text-left py-3 px-4 font-semibold text-gray-900">
-                              Status
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {property.units && property.units.length > 0 ? (
-                            property.units.map((unit, index) => (
-                              <motion.tr
-                                key={unit.id}
-                                initial={{ opacity: 0, x: -20 }}
-                                animate={{ opacity: 1, x: 0 }}
-                                transition={{ delay: index * 0.05 }}
-                                className="border-b border-gray-100 hover:bg-gray-50"
-                              >
-                                <td className="py-3 px-4">
-                                  <div className="font-medium text-gray-900">
-                                    {unit.type || 'Unit'}
-                                  </div>
-                                  <div className="text-sm text-gray-600">
-                                    {[
-                                      unit.bedrooms !== undefined && `${unit.bedrooms} bed`,
-                                      unit.bathrooms !== undefined && `${unit.bathrooms} bath`,
-                                    ]
-                                      .filter(Boolean)
-                                      .join(' • ') || 'N/A'}
-                                  </div>
-                                </td>
-                                <td className="py-3 px-4">
-                                  {unit.tenant ? (
-                                    <div>
-                                      <div className="font-medium text-gray-900">
-                                        {unit.tenant.fullName}
-                                      </div>
-                                      <div className="text-sm text-gray-600">
-                                        {unit.tenant.contact}
-                                      </div>
-                                    </div>
-                                  ) : (
-                                    <span className="text-gray-500 font-medium">Vacant</span>
-                                  )}
-                                </td>
-                                <td className="py-3 px-4">
-                                  <span className="font-semibold text-gray-900">
-                                    Ksh {unit.rentAmount.toLocaleString()}
-                                  </span>
-                                </td>
-                                <td className="py-3 px-4">
-                                  {unit.tenant?.serviceCharge ? (
-                                    <div className="text-sm text-gray-900">
-                                      {unit.tenant.serviceCharge.type === 'PERCENTAGE' && (
-                                        <span>{unit.tenant.serviceCharge.percentage}%</span>
-                                      )}
-                                      {unit.tenant.serviceCharge.type === 'FIXED' && (
-                                        <span>
-                                          Ksh{' '}
-                                          {unit.tenant.serviceCharge.fixedAmount?.toLocaleString()}
-                                        </span>
-                                      )}
-                                      {unit.tenant.serviceCharge.type === 'PER_SQ_FT' && (
-                                        <span>
-                                          Ksh {unit.tenant.serviceCharge.perSqFtRate}/sq ft
-                                        </span>
-                                      )}
-                                    </div>
-                                  ) : (
-                                    <span className="text-gray-500">-</span>
-                                  )}
-                                </td>
-                                <td className="py-3 px-4">
-                                  <span
-                                    className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${
-                                      unit.status === 'OCCUPIED'
-                                        ? 'bg-green-100 text-green-700'
-                                        : 'bg-gray-100 text-gray-700'
-                                    }`}
-                                  >
-                                    {unit.status}
-                                  </span>
-                                </td>
-                              </motion.tr>
-                            ))
-                          ) : (
-                            <tr>
-                              <td colSpan={5} className="py-8 text-center">
-                                <p className="text-gray-900 font-medium">No units found</p>
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
+                {/* Loading State */}
+                {collectionStatementLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <div className="text-center">
+                      <div className="relative w-12 h-12 mx-auto mb-4">
+                        <motion.div
+                          className="absolute inset-0 border-4 border-purple-200 rounded-full"
+                          animate={{ scale: [1, 1.2, 1] }}
+                          transition={{ duration: 1.5, repeat: Infinity }}
+                        />
+                        <motion.div
+                          className="absolute inset-0 border-4 border-t-purple-500 border-r-transparent border-b-transparent border-l-transparent rounded-full"
+                          animate={{ rotate: 360 }}
+                          transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                        />
+                      </div>
+                      <p className="text-gray-900 font-medium">Loading collection statement...</p>
                     </div>
                   </div>
+                ) : collectionStatement ? (
+                  <>
+                    {/* Date Range Display */}
+                    <div className="mb-4 p-3 bg-purple-50 rounded-lg border border-purple-200">
+                      <p className="text-sm text-purple-800">
+                        <span className="font-semibold">Reporting Period:</span>{' '}
+                        {new Date(collectionStatement.dateRange.startDate).toLocaleDateString('en-GB', {
+                          day: '2-digit',
+                          month: 'long',
+                          year: 'numeric'
+                        })}
+                        {' - '}
+                        {new Date(collectionStatement.dateRange.endDate).toLocaleDateString('en-GB', {
+                          day: '2-digit',
+                          month: 'long',
+                          year: 'numeric'
+                        })}
+                      </p>
+                    </div>
 
-                  {/* Service Providers */}
-                  {property.serviceProviders && property.serviceProviders.length > 0 && (
-                    <div>
-                      <h3 className="text-lg font-bold text-gray-900 mb-4">Service Providers</h3>
+                    {/* Report Summary from Collection Statement */}
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+                      <div className="bg-linear-to-br from-green-50 to-green-100 rounded-xl p-5 border border-green-200">
+                        <div className="text-sm font-medium text-green-700 mb-1">Total Revenue</div>
+                        <div className="kpi-value font-bold text-green-900" title={formatExactKes(collectionStatement.summary.totalRevenue)}>
+                          {formatCompactKes(collectionStatement.summary.totalRevenue)}
+                        </div>
+                        <div className="text-xs text-green-600 mt-1">
+                          From {collectionStatement.summary.totalUnits} units
+                        </div>
+                      </div>
+                      <div className="bg-linear-to-br from-blue-50 to-blue-100 rounded-xl p-5 border border-blue-200">
+                        <div className="text-sm font-medium text-blue-700 mb-1">Rent Collected</div>
+                        <div className="kpi-value font-bold text-blue-900" title={formatExactKes(collectionStatement.summary.totalRentCollected)}>
+                          {formatCompactKes(collectionStatement.summary.totalRentCollected)}
+                        </div>
+                        <div className="text-xs text-blue-600 mt-1">
+                          {collectionStatement.summary.occupiedUnits} occupied units
+                        </div>
+                      </div>
+                      <div className="bg-linear-to-br from-red-50 to-red-100 rounded-xl p-5 border border-red-200">
+                        <div className="text-sm font-medium text-red-700 mb-1">Total Outstanding</div>
+                        <div className="kpi-value font-bold text-red-900" title={formatExactKes(collectionStatement.summary.totalOutstanding)}>
+                          {formatCompactKes(collectionStatement.summary.totalOutstanding)}
+                        </div>
+                        <div className="text-xs text-red-600 mt-1">
+                          Occupancy Rate: {collectionStatement.summary.occupancyRate}%
+                        </div>
+                      </div>
+                      <div className="bg-linear-to-br from-purple-50 to-purple-100 rounded-xl p-5 border border-purple-200">
+                        <div className="text-sm font-medium text-purple-700 mb-1">Net Revenue</div>
+                        <div className="kpi-value font-bold text-purple-900" title={formatExactKes(collectionStatement.summary.netRevenue)}>
+                          {formatCompactKes(collectionStatement.summary.netRevenue)}
+                        </div>
+                        <div className="text-xs text-purple-600 mt-1">
+                          After commissions
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Income & Commission Summary */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                      <div className="bg-white rounded-xl border border-gray-200 p-5">
+                        <h4 className="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wide">Income Summary</h4>
+                        <div className="space-y-2">
+                          <div className="flex justify-between text-sm">
+                            <span className="text-gray-600">Monthly:</span>
+                            <span className="font-semibold text-gray-900">
+                              Ksh {collectionStatement.incomeSummary.monthly.toLocaleString()}
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-gray-600">Quarterly:</span>
+                            <span className="font-semibold text-gray-900">
+                              Ksh {collectionStatement.incomeSummary.quarterly.toLocaleString()}
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-gray-600">Annual:</span>
+                            <span className="font-semibold text-gray-900">
+                              Ksh {collectionStatement.incomeSummary.annual.toLocaleString()}
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-sm border-t border-gray-200 pt-2 mt-2">
+                            <span className="font-semibold text-gray-700">Total Other Income:</span>
+                            <span className="font-bold text-blue-600">
+                              Ksh {collectionStatement.summary.totalOtherIncomes.toLocaleString()}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="bg-white rounded-xl border border-gray-200 p-5">
+                        <h4 className="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wide">Commission Summary</h4>
+                        <div className="space-y-2">
+                          <div className="flex justify-between text-sm">
+                            <span className="text-gray-600">Total Commissions:</span>
+                            <span className="font-semibold text-gray-900">
+                              Ksh {collectionStatement.summary.totalCommissions.toLocaleString()}
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-gray-600">Pending:</span>
+                            <span className="font-semibold text-yellow-600">
+                              Ksh {collectionStatement.commissionSummary.pending.toLocaleString()}
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-gray-600">Paid:</span>
+                            <span className="font-semibold text-green-600">
+                              Ksh {collectionStatement.commissionSummary.paid.toLocaleString()}
+                            </span>
+                          </div>
+                          <div className="flex justify-between text-sm border-t border-gray-200 pt-2 mt-2">
+                            <span className="font-semibold text-gray-700">Commission Rate:</span>
+                            <span className="font-bold text-purple-600">
+                              {collectionStatement.property.commissionFee || 0}%
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Units & Tenants with Financials */}
+                    <div className="mb-6">
+                      <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                        <span className="w-1 h-6 bg-purple-500 rounded-full"></span>
+                        Units & Tenants Financial Summary
+                      </h3>
                       <div className="overflow-x-auto">
                         <table className="w-full">
                           <thead>
                             <tr className="border-b-2 border-gray-200">
-                              <th className="text-left py-3 px-4 font-semibold text-gray-900">
-                                Provider
-                              </th>
-                              <th className="text-left py-3 px-4 font-semibold text-gray-900">
-                                Service
-                              </th>
-                              <th className="text-left py-3 px-4 font-semibold text-gray-900">
-                                Contact
-                              </th>
-                              <th className="text-left py-3 px-4 font-semibold text-gray-900">
-                                Charge
-                              </th>
-                              <th className="text-left py-3 px-4 font-semibold text-gray-900">
-                                Frequency
-                              </th>
-                             </tr>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-900">Unit</th>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-900">Tenant</th>
+                              <th className="text-right py-3 px-4 font-semibold text-gray-900">Rent</th>
+                              <th className="text-right py-3 px-4 font-semibold text-gray-900">Deposit</th>
+                              <th className="text-right py-3 px-4 font-semibold text-gray-900">Rent Collected</th>
+                              <th className="text-right py-3 px-4 font-semibold text-gray-900">Service Charge</th>
+                              <th className="text-right py-3 px-4 font-semibold text-gray-900">Bills</th>
+                              <th className="text-right py-3 px-4 font-semibold text-gray-900">Outstanding</th>
+                              <th className="text-left py-3 px-4 font-semibold text-gray-900">Status</th>
+                            </tr>
                           </thead>
                           <tbody>
-                            {property.serviceProviders.map((provider, index) => (
-                              <motion.tr
-                                key={provider.id}
-                                initial={{ opacity: 0, x: -20 }}
-                                animate={{ opacity: 1, x: 0 }}
-                                transition={{ delay: index * 0.05 }}
-                                className="border-b border-gray-100 hover:bg-gray-50"
-                              >
-                                <td className="py-3 px-4">
-                                  <div className="font-medium text-gray-900">{provider.name}</div>
+                            {collectionStatement.unitSummaries && collectionStatement.unitSummaries.length > 0 ? (
+                              collectionStatement.unitSummaries.map((unit: any, index: number) => (
+                                <motion.tr
+                                  key={unit.unitId}
+                                  initial={{ opacity: 0, x: -20 }}
+                                  animate={{ opacity: 1, x: 0 }}
+                                  transition={{ delay: index * 0.03 }}
+                                  className="border-b border-gray-100 hover:bg-gray-50"
+                                >
+                                  <td className="py-3 px-4">
+                                    <div className="font-medium text-gray-900">{unit.unitNo || 'N/A'}</div>
+                                    <div className="text-xs text-gray-500">{unit.unitType}</div>
+                                  </td>
+                                  <td className="py-3 px-4">
+                                    {unit.tenant ? (
+                                      <div>
+                                        <div className="font-medium text-gray-900">{unit.tenant.fullName}</div>
+                                        <div className="text-xs text-gray-500">{unit.tenant.contact}</div>
+                                      </div>
+                                    ) : (
+                                      <span className="text-gray-400">Vacant</span>
+                                    )}
+                                  </td>
+                                  <td className="py-3 px-4 text-right font-semibold text-gray-900">
+                                    Ksh {unit.rentAmount.toLocaleString()}
+                                  </td>
+                                  <td className="py-3 px-4 text-right text-blue-600">
+                                    Ksh {unit.financialSummary.deposit.toLocaleString()}
+                                  </td>
+                                  <td className="py-3 px-4 text-right text-green-600 font-semibold">
+                                    Ksh {unit.financialSummary.rentCollected.toLocaleString()}
+                                  </td>
+                                  <td className="py-3 px-4 text-right text-purple-600">
+                                    Ksh {unit.financialSummary.serviceCharge.toLocaleString()}
+                                  </td>
+                                  <td className="py-3 px-4 text-right text-orange-600">
+                                    Ksh {unit.financialSummary.billsAmount.toLocaleString()}
+                                  </td>
+                                  <td className="py-3 px-4 text-right">
+                                    <span className={`font-bold ${unit.financialSummary.outstanding > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                      Ksh {unit.financialSummary.outstanding.toLocaleString()}
+                                    </span>
+                                  </td>
+                                  <td className="py-3 px-4">
+                                    <span className={`inline-flex px-2 py-1 rounded-full text-xs font-semibold ${
+                                      unit.isOccupied ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
+                                    }`}>
+                                      {unit.isOccupied ? 'Occupied' : 'Vacant'}
+                                    </span>
+                                  </td>
+                                </motion.tr>
+                              ))
+                            ) : (
+                              <tr>
+                                <td colSpan={9} className="py-8 text-center text-gray-500">
+                                  No units found
                                 </td>
-                                <td className="py-3 px-4 text-gray-900">
-                                  {provider.serviceContract || '-'}
-                                </td>
-                                <td className="py-3 px-4 text-gray-900">
-                                  {provider.contact || '-'}
-                                </td>
-                                <td className="py-3 px-4">
-                                  <span className="font-semibold text-red-600">
-                                    Ksh {provider.chargeAmount.toLocaleString()}
-                                  </span>
-                                </td>
-                                <td className="py-3 px-4">
-                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">
-                                    {provider.chargeFrequency}
-                                  </span>
-                                </td>
-                              </motion.tr>
-                            ))}
+                              </tr>
+                            )}
                           </tbody>
                         </table>
                       </div>
                     </div>
-                  )}
-                </div>
+
+                    {/* Service Providers */}
+                    {collectionStatement.serviceProviders && collectionStatement.serviceProviders.length > 0 && (
+                      <div className="mb-6">
+                        <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                          <span className="w-1 h-6 bg-blue-500 rounded-full"></span>
+                          Service Providers
+                        </h3>
+                        <div className="overflow-x-auto">
+                          <table className="w-full">
+                            <thead>
+                              <tr className="border-b-2 border-gray-200">
+                                <th className="text-left py-3 px-4 font-semibold text-gray-900">Provider</th>
+                                <th className="text-left py-3 px-4 font-semibold text-gray-900">Contact</th>
+                                <th className="text-left py-3 px-4 font-semibold text-gray-900">Service</th>
+                                <th className="text-right py-3 px-4 font-semibold text-gray-900">Charge</th>
+                                <th className="text-left py-3 px-4 font-semibold text-gray-900">Frequency</th>
+                                <th className="text-left py-3 px-4 font-semibold text-gray-900">Contract Period</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {collectionStatement.serviceProviders.map((provider: any, index: number) => (
+                                <motion.tr
+                                  key={provider.id}
+                                  initial={{ opacity: 0, x: -20 }}
+                                  animate={{ opacity: 1, x: 0 }}
+                                  transition={{ delay: index * 0.05 }}
+                                  className="border-b border-gray-100 hover:bg-gray-50"
+                                >
+                                  <td className="py-3 px-4 font-medium text-gray-900">{provider.name}</td>
+                                  <td className="py-3 px-4 text-gray-600">{provider.contact || '-'}</td>
+                                  <td className="py-3 px-4 text-gray-600">{provider.serviceContract || '-'}</td>
+                                  <td className="py-3 px-4 text-right font-semibold text-red-600">
+                                    Ksh {provider.chargeAmount.toLocaleString()}
+                                  </td>
+                                  <td className="py-3 px-4">
+                                    <span className="inline-flex px-2 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">
+                                      {provider.chargeFrequency}
+                                    </span>
+                                  </td>
+                                  <td className="py-3 px-4 text-gray-600">{provider.contractPeriod || '-'}</td>
+                                </motion.tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Lead Summary */}
+                    {collectionStatement.leadSummary && collectionStatement.leadSummary.total > 0 && (
+                      <div className="mb-6">
+                        <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                          <span className="w-1 h-6 bg-yellow-500 rounded-full"></span>
+                          Leads ({collectionStatement.leadSummary.total})
+                        </h3>
+                        <div className="overflow-x-auto">
+                          <table className="w-full">
+                            <thead>
+                              <tr className="border-b-2 border-gray-200">
+                                <th className="text-left py-3 px-4 font-semibold text-gray-900">Name</th>
+                                <th className="text-left py-3 px-4 font-semibold text-gray-900">Contact</th>
+                                <th className="text-left py-3 px-4 font-semibold text-gray-900">Email</th>
+                                <th className="text-left py-3 px-4 font-semibold text-gray-900">Company</th>
+                                <th className="text-left py-3 px-4 font-semibold text-gray-900">Nature</th>
+                                <th className="text-left py-3 px-4 font-semibold text-gray-900">Date</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {collectionStatement.leadSummary.leads.map((lead: any, index: number) => (
+                                <motion.tr
+                                  key={lead.id}
+                                  initial={{ opacity: 0, x: -20 }}
+                                  animate={{ opacity: 1, x: 0 }}
+                                  transition={{ delay: index * 0.03 }}
+                                  className="border-b border-gray-100 hover:bg-gray-50"
+                                >
+                                  <td className="py-3 px-4 font-medium text-gray-900">{lead.name}</td>
+                                  <td className="py-3 px-4 text-gray-600">{lead.phone}</td>
+                                  <td className="py-3 px-4 text-gray-600">{lead.email || '-'}</td>
+                                  <td className="py-3 px-4 text-gray-600">{lead.companyName || '-'}</td>
+                                  <td className="py-3 px-4 text-gray-600">{lead.natureOfLead || '-'}</td>
+                                  <td className="py-3 px-4 text-gray-600">
+                                    {lead.createdAt ? new Date(lead.createdAt).toLocaleDateString('en-GB') : '-'}
+                                  </td>
+                                </motion.tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="text-center py-12">
+                    <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+                      <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                    </div>
+                    <p className="text-gray-900 font-medium text-lg">No collection statement data available</p>
+                    <p className="text-gray-600 mt-2">Select a date range and click Refresh to load data</p>
+                    <Button 
+                      onClick={() => {
+                        const now = new Date();
+                        const threeMonthsAgo = new Date(now);
+                        threeMonthsAgo.setMonth(now.getMonth() - 3);
+                        setCollectionDateFrom(threeMonthsAgo.toISOString().split('T')[0]);
+                        setCollectionDateTo(now.toISOString().split('T')[0]);
+                        fetchCollectionStatement();
+                      }} 
+                      className="mt-4"
+                    >
+                      Load Default (Last 3 Months)
+                    </Button>
+                  </div>
+                )}
               </motion.div>
             </div>
           </PermissionGuard>

@@ -12,17 +12,18 @@ const addSubsectionHeader = (worksheet: ExcelJS.Worksheet, row: number, title: s
   worksheet.mergeCells(`A${row}:R${row}`);
   const cell = worksheet.getCell(`A${row}`);
   cell.value = title.toUpperCase();
-  cell.font = { size: 14, bold: true, color: { argb: 'FF000000' } };
+  cell.font = { size: 14, bold: true, color: { argb: 'FF1A3A5C' } };
   cell.fill = {
     type: 'pattern',
     pattern: 'solid',
     fgColor: { argb: 'FFE6F2FF' },
   };
+  cell.alignment = { horizontal: 'center', vertical: 'middle' };
   cell.border = {
-    top: { style: 'thin' },
-    bottom: { style: 'thin' },
+    top: { style: 'medium', color: { argb: 'FF0066B2' } },
+    bottom: { style: 'medium', color: { argb: 'FF0066B2' } },
   };
-  worksheet.getRow(row).height = 25;
+  worksheet.getRow(row).height = 30;
 };
 
 const addTableHeaders = (
@@ -42,26 +43,30 @@ const addTableHeaders = (
     };
     cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
     cell.border = {
-      top: { style: 'thin' },
-      left: { style: 'thin' },
-      bottom: { style: 'thin' },
-      right: { style: 'thin' },
+      top: { style: 'thin', color: { argb: 'FF004080' } },
+      left: { style: 'thin', color: { argb: 'FF004080' } },
+      bottom: { style: 'thin', color: { argb: 'FF004080' } },
+      right: { style: 'thin', color: { argb: 'FF004080' } },
     };
   });
-  headerRow.height = 30;
+  headerRow.height = 32;
 };
 
 const addTableRow = (
   worksheet: ExcelJS.Worksheet,
   row: number,
   data: any[],
-  isEvenRow: boolean = false
+  isEvenRow: boolean = false,
+  isTotalRow: boolean = false
 ) => {
   const rowData = worksheet.getRow(row);
+  
+  // Set row height
+  rowData.height = isTotalRow ? 28 : 25;
+  
   data.forEach((value, index) => {
     const cell = rowData.getCell(index + 1);
     
-    // Handle formula objects specially
     if (value && typeof value === 'object' && ('formula' in value || 'result' in value)) {
       if (value.formula) {
         cell.value = { formula: value.formula };
@@ -72,8 +77,30 @@ const addTableRow = (
       cell.value = value;
     }
     
-    cell.font = { size: 10 };
-    cell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
+    // Center alignment for all cells
+    cell.alignment = { 
+      horizontal: 'center', 
+      vertical: 'middle', 
+      wrapText: true 
+    };
+    
+    // Set font
+    if (isTotalRow) {
+      cell.font = { bold: true, size: 11, color: { argb: 'FF1A3A5C' } };
+    } else {
+      cell.font = { size: 10 };
+    }
+    
+    // Apply currency formatting to numeric cells
+    if (typeof value === 'number' && value > 0) {
+      const colIndex = index + 1;
+      // Columns that should be formatted as currency: J, L, M, N, O, P, R
+      // Or specific columns for different sections
+      if ([2, 3, 4, 11, 12, 13, 14, 15, 16, 17].includes(colIndex)) {
+        cell.numFmt = '"Ksh "#,##0.00';
+      }
+    }
+    
     cell.border = {
       top: { style: 'thin', color: { argb: 'FFD3D3D3' } },
       left: { style: 'thin', color: { argb: 'FFD3D3D3' } },
@@ -82,12 +109,26 @@ const addTableRow = (
     };
   });
 
-  if (isEvenRow) {
+  if (isEvenRow && !isTotalRow) {
     rowData.eachCell((cell) => {
       cell.fill = {
         type: 'pattern',
         pattern: 'solid',
-        fgColor: { argb: 'FFF9F9F9' },
+        fgColor: { argb: 'FFF5F8FA' },
+      };
+    });
+  }
+  
+  if (isTotalRow) {
+    rowData.eachCell((cell) => {
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFE8F0FE' },
+      };
+      cell.border = {
+        top: { style: 'medium', color: { argb: 'FF0066B2' } },
+        bottom: { style: 'medium', color: { argb: 'FF0066B2' } },
       };
     });
   }
@@ -97,115 +138,186 @@ const addTotalRow = (
   worksheet: ExcelJS.Worksheet,
   startRow: number,
   endRow: number,
-  totals: any
+  totals: any,
+  totalLabel: string = 'Total'
 ) => {
   const totalRow = endRow + 1;
   
-  // Label
-  worksheet.getCell(`A${totalRow}`).value = 'Total';
-  worksheet.getCell(`A${totalRow}`).font = { bold: true, size: 11 };
-  
-  // Deposit total
-  worksheet.getCell(`H${totalRow}`).value = totals.deposit || 0;
-  worksheet.getCell(`H${totalRow}`).font = { bold: true, size: 11 };
-  worksheet.getCell(`H${totalRow}`).numFmt = '"Ksh "#,##0.00';
-  
-  // Ground Rent total
-  worksheet.getCell(`J${totalRow}`).value = totals.groundRent || 0;
-  worksheet.getCell(`J${totalRow}`).font = { bold: true, size: 11 };
-  worksheet.getCell(`J${totalRow}`).numFmt = '"Ksh "#,##0.00';
-  
-  // Water Bill total
-  worksheet.getCell(`K${totalRow}`).value = totals.waterBill || 0;
-  worksheet.getCell(`K${totalRow}`).font = { bold: true, size: 11 };
-  worksheet.getCell(`K${totalRow}`).numFmt = '"Ksh "#,##0.00';
-  
-  // VAT total
-  worksheet.getCell(`L${totalRow}`).value = totals.vat || 0;
-  worksheet.getCell(`L${totalRow}`).font = { bold: true, size: 11 };
-  worksheet.getCell(`L${totalRow}`).numFmt = '"Ksh "#,##0.00';
-  
-  // Service Charge total
-  worksheet.getCell(`M${totalRow}`).value = totals.serviceCharge || 0;
-  worksheet.getCell(`M${totalRow}`).font = { bold: true, size: 11 };
-  worksheet.getCell(`M${totalRow}`).numFmt = '"Ksh "#,##0.00';
-  
-  // Rent total formula
-  worksheet.getCell(`N${totalRow}`).value = {
-    formula: `SUM(N${startRow}:N${endRow})`,
-    result: totals.rent || 0
-  };
-  worksheet.getCell(`N${totalRow}`).font = { bold: true, size: 11 };
-  worksheet.getCell(`N${totalRow}`).numFmt = '"Ksh "#,##0.00';
-  
-  // Amount Payable formula
-  worksheet.getCell(`O${totalRow}`).value = {
-    formula: `SUM(O${startRow}:O${endRow})`,
-    result: totals.amountPayable || 0
-  };
-  worksheet.getCell(`O${totalRow}`).font = { bold: true, size: 11 };
-  worksheet.getCell(`O${totalRow}`).numFmt = '"Ksh "#,##0.00';
-  
-  // Amount Paid formula
-  worksheet.getCell(`P${totalRow}`).value = {
-    formula: `SUM(P${startRow}:P${endRow})`,
-    result: totals.amountPaid || 0
-  };
-  worksheet.getCell(`P${totalRow}`).font = { bold: true, size: 11 };
-  worksheet.getCell(`P${totalRow}`).numFmt = '"Ksh "#,##0.00';
-  
-  // Balance formula
-  worksheet.getCell(`R${totalRow}`).value = {
-    formula: `SUM(R${startRow}:R${endRow})`,
-    result: totals.balance || 0
-  };
-  worksheet.getCell(`R${totalRow}`).font = { bold: true, size: 11 };
-  worksheet.getCell(`R${totalRow}`).numFmt = '"Ksh "#,##0.00';
-  
-  // Format total row
+  // Clear any existing data in the total row
   for (let col = 1; col <= 18; col++) {
-    const cell = worksheet.getRow(totalRow).getCell(col);
-    cell.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: 'FFF0F0F0' },
-    };
-    cell.border = {
-      top: { style: 'thin' },
-      bottom: { style: 'thin' },
-    };
+    worksheet.getCell(`${String.fromCharCode(64 + col)}${totalRow}`).value = null;
   }
+  
+  // Set total label centered across columns A-C
+  worksheet.mergeCells(`A${totalRow}:C${totalRow}`);
+  const labelCell = worksheet.getCell(`A${totalRow}`);
+  labelCell.value = totalLabel;
+  labelCell.font = { bold: true, size: 12, color: { argb: 'FF1A3A5C' } };
+  labelCell.alignment = { horizontal: 'center', vertical: 'middle' };
+  labelCell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFE8F0FE' },
+  };
+  labelCell.border = {
+    top: { style: 'medium', color: { argb: 'FF0066B2' } },
+    bottom: { style: 'medium', color: { argb: 'FF0066B2' } },
+  };
+  
+  // Ground Rent total (Column J)
+  const groundRentCell = worksheet.getCell(`J${totalRow}`);
+  groundRentCell.value = totals.groundRent || 0;
+  groundRentCell.font = { bold: true, size: 11, color: { argb: 'FF1A3A5C' } };
+  groundRentCell.numFmt = '"Ksh "#,##0.00';
+  groundRentCell.alignment = { horizontal: 'center', vertical: 'middle' };
+  groundRentCell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFE8F0FE' },
+  };
+  groundRentCell.border = {
+    top: { style: 'medium', color: { argb: 'FF0066B2' } },
+    bottom: { style: 'medium', color: { argb: 'FF0066B2' } },
+  };
+  
+  // VAT total (Column L)
+  const vatCell = worksheet.getCell(`L${totalRow}`);
+  vatCell.value = totals.vat || 0;
+  vatCell.font = { bold: true, size: 11, color: { argb: 'FF1A3A5C' } };
+  vatCell.numFmt = '"Ksh "#,##0.00';
+  vatCell.alignment = { horizontal: 'center', vertical: 'middle' };
+  vatCell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFE8F0FE' },
+  };
+  vatCell.border = {
+    top: { style: 'medium', color: { argb: 'FF0066B2' } },
+    bottom: { style: 'medium', color: { argb: 'FF0066B2' } },
+  };
+  
+  // Service Charge total (Column M)
+  const serviceChargeCell = worksheet.getCell(`M${totalRow}`);
+  serviceChargeCell.value = totals.serviceCharge || 0;
+  serviceChargeCell.font = { bold: true, size: 11, color: { argb: 'FF1A3A5C' } };
+  serviceChargeCell.numFmt = '"Ksh "#,##0.00';
+  serviceChargeCell.alignment = { horizontal: 'center', vertical: 'middle' };
+  serviceChargeCell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFE8F0FE' },
+  };
+  serviceChargeCell.border = {
+    top: { style: 'medium', color: { argb: 'FF0066B2' } },
+    bottom: { style: 'medium', color: { argb: 'FF0066B2' } },
+  };
+  
+  // Rent total (Column N)
+  const rentCell = worksheet.getCell(`N${totalRow}`);
+  rentCell.value = totals.rent || 0;
+  rentCell.font = { bold: true, size: 11, color: { argb: 'FF1A3A5C' } };
+  rentCell.numFmt = '"Ksh "#,##0.00';
+  rentCell.alignment = { horizontal: 'center', vertical: 'middle' };
+  rentCell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFE8F0FE' },
+  };
+  rentCell.border = {
+    top: { style: 'medium', color: { argb: 'FF0066B2' } },
+    bottom: { style: 'medium', color: { argb: 'FF0066B2' } },
+  };
+  
+  // Amount Payable total (Column O)
+  const amountPayableCell = worksheet.getCell(`O${totalRow}`);
+  amountPayableCell.value = totals.amountPayable || 0;
+  amountPayableCell.font = { bold: true, size: 11, color: { argb: 'FF1A3A5C' } };
+  amountPayableCell.numFmt = '"Ksh "#,##0.00';
+  amountPayableCell.alignment = { horizontal: 'center', vertical: 'middle' };
+  amountPayableCell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFE8F0FE' },
+  };
+  amountPayableCell.border = {
+    top: { style: 'medium', color: { argb: 'FF0066B2' } },
+    bottom: { style: 'medium', color: { argb: 'FF0066B2' } },
+  };
+  
+  // Amount Paid total (Column P)
+  const amountPaidCell = worksheet.getCell(`P${totalRow}`);
+  amountPaidCell.value = totals.amountPaid || 0;
+  amountPaidCell.font = { bold: true, size: 11, color: { argb: 'FF1A3A5C' } };
+  amountPaidCell.numFmt = '"Ksh "#,##0.00';
+  amountPaidCell.alignment = { horizontal: 'center', vertical: 'middle' };
+  amountPaidCell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFE8F0FE' },
+  };
+  amountPaidCell.border = {
+    top: { style: 'medium', color: { argb: 'FF0066B2' } },
+    bottom: { style: 'medium', color: { argb: 'FF0066B2' } },
+  };
+  
+  // Balance total (Column R)
+  const balanceCell = worksheet.getCell(`R${totalRow}`);
+  balanceCell.value = totals.balance || 0;
+  balanceCell.font = { bold: true, size: 11, color: { argb: 'FF1A3A5C' } };
+  balanceCell.numFmt = '"Ksh "#,##0.00';
+  balanceCell.alignment = { horizontal: 'center', vertical: 'middle' };
+  balanceCell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFE8F0FE' },
+  };
+  balanceCell.border = {
+    top: { style: 'medium', color: { argb: 'FF0066B2' } },
+    bottom: { style: 'medium', color: { argb: 'FF0066B2' } },
+  };
+  
+  // Set row height
+  worksheet.getRow(totalRow).height = 30;
 };
 
-// Helper function to calculate VAT based on VAT type
+// Helper function to calculate VAT
 const calculateVAT = (
   rentAmount: number,
   serviceChargeValue: number,
   vatType: VATType = 'NOT_APPLICABLE',
-  vatRate: number = 16 // Default VAT rate of 16% (not 0.16)
+  vatRate: number = 16
 ): { vatAmount: number; taxableAmount: number } => {
-  
-  // Convert percentage to decimal for calculation
   const vatRateDecimal = vatRate / 100;
   
   switch (vatType) {
     case 'INCLUSIVE':
-      // VAT is already included in the rent amount
       const totalInclusive = rentAmount + serviceChargeValue;
       const vatAmount = totalInclusive - (totalInclusive / (1 + vatRateDecimal));
       return { vatAmount, taxableAmount: totalInclusive - vatAmount };
-      
     case 'EXCLUSIVE':
-      // VAT needs to be added on top of the rent amount
       const taxableAmount = rentAmount + serviceChargeValue;
       const vatExclusive = taxableAmount * vatRateDecimal;
       return { vatAmount: vatExclusive, taxableAmount };
-      
     case 'NOT_APPLICABLE':
     default:
-      // No VAT applicable
       return { vatAmount: 0, taxableAmount: rentAmount + serviceChargeValue };
   }
+};
+
+// Helper to get manager name from property
+const getManagerName = (property: Property): string => {
+  if (property.manager?.name) {
+    return property.manager.name;
+  }
+  // If we have managerId but no name, try to find it in the collection statement
+  return property.manager?.name || 'N/A';
+};
+
+// Helper to get tenant name from tenantId
+const getTenantName = (tenantId: string | null, property: Property): string => {
+  if (!tenantId) return 'Property Income';
+  const unit = property.units?.find(u => u.tenant?.id === tenantId);
+  return unit?.tenant?.fullName || 'Unknown';
 };
 
 // Main export function
@@ -217,16 +329,16 @@ export const exportPropertyToExcel = async (
     totalCommissions: number;
     pendingCommissions: number;
     paidCommissions: number;
-  }
+  },
+  collectionStatement?: any
 ) => {
-  // Create a new workbook
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'Interpark Enterprises Limited';
   workbook.created = new Date();
 
   const worksheet = workbook.addWorksheet('Collection Statement', {
     pageSetup: {
-      paperSize: 9, // A4
+      paperSize: 9,
       orientation: 'landscape',
       margins: {
         left: 0.25, right: 0.25, top: 0.75, bottom: 0.75,
@@ -241,464 +353,508 @@ export const exportPropertyToExcel = async (
 
   let currentRow = 1;
 
-  // Property Name Header
-  worksheet.mergeCells(`C${currentRow}:R${currentRow}`);
-  const propertyCell = worksheet.getCell(`C${currentRow}`);
-  propertyCell.value = property.name.toUpperCase();
-  propertyCell.font = { size: 18, bold: true, color: { argb: 'FF000000' } };
-  propertyCell.alignment = { horizontal: 'center', vertical: 'middle' };
-  currentRow++;
+  // ========== PROPERTY INFORMATION SECTION ==========
+  if (selectedSectionIds.includes('propertyInfo')) {
+    // Property Name Header
+    worksheet.mergeCells(`C${currentRow}:R${currentRow}`);
+    const propertyCell = worksheet.getCell(`C${currentRow}`);
+    propertyCell.value = property.name.toUpperCase();
+    propertyCell.font = { size: 20, bold: true, color: { argb: 'FF1A3A5C' } };
+    propertyCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    currentRow++;
 
-  // Report Title
-  worksheet.mergeCells(`C${currentRow}:R${currentRow}`);
-  const titleCell = worksheet.getCell(`C${currentRow}`);
-  titleCell.value = 'COLLECTION STATEMENT';
-  titleCell.font = { size: 16, bold: true, color: { argb: 'FF000000' } };
-  titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
-  currentRow++;
+    // Report Title
+    worksheet.mergeCells(`C${currentRow}:R${currentRow}`);
+    const titleCell = worksheet.getCell(`C${currentRow}`);
+    titleCell.value = 'PROPERTY COLLECTION STATEMENT';
+    titleCell.font = { size: 16, bold: true, color: { argb: 'FF004080' } };
+    titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    titleCell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFF0F7FF' },
+    };
+    currentRow++;
 
-  // Date
-  worksheet.mergeCells(`C${currentRow}:R${currentRow}`);
-  const dateCell = worksheet.getCell(`C${currentRow}`);
-  dateCell.value = `As at ${new Date().toLocaleDateString('en-GB', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric'
-  })}`;
-  dateCell.font = { size: 14, italic: true };
-  dateCell.alignment = { horizontal: 'center', vertical: 'middle' };
-  currentRow += 2;
+    // Date Range
+    worksheet.mergeCells(`C${currentRow}:R${currentRow}`);
+    const dateCell = worksheet.getCell(`C${currentRow}`);
+    const dateRange = collectionStatement?.dateRange || {};
+    dateCell.value = `Period: ${dateRange.startDate ? new Date(dateRange.startDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' }) : 'N/A'} - ${dateRange.endDate ? new Date(dateRange.endDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' }) : new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' })}`;
+    dateCell.font = { size: 14, italic: true, color: { argb: 'FF555555' } };
+    dateCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    currentRow += 2;
 
-  // Prepare units data organized by floor/wing
-  const unitsByFloor: Record<string, any[]> = {};
-  
-  if (property.units && property.units.length > 0) {
-    property.units.forEach(unit => {
-      // Determine floor/wing based on unit type or location
-      let floor = 'OTHER';
-      if (unit.type?.toLowerCase().includes('ground')) floor = 'GROUND FLOOR';
-      else if (unit.type?.toLowerCase().includes('first')) floor = 'FIRST FLOOR';
-      else if (unit.type?.toLowerCase().includes('second')) floor = 'SECOND FLOOR';
-      else if (unit.type?.toLowerCase().includes('third')) floor = 'THIRD FLOOR';
-      else if (unit.type?.toLowerCase().includes('commercial')) floor = 'COMMERCIAL WING';
-      else if (unit.type?.toLowerCase().includes('residential')) floor = 'RESIDENTIAL WING';
+    // Property Details - Two column layout
+    const propertyDetails = [
+      ['Property Name:', property.name],
+      ['Address:', property.address],
+      ['LR Number:', property.lrNumber || 'N/A'],
+      ['Form:', property.form || 'N/A'],
+      ['Usage:', property.usage || 'N/A'],
+      ['Landlord:', property.landlord?.name || 'N/A'],
+      ['Manager:', getManagerName(property)],
+      ['Commission Fee:', property.commissionFee ? `${property.commissionFee}%` : 'N/A'],
+    ];
+
+    propertyDetails.forEach(([label, value]) => {
+      // Label column - left aligned
+      const labelCell = worksheet.getCell(`A${currentRow}`);
+      labelCell.value = label;
+      labelCell.font = { bold: true, size: 11, color: { argb: 'FF1A3A5C' } };
+      labelCell.alignment = { horizontal: 'right', vertical: 'middle' };
+      labelCell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFF5F8FA' },
+      };
       
-      if (!unitsByFloor[floor]) {
-        unitsByFloor[floor] = [];
-      }
+      // Value column - left aligned
+      worksheet.mergeCells(`B${currentRow}:R${currentRow}`);
+      const valueCell = worksheet.getCell(`B${currentRow}`);
+      valueCell.value = value;
+      valueCell.font = { size: 11, color: { argb: 'FF333333' } };
+      valueCell.alignment = { horizontal: 'left', vertical: 'middle' };
       
-      const tenant = unit.tenant;
-      const serviceCharge = tenant?.serviceCharge;
-      let serviceChargeValue = 0;
-      let serviceChargeType = '-';
-
-      if (serviceCharge) {
-        if (serviceCharge.type === 'PERCENTAGE') {
-          serviceChargeValue = (unit.rentAmount * (serviceCharge.percentage || 0)) / 100;
-          serviceChargeType = `${serviceCharge.percentage}%`;
-        } else if (serviceCharge.type === 'FIXED') {
-          serviceChargeValue = serviceCharge.fixedAmount || 0;
-          serviceChargeType = `Fixed Ksh ${serviceChargeValue.toLocaleString()}`;
-        } else if (serviceCharge.type === 'PER_SQ_FT') {
-          serviceChargeValue = (unit.sizeSqFt * (serviceCharge.perSqFtRate || 0));
-          serviceChargeType = `Ksh ${serviceCharge.perSqFtRate}/sq ft`;
-        }
-      }
-
-      // Calculate VAT based on tenant's VAT type
-      const vatType = tenant?.vatType || 'NOT_APPLICABLE';
-      const vatRate = tenant?.vatRate || 16; // Default to 16% if not specified
-      const { vatAmount, taxableAmount } = calculateVAT(
-        unit.rentAmount,
-        serviceChargeValue,
-        vatType,
-        vatRate
-      );
-      
-      // Calculate amount payable based on VAT type
-      let amountPayable = 0;
-      if (vatType === 'EXCLUSIVE') {
-        // For EXCLUSIVE VAT, add VAT on top
-        amountPayable = (unit.rentAmount + serviceChargeValue) * (1 + (vatRate / 100));
-      } else if (vatType === 'INCLUSIVE') {
-        // VAT is already included in rent, so amount payable is just rent + service charge
-        amountPayable = unit.rentAmount + serviceChargeValue;
-      } else {
-        // NOT_APPLICABLE
-        amountPayable = unit.rentAmount + serviceChargeValue;
-      }
-      
-      // Find tenant's income/payments
-      const tenantIncomes = property.incomes?.filter(income => income.tenantId === tenant?.id) || [];
-      const totalPaid = tenantIncomes.reduce((sum, income) => sum + income.amount, 0);
-      
-      const balance = amountPayable - totalPaid;
-
-      unitsByFloor[floor].push({
-        unit,
-        tenant,
-        serviceChargeValue,
-        serviceChargeType,
-        vatAmount,
-        vatType,
-        vatRate,
-        taxableAmount,
-        amountPayable,
-        totalPaid,
-        balance
-      });
+      currentRow++;
     });
+
+    currentRow += 2;
   }
 
-  // Process each floor/wing
-  const floorHeaders = [
-    'ENTRANCE',
-    'TENANT NAME',
-    'TELEPHONE NUMBER',
-    'SQUARE FEET',
-    'LOCATION',
-    'RATES',
-    'NATURE OF THE BUSINESS',
-    'DEPOSIT',
-    'ELECTRICITY/BCF',
-    'GROUND RENT PER MONTH',
-    'WATER BILL',
-    'VAT',
-    'SERVICE CHARGE',
-    `${new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })} Rent`,
-    'AMOUNT PAYABLE',
-    'AMT PID',
-    'DATE',
-    'BALANCE'
-  ];
-
-  const grandTotals = {
-    deposit: 0,
-    groundRent: 0,
-    waterBill: 0,
-    vat: 0,
-    serviceCharge: 0,
-    rent: 0,
-    amountPayable: 0,
-    amountPaid: 0,
-    balance: 0
-  };
-
-  const floorTotals: Record<string, typeof grandTotals> = {};
-
-  // Add each floor section
-  Object.entries(unitsByFloor).forEach(([floorName, units], floorIndex) => {
-    if (units.length === 0) return;
-
-    // Floor header
-    addSubsectionHeader(worksheet, currentRow, floorName);
+  // ========== FINANCIAL SUMMARY SECTION ==========
+  if (selectedSectionIds.includes('financialSummary')) {
+    addSubsectionHeader(worksheet, currentRow, 'FINANCIAL SUMMARY');
     currentRow++;
 
-    // Table headers
-    addTableHeaders(worksheet, currentRow, floorHeaders);
+    const summaryHeaders = ['Metric', 'Amount'];
+    addTableHeaders(worksheet, currentRow, summaryHeaders);
     currentRow++;
 
-    const startRow = currentRow;
-    let floorTotal = {
-      deposit: 0,
-      groundRent: 0,
-      waterBill: 0,
-      vat: 0,
-      serviceCharge: 0,
+    const summary = collectionStatement?.summary || {};
+    
+    const summaryData = [
+      ['Total Units', summary.totalUnits || property.units?.length || 0],
+      ['Occupied Units', summary.occupiedUnits || 0],
+      ['Vacant Units', summary.vacantUnits || 0],
+      ['Occupancy Rate', `${summary.occupancyRate || 0}%`],
+      ['Total Rent Potential', `Ksh ${(summary.totalRentPotential || 0).toLocaleString()}`],
+      ['Total Deposits', `Ksh ${(summary.totalDeposits || 0).toLocaleString()}`],
+      ['Total Rent Collected', `Ksh ${(summary.totalRentCollected || 0).toLocaleString()}`],
+      ['Total Service Charge', `Ksh ${(summary.totalServiceCharge || 0).toLocaleString()}`],
+      ['Total VAT Collected', `Ksh ${(summary.totalVATCollected || 0).toLocaleString()}`],
+      ['Total Bills Amount', `Ksh ${(summary.totalBillsAmount || 0).toLocaleString()}`],
+      ['Total Other Incomes', `Ksh ${(summary.totalOtherIncomes || 0).toLocaleString()}`],
+      ['Total Commissions', `Ksh ${(summary.totalCommissions || totals.totalCommissions || 0).toLocaleString()}`],
+      ['Total Outstanding', `Ksh ${(summary.totalOutstanding || 0).toLocaleString()}`],
+      ['Total Revenue', `Ksh ${(summary.totalRevenue || 0).toLocaleString()}`],
+      ['Net Revenue', `Ksh ${(summary.netRevenue || 0).toLocaleString()}`],
+    ];
+
+    summaryData.forEach(([label, value], index) => {
+      const labelCell = worksheet.getCell(`A${currentRow}`);
+      labelCell.value = label;
+      labelCell.font = { bold: true, size: 11, color: { argb: 'FF1A3A5C' } };
+      labelCell.alignment = { horizontal: 'left', vertical: 'middle' };
+      if (index % 2 === 0) {
+        labelCell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFF5F8FA' },
+        };
+      }
+      
+      worksheet.mergeCells(`B${currentRow}:R${currentRow}`);
+      const valueCell = worksheet.getCell(`B${currentRow}`);
+      valueCell.value = value;
+      valueCell.font = { size: 11 };
+      valueCell.alignment = { horizontal: 'left', vertical: 'middle' };
+      if (label.includes('Total') && !label.includes('Units')) {
+        valueCell.font = { bold: true, size: 11, color: { argb: 'FF004080' } };
+      }
+      
+      currentRow++;
+    });
+
+    currentRow += 2;
+  }
+
+  // ========== UNITS & TENANTS SECTION ==========
+  if (selectedSectionIds.includes('unitsAndTenants')) {
+    const unitSummaries = collectionStatement?.unitSummaries || [];
+    
+    addSubsectionHeader(worksheet, currentRow, 'UNITS & TENANTS');
+    currentRow++;
+
+    const unitHeaders = [
+      'Unit No', 'Unit Type', 'Status', 'Tenant Name', 'Contact', 'Email',
+      'KRAPin', 'Payment Policy', 'Rent Amount', 'Deposit', 'Rent Collected',
+      'Service Charge', 'VAT Collected', 'Bills Amount', 'Outstanding'
+    ];
+    addTableHeaders(worksheet, currentRow, unitHeaders);
+    currentRow++;
+
+    let unitTotals = { 
+      groundRent: 0, 
+      deposit: 0, 
+      rentCollected: 0, 
+      serviceCharge: 0, 
+      vat: 0, 
+      billsAmount: 0, 
+      outstanding: 0,
       rent: 0,
       amountPayable: 0,
       amountPaid: 0,
       balance: 0
     };
 
-    // Add unit rows
-    units.forEach((unitData, unitIndex) => {
-      const { 
-        unit, 
-        tenant, 
-        serviceChargeValue, 
-        serviceChargeType, 
-        vatAmount, 
-        vatType,
-        vatRate,
-        taxableAmount,
-        amountPayable, 
-        totalPaid, 
-        balance 
-      } = unitData;
-      
-      const tenantIncomes = property.incomes?.filter(income => income.tenantId === tenant?.id) || [];
-      
-      // Calculate rates description
-      const ratePerSqFt = unit.rentAmount / unit.sizeSqFt;
-      const ratesDesc = `${Math.round(ratePerSqFt)} PER SQ/FT`;
+    if (unitSummaries.length > 0) {
+      unitSummaries.forEach((unit: any, index: number) => {
+        const rowData = [
+          unit.unitNo || 'N/A',
+          unit.unitType || 'N/A',
+          unit.status || 'N/A',
+          unit.tenant?.fullName || 'Vacant',
+          unit.tenant?.contact || '-',
+          unit.tenant?.email || '-',
+          unit.tenant?.KRAPin || '-',
+          unit.tenant?.paymentPolicy || '-',
+          unit.rentAmount || 0,
+          unit.financialSummary?.deposit || 0,
+          unit.financialSummary?.rentCollected || 0,
+          unit.financialSummary?.serviceCharge || 0,
+          unit.financialSummary?.vatCollected || 0,
+          unit.financialSummary?.billsAmount || 0,
+          unit.financialSummary?.outstanding || 0,
+        ];
+        
+        addTableRow(worksheet, currentRow, rowData, index % 2 === 0);
+        
+        // Update totals
+        unitTotals.groundRent += unit.rentAmount || 0;
+        unitTotals.deposit += unit.financialSummary?.deposit || 0;
+        unitTotals.rentCollected += unit.financialSummary?.rentCollected || 0;
+        unitTotals.serviceCharge += unit.financialSummary?.serviceCharge || 0;
+        unitTotals.vat += unit.financialSummary?.vatCollected || 0;
+        unitTotals.billsAmount += unit.financialSummary?.billsAmount || 0;
+        unitTotals.outstanding += unit.financialSummary?.outstanding || 0;
+        unitTotals.rent += unit.rentAmount || 0;
+        unitTotals.amountPayable += unit.rentAmount || 0;
+        unitTotals.amountPaid += unit.financialSummary?.rentCollected || 0;
+        unitTotals.balance += unit.financialSummary?.outstanding || 0;
+        
+        currentRow++;
+      });
+    } else {
+      // Fallback to property.units
+      property.units?.forEach((unit, index) => {
+        const tenant = unit.tenant;
+        const rowData = [
+          unit.unitNo || 'N/A',
+          unit.unitType || 'N/A',
+          unit.status || 'N/A',
+          tenant?.fullName || 'Vacant',
+          tenant?.contact || '-',
+          tenant?.email || '-',
+          tenant?.KRAPin || '-',
+          tenant?.paymentPolicy || '-',
+          unit.rentAmount || 0,
+          tenant?.deposit || 0,
+          '', // rent collected
+          '', // service charge
+          '', // vat collected
+          '', // bills amount
+          '', // outstanding
+        ];
+        
+        addTableRow(worksheet, currentRow, rowData, index % 2 === 0);
+        
+        unitTotals.groundRent += unit.rentAmount || 0;
+        unitTotals.deposit += tenant?.deposit || 0;
+        unitTotals.rent += unit.rentAmount || 0;
+        unitTotals.amountPayable += unit.rentAmount || 0;
+        currentRow++;
+      });
+    }
 
-      // Format VAT display based on VAT type
-      let vatDisplay = '';
-      if (vatType === 'NOT_APPLICABLE') {
-        vatDisplay = 'N/A';
-      } else {
-        vatDisplay = `Ksh ${vatAmount.toFixed(2)} (${vatType})`;
-      }
+    // Add unit totals row
+    addTotalRow(worksheet, currentRow - (unitSummaries.length || property.units?.length || 1), currentRow - 1, unitTotals, 'GRAND TOTAL');
+    currentRow += 2;
+  }
 
-      // Calculate the rent amount to display (depends on VAT type)
-      let rentDisplayAmount = 0;
-      if (vatType === 'INCLUSIVE') {
-        // For INCLUSIVE VAT, the displayed rent should be the amount without VAT
-        rentDisplayAmount = taxableAmount;
-      } else {
-        // For EXCLUSIVE and NOT_APPLICABLE, the displayed rent is just rent amount
-        rentDisplayAmount = unit.rentAmount;
-      }
+  // ========== INCOME RECORDS SECTION ==========
+  if (selectedSectionIds.includes('incomeRecords')) {
+    addSubsectionHeader(worksheet, currentRow, 'INCOME RECORDS');
+    currentRow++;
 
-      // Calculate VAT rate decimal for formulas
-      const vatRateDecimal = vatRate / 100;
+    const incomeHeaders = ['Tenant', 'Amount', 'Frequency', 'Date'];
+    addTableHeaders(worksheet, currentRow, incomeHeaders);
+    currentRow++;
 
-      const rowData = [
-        unit.type?.substring(0, 3) || `U${unitIndex + 1}`, // A: ENTRANCE
-        tenant?.fullName || 'VACANT', // B: TENANT NAME
-        tenant?.contact || '-', // C: TELEPHONE NUMBER
-        `${unit.sizeSqFt}Sq/ft`, // D: SQUARE FEET
-        floorName, // E: LOCATION
-        ratesDesc, // F: RATES
-        tenant?.fullName ? (unit.type || 'RETAIL') : 'VACANT', // G: NATURE OF BUSINESS
-        '', // H: DEPOSIT
-        '', // I: ELECTRICITY/BCF
-        rentDisplayAmount, // J: GROUND RENT (numeric value for formulas)
-        '', // K: WATER BILL (empty for now)
-        vatDisplay, // L: VAT (text display)
-        serviceChargeValue, // M: SERVICE CHARGE (numeric value for formulas)
-        {
-          // Rent calculation
-          formula: vatType === 'EXCLUSIVE' 
-            ? `(J${currentRow}+M${currentRow})*(1+${vatRateDecimal})` // Add VAT for EXCLUSIVE
-            : `J${currentRow}+M${currentRow}`, // No VAT to add for INCLUSIVE and NOT_APPLICABLE
-          result: amountPayable
-        }, // N: Rent
-        {
-          // Amount Payable (same as Rent)
-          formula: vatType === 'EXCLUSIVE' 
-            ? `(J${currentRow}+M${currentRow})*(1+${vatRateDecimal})` // Add VAT for EXCLUSIVE
-            : `J${currentRow}+M${currentRow}`, // No VAT to add for INCLUSIVE and NOT_APPLICABLE
-          result: amountPayable
-        }, // O: AMOUNT PAYABLE
-        totalPaid > 0 ? totalPaid : '', // P: AMT PID (numeric!)
-        tenantIncomes?.length > 0 ? new Date(tenantIncomes[0].createdAt).toLocaleDateString('en-GB') : '', // Q: DATE
-        {
-          formula: `O${currentRow}-P${currentRow}`,
-          result: balance
-        } // R: BALANCE (formula)
-      ];
+    const incomes = collectionStatement?.rawData?.incomes || property.incomes || [];
+    let totalIncomeAmount = 0;
 
-      addTableRow(worksheet, currentRow, rowData, unitIndex % 2 === 0);
+    if (incomes.length > 0) {
+      incomes.forEach((income: any, index: number) => {
+        const tenantName = income.tenantId 
+          ? getTenantName(income.tenantId, property)
+          : 'Property Income';
+        
+        const rowData = [
+          tenantName,
+          income.amount || 0,
+          income.frequency || 'MONTHLY',
+          income.createdAt ? new Date(income.createdAt).toLocaleDateString('en-GB') : '-',
+        ];
+        
+        addTableRow(worksheet, currentRow, rowData, index % 2 === 0);
+        
+        totalIncomeAmount += income.amount || 0;
+        currentRow++;
+      });
+    } else {
+      const rowData = ['No income records found', '', '', ''];
+      addTableRow(worksheet, currentRow, rowData);
+      currentRow++;
+    }
+
+    // Add income total
+    const totalRow = currentRow;
+    worksheet.mergeCells(`A${totalRow}:C${totalRow}`);
+    const labelCell = worksheet.getCell(`A${totalRow}`);
+    labelCell.value = 'Total Income';
+    labelCell.font = { bold: true, size: 12, color: { argb: 'FF1A3A5C' } };
+    labelCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    labelCell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFE8F0FE' },
+    };
+    labelCell.border = {
+      top: { style: 'medium', color: { argb: 'FF0066B2' } },
+      bottom: { style: 'medium', color: { argb: 'FF0066B2' } },
+    };
+    
+    const amountCell = worksheet.getCell(`D${totalRow}`);
+    amountCell.value = `Ksh ${totalIncomeAmount.toLocaleString()}`;
+    amountCell.font = { bold: true, size: 12, color: { argb: 'FF1A3A5C' } };
+    amountCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    amountCell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFE8F0FE' },
+    };
+    amountCell.border = {
+      top: { style: 'medium', color: { argb: 'FF0066B2' } },
+      bottom: { style: 'medium', color: { argb: 'FF0066B2' } },
+    };
+    
+    currentRow += 2;
+  }
+
+  // ========== COMMISSION RECORDS SECTION ==========
+  if (selectedSectionIds.includes('commissionRecords')) {
+    addSubsectionHeader(worksheet, currentRow, 'COMMISSION RECORDS');
+    currentRow++;
+
+    const commissionHeaders = [
+      'Manager', 'Commission Fee', 'Income Amount', 'Commission Amount',
+      'Period Start', 'Period End', 'Status', 'Paid Date'
+    ];
+    addTableHeaders(worksheet, currentRow, commissionHeaders);
+    currentRow++;
+
+    const commissions = collectionStatement?.rawData?.commissions || property.commissions || [];
+    let totalCommissionAmount = 0;
+    let pendingCommissions = 0;
+    let paidCommissions = 0;
+
+    if (commissions.length > 0) {
+      commissions.forEach((commission: any, index: number) => {
+        // Get manager name - try from property first, then from commission data
+        let managerName = getManagerName(property);
+        if (managerName === 'N/A' && commission.managerId) {
+          // Try to get from property manager
+          managerName = property.manager?.name || commission.managerId;
+        }
+        
+        const rowData = [
+          managerName,
+          commission.commissionFee ? `${commission.commissionFee}%` : '0%',
+          commission.incomeAmount || 0,
+          commission.commissionAmount || 0,
+          commission.periodStart ? new Date(commission.periodStart).toLocaleDateString('en-GB') : '-',
+          commission.periodEnd ? new Date(commission.periodEnd).toLocaleDateString('en-GB') : '-',
+          commission.status || 'PENDING',
+          commission.paidDate ? new Date(commission.paidDate).toLocaleDateString('en-GB') : '-',
+        ];
+        
+        addTableRow(worksheet, currentRow, rowData, index % 2 === 0);
+        
+        totalCommissionAmount += commission.commissionAmount || 0;
+        if (commission.status === 'PENDING') pendingCommissions += commission.commissionAmount || 0;
+        if (commission.status === 'PAID') paidCommissions += commission.commissionAmount || 0;
+        currentRow++;
+      });
+    } else {
+      const rowData = ['No commission records found', '', '', '', '', '', '', ''];
+      addTableRow(worksheet, currentRow, rowData);
+      currentRow++;
+    }
+
+    // Add commission summary
+    const commissionSummary = [
+      ['Total Commissions:', `Ksh ${totalCommissionAmount.toLocaleString()}`],
+      ['Pending Commissions:', `Ksh ${pendingCommissions.toLocaleString()}`],
+      ['Paid Commissions:', `Ksh ${paidCommissions.toLocaleString()}`]
+    ];
+
+    commissionSummary.forEach(([label, value]) => {
+      worksheet.mergeCells(`A${currentRow}:B${currentRow}`);
+      const labelCell = worksheet.getCell(`A${currentRow}`);
+      labelCell.value = label;
+      labelCell.font = { bold: true, size: 11, color: { argb: 'FF1A3A5C' } };
+      labelCell.alignment = { horizontal: 'right', vertical: 'middle' };
       
-      // Apply number formatting AFTER adding the row
-      const row = worksheet.getRow(currentRow);
-      
-      // Format Ground Rent (Column J) as currency
-      if (rentDisplayAmount > 0) {
-        const cell = row.getCell(10); // Column J is index 10
-        cell.numFmt = '"Ksh "#,##0.00';
-      }
-      
-      // Format Service Charge (Column M) as currency
-      if (serviceChargeValue > 0) {
-        const cell = row.getCell(13); // Column M is index 13
-        cell.numFmt = '"Ksh "#,##0.00';
-      }
-      
-      // Format Amount Paid (Column P) as currency
-      if (totalPaid > 0) {
-        const cell = row.getCell(16); // Column P is index 16
-        cell.numFmt = '"Ksh "#,##0.00';
-      }
-      
-      // Format Rent, Amount Payable, and Balance columns
-      row.getCell(14).numFmt = '"Ksh "#,##0.00'; // Column N: Rent
-      row.getCell(15).numFmt = '"Ksh "#,##0.00'; // Column O: Amount Payable
-      row.getCell(18).numFmt = '"Ksh "#,##0.00'; // Column R: Balance
-      
-      // Update floor totals
-      floorTotal.groundRent += rentDisplayAmount;
-      floorTotal.vat += vatAmount;
-      floorTotal.serviceCharge += serviceChargeValue;
-      
-      // Calculate total rent based on VAT type
-      if (vatType === 'EXCLUSIVE') {
-        floorTotal.rent += rentDisplayAmount + serviceChargeValue + vatAmount; // Add VAT for EXCLUSIVE
-      } else {
-        floorTotal.rent += rentDisplayAmount + serviceChargeValue; // VAT already included or not applicable
-      }
-      floorTotal.amountPayable += amountPayable;
-      floorTotal.amountPaid += totalPaid;
-      floorTotal.balance += balance;
+      worksheet.mergeCells(`C${currentRow}:H${currentRow}`);
+      const valueCell = worksheet.getCell(`C${currentRow}`);
+      valueCell.value = value;
+      valueCell.font = { bold: true, size: 11, color: { argb: 'FF004080' } };
+      valueCell.alignment = { horizontal: 'left', vertical: 'middle' };
       
       currentRow++;
     });
-
-    // Add floor total
-    addTotalRow(worksheet, startRow, currentRow - 1, floorTotal);
     currentRow += 2;
-    
-    // Store floor totals for grand total
-    floorTotals[floorName] = floorTotal;
-    
-    // Update grand totals
-    Object.keys(grandTotals).forEach(key => {
-      grandTotals[key as keyof typeof grandTotals] += floorTotal[key as keyof typeof floorTotal];
-    });
-  });
+  }
 
-  // Add Grand Total section
-  addSubsectionHeader(worksheet, currentRow, 'GRAND TOTAL SUMMARY');
-  currentRow++;
-
-  const summaryHeaders = [
-    'SUMMARY',
-    '',
-    '',
-    '',
-    '',
-    '',
-    '',
-    'Deposit',
-    '',
-    'Ground Rent',
-    'Water Bill',
-    'VAT',
-    'Service Charge',
-    'Total Rent',
-    'Total Payable',
-    'Total Paid',
-    '',
-    'Total Balance'
-  ];
-
-  addTableHeaders(worksheet, currentRow, summaryHeaders);
-  currentRow++;
-
-  const summaryData = [
-    'All Floors',
-    '',
-    '',
-    '',
-    '',
-    '',
-    '',
-    grandTotals.deposit, // H: Deposit (numeric)
-    '',
-    grandTotals.groundRent, // J: Ground Rent (numeric)
-    grandTotals.waterBill, // K: Water Bill (numeric)
-    grandTotals.vat, // L: VAT (numeric)
-    grandTotals.serviceCharge, // M: Service Charge (numeric)
-    grandTotals.rent, // N: Total Rent (numeric)
-    grandTotals.amountPayable, // O: Total Payable (numeric)
-    grandTotals.amountPaid, // P: Total Paid (numeric)
-    '',
-    grandTotals.balance // R: Total Balance (numeric)
-  ];
-
-  addTableRow(worksheet, currentRow, summaryData);
-  
-  // Apply number formatting to summary row
-  const summaryRow = worksheet.getRow(currentRow);
-  [8, 10, 11, 12, 13, 14, 15, 18].forEach(colIndex => {
-    const cell = summaryRow.getCell(colIndex);
-    cell.numFmt = '"Ksh "#,##0.00';
-  });
-  
-  currentRow++;
-
-  // Add financial summary section (similar to previous format)
-  currentRow += 2;
-  addSubsectionHeader(worksheet, currentRow, 'FINANCIAL OVERVIEW');
-  currentRow++;
-
-  const financialData = [
-    ['Total Expected Collection:', `Ksh ${grandTotals.amountPayable.toLocaleString()}`],
-    ['Total Collected:', `Ksh ${grandTotals.amountPaid.toLocaleString()}`],
-    ['Total Outstanding:', `Ksh ${grandTotals.balance.toLocaleString()}`],
-    ['', ''],
-    ['Commission Information:', ''],
-    ['Total Commissions:', `Ksh ${totals.totalCommissions.toLocaleString()}`],
-    ['Pending Commissions:', `Ksh ${totals.pendingCommissions.toLocaleString()}`],
-    ['Paid Commissions:', `Ksh ${totals.paidCommissions.toLocaleString()}`]
-  ];
-
-  financialData.forEach(([label, value]) => {
-    worksheet.getCell(`A${currentRow}`).value = label;
-    worksheet.getCell(`A${currentRow}`).font = { bold: true, size: 11 };
-    
-    if (value) {
-      worksheet.mergeCells(`B${currentRow}:R${currentRow}`);
-      worksheet.getCell(`B${currentRow}`).value = value;
-      worksheet.getCell(`B${currentRow}`).font = { bold: true, size: 11, color: { argb: value.includes('Outstanding') ? 'FFFF0000' : 'FF000000' } };
-    }
-    
+  // ========== SERVICE PROVIDERS SECTION ==========
+  if (selectedSectionIds.includes('serviceProviders')) {
+    addSubsectionHeader(worksheet, currentRow, 'SERVICE PROVIDERS');
     currentRow++;
-  });
 
-  // Add footer notes if needed
-  currentRow += 2;
-  worksheet.mergeCells(`A${currentRow}:R${currentRow}`);
-  worksheet.getCell(`A${currentRow}`).value = 'NOTES:';
-  worksheet.getCell(`A${currentRow}`).font = { italic: true, size: 10 };
-  currentRow++;
+    const providerHeaders = [
+      'Provider Name', 'Contact', 'Service', 'Contract Period',
+      'Charge Amount', 'Frequency'
+    ];
+    addTableHeaders(worksheet, currentRow, providerHeaders);
+    currentRow++;
 
-  // Add VAT note
-  worksheet.mergeCells(`A${currentRow}:R${currentRow}`);
-  worksheet.getCell(`A${currentRow}`).value = 'VAT Types: INCLUSIVE (VAT included in rent), EXCLUSIVE (VAT added on top), NOT_APPLICABLE (No VAT)';
-  worksheet.getCell(`A${currentRow}`).font = { italic: true, size: 9 };
-  currentRow++;
+    const providers = collectionStatement?.serviceProviders || property.serviceProviders || [];
+    let totalProviderCharges = 0;
 
-  // Add company footer
+    if (providers.length > 0) {
+      providers.forEach((provider: any, index: number) => {
+        const rowData = [
+          provider.name || 'N/A',
+          provider.contact || '-',
+          provider.serviceContract || '-',
+          provider.contractPeriod || '-',
+          provider.chargeAmount || 0,
+          provider.chargeFrequency || 'MONTHLY',
+        ];
+        
+        addTableRow(worksheet, currentRow, rowData, index % 2 === 0);
+        
+        totalProviderCharges += provider.chargeAmount || 0;
+        currentRow++;
+      });
+    } else {
+      const rowData = ['No service providers found', '', '', '', '', ''];
+      addTableRow(worksheet, currentRow, rowData);
+      currentRow++;
+    }
+
+    // Add provider total
+    const totalRow = currentRow;
+    worksheet.mergeCells(`A${totalRow}:D${totalRow}`);
+    const labelCell = worksheet.getCell(`A${totalRow}`);
+    labelCell.value = 'Total Charges';
+    labelCell.font = { bold: true, size: 12, color: { argb: 'FF1A3A5C' } };
+    labelCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    labelCell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFE8F0FE' },
+    };
+    labelCell.border = {
+      top: { style: 'medium', color: { argb: 'FF0066B2' } },
+      bottom: { style: 'medium', color: { argb: 'FF0066B2' } },
+    };
+    
+    const amountCell = worksheet.getCell(`E${totalRow}`);
+    amountCell.value = `Ksh ${totalProviderCharges.toLocaleString()}`;
+    amountCell.font = { bold: true, size: 12, color: { argb: 'FF1A3A5C' } };
+    amountCell.alignment = { horizontal: 'center', vertical: 'middle' };
+    amountCell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFE8F0FE' },
+    };
+    amountCell.border = {
+      top: { style: 'medium', color: { argb: 'FF0066B2' } },
+      bottom: { style: 'medium', color: { argb: 'FF0066B2' } },
+    };
+    
+    // Merge Frequency column for total row
+    worksheet.mergeCells(`F${totalRow}:F${totalRow}`);
+    
+    currentRow += 2;
+  }
+
+  // ========== FOOTER ==========
   currentRow += 2;
   worksheet.mergeCells(`A${currentRow}:R${currentRow}`);
   const footerLine = worksheet.getCell(`A${currentRow}`);
   footerLine.value = '_______________________________________________________________';
   footerLine.alignment = { horizontal: 'center' };
+  footerLine.font = { color: { argb: 'FF666666' } };
   currentRow++;
 
   worksheet.mergeCells(`A${currentRow}:R${currentRow}`);
   const footerCell = worksheet.getCell(`A${currentRow}`);
   footerCell.value = 'INTERPARK ENTERPRISES LIMITED';
-  footerCell.font = { size: 12, bold: true, color: { argb: 'FF0066B2' } };
+  footerCell.font = { size: 14, bold: true, color: { argb: 'FF0066B2' } };
   footerCell.alignment = { horizontal: 'center', vertical: 'middle' };
+  
+  // Add contact info
+  currentRow++;
+  worksheet.mergeCells(`A${currentRow}:R${currentRow}`);
+  const contactCell = worksheet.getCell(`A${currentRow}`);
+  contactCell.value = 'Phone: +254 700 000 000 | Email: info@interpark.co.ke | Website: www.interpark.co.ke';
+  contactCell.font = { size: 10, color: { argb: 'FF666666' } };
+  contactCell.alignment = { horizontal: 'center', vertical: 'middle' };
 
   // Set column widths
-  worksheet.columns = [
-    { width: 10 },  // A: ENTRANCE
-    { width: 25 },  // B: TENANT NAME
-    { width: 15 },  // C: TELEPHONE NUMBER
-    { width: 12 },  // D: SQUARE FEET
-    { width: 25 },  // E: LOCATION
-    { width: 15 },  // F: RATES
-    { width: 20 },  // G: NATURE OF BUSINESS
-    { width: 12 },  // H: DEPOSIT
-    { width: 12 },  // I: ELECTRICITY/BCF
-    { width: 18 },  // J: GROUND RENT
-    { width: 12 },  // K: WATER BILL
-    { width: 20 },  // L: VAT (increased width to show VAT type)
-    { width: 15 },  // M: SERVICE CHARGE
-    { width: 15 },  // N: MONTH Rent
-    { width: 15 },  // O: AMOUNT PAYABLE
-    { width: 12 },  // P: AMT PID
-    { width: 12 },  // Q: DATE
-    { width: 15 }   // R: BALANCE
-  ];
+  const columnWidths = {
+    A: 12,  // Unit No / Provider Name
+    B: 15,  // Unit Type / Contact
+    C: 12,  // Status / Service
+    D: 20,  // Tenant Name / Contract Period
+    E: 18,  // Contact / Charge Amount
+    F: 25,  // Email / Frequency
+    G: 15,  // KRAPin
+    H: 15,  // Payment Policy
+    I: 15,  // Rent Amount
+    J: 15,  // Deposit
+    K: 15,  // Rent Collected
+    L: 15,  // Service Charge
+    M: 15,  // VAT Collected
+    N: 15,  // Bills Amount
+    O: 15,  // Outstanding
+    P: 15,  // Empty
+    Q: 15,  // Empty
+    R: 15,  // Empty
+  };
 
-  // Auto-fit rows
-  for (let i = 1; i <= currentRow; i++) {
-    const row = worksheet.getRow(i);
-    row.commit();
-  }
+  Object.entries(columnWidths).forEach(([col, width]) => {
+    worksheet.getColumn(col).width = width;
+  });
 
   // Generate filename
   const filename = `${property.name.replace(/\s+/g, '_')}_Collection_Statement_${
     new Date().toISOString().split('T')[0]
   }.xlsx`;
 
-  // Write the file
   const buffer = await workbook.xlsx.writeBuffer();
   
   return {

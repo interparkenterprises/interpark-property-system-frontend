@@ -82,6 +82,128 @@ export interface Property {
   commissions?: ManagerCommission[];
   offerLetters?: OfferLetter[];
 }
+
+// ==============================================
+// PROPERTY COLLECTION STATEMENT TYPES
+// ==============================================
+
+export interface PropertyCollectionStatementRequest {
+  startDate?: string; // ISO format (YYYY-MM-DD)
+  endDate?: string;   // ISO format (YYYY-MM-DD)
+}
+
+export interface PropertyCollectionStatementUnitTenant {
+  id: string;
+  fullName: string;
+  email?: string;
+  contact: string;
+  KRAPin: string;
+  paymentPolicy: PaymentPolicy;
+  deposit: number;
+  serviceCharge?: ServiceCharge | null;
+  rent: number;
+  vatRate?: number;
+  vatType: VATType;
+  withholdingTaxRate?: number;
+  isWithholdingTaxExempt?: boolean;
+}
+
+export interface PropertyCollectionStatementUnitFinancialSummary {
+  deposit: number;
+  rentCollected: number;
+  serviceCharge: number;
+  vatCollected: number;
+  billsAmount: number;
+  outstanding: number;
+}
+
+export interface PropertyCollectionStatementUnit {
+  unitId: string;
+  unitNo: string;
+  unitType: UnitType;
+  bedrooms?: number | null;
+  rentAmount: number;
+  status: UnitStatus;
+  isOccupied: boolean;
+  tenant: PropertyCollectionStatementUnitTenant | null;
+  financialSummary: PropertyCollectionStatementUnitFinancialSummary;
+}
+
+export interface PropertyCollectionStatementIncomeSummary {
+  monthly: number;
+  quarterly: number;
+  annual: number;
+}
+
+export interface PropertyCollectionStatementCommissionSummary {
+  pending: number;
+  paid: number;
+}
+
+export interface PropertyCollectionStatementProperty {
+  id: string;
+  name: string;
+  address: string;
+  lrNumber?: string;
+  form: PropertyForm;
+  usage: UsageType;
+  commissionFee?: number;
+  image?: string;
+  bankDetails: {
+    accountName?: string;
+    accountNo?: string;
+    bank?: string;
+    branch?: string;
+    branchCode?: string;
+  };
+  landlord?: Landlord;
+  manager?: User;
+}
+
+export interface PropertyCollectionStatementSummary {
+  totalUnits: number;
+  occupiedUnits: number;
+  vacantUnits: number;
+  occupancyRate: number;
+  totalRentPotential: number;
+  totalDeposits: number;
+  totalRentCollected: number;
+  totalServiceCharge: number;
+  totalVATCollected: number;
+  totalBillsAmount: number;
+  totalOtherIncomes: number;
+  totalCommissions: number;
+  totalOutstanding: number;
+  totalRevenue: number;
+  netRevenue: number;
+}
+
+export interface PropertyCollectionStatement {
+  property: PropertyCollectionStatementProperty;
+  dateRange: {
+    startDate: string;
+    endDate: string;
+  };
+  summary: PropertyCollectionStatementSummary;
+  unitSummaries: PropertyCollectionStatementUnit[];
+  incomeSummary: PropertyCollectionStatementIncomeSummary;
+  commissionSummary: PropertyCollectionStatementCommissionSummary;
+  serviceProviders: ServiceProvider[];
+  leadSummary: {
+    total: number;
+    leads: Lead[];
+  };
+  rawData: {
+    incomes: Income[];
+    commissions: ManagerCommission[];
+  };
+}
+
+export interface PropertyCollectionStatementResponse {
+  success: boolean;
+  data: PropertyCollectionStatement;
+}
+
 export interface ArrearsItem {
   id: string;
   tenantId: string;
