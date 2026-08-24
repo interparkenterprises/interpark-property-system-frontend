@@ -417,8 +417,20 @@ export default function PropertyDetailInfoPage() {
     setBillsReportLoading(true);
     try {
       const params: any = {};
-      if (billsReportFilters.dateFrom) params.dateFrom = billsReportFilters.dateFrom;
-      if (billsReportFilters.dateTo) params.dateTo = billsReportFilters.dateTo;
+      
+      // =============================================
+      // FIX: Ensure proper date formatting
+      // =============================================
+      if (billsReportFilters.dateFrom) {
+        const fromDate = new Date(billsReportFilters.dateFrom);
+        params.dateFrom = fromDate.toISOString();
+      }
+      if (billsReportFilters.dateTo) {
+        const toDate = new Date(billsReportFilters.dateTo);
+        // Set to end of day for inclusive range
+        toDate.setHours(23, 59, 59, 999);
+        params.dateTo = toDate.toISOString();
+      }
       if (billsReportFilters.billType) params.billType = billsReportFilters.billType;
       if (billsReportFilters.status) params.status = billsReportFilters.status;
       if (billsReportFilters.page) params.page = billsReportFilters.page;
@@ -3673,6 +3685,32 @@ export default function PropertyDetailInfoPage() {
                       </Button>
                     </div>
                   </div>
+                  {/* Show active filters */}
+                  {(billsReportFilters.dateFrom || billsReportFilters.dateTo || billsReportFilters.billType || billsReportFilters.status) && (
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-medium text-gray-700">Active filters:</span>
+                      {billsReportFilters.dateFrom && (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                          From: {new Date(billsReportFilters.dateFrom).toLocaleDateString()}
+                        </span>
+                      )}
+                      {billsReportFilters.dateTo && (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                          To: {new Date(billsReportFilters.dateTo).toLocaleDateString()}
+                        </span>
+                      )}
+                      {billsReportFilters.billType && (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                          Type: {billsReportFilters.billType}
+                        </span>
+                      )}
+                      {billsReportFilters.status && (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                          Status: {billsReportFilters.status}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {billsReportLoading ? (
@@ -3700,21 +3738,41 @@ export default function PropertyDetailInfoPage() {
                       <div className="bg-linear-to-br from-blue-50 to-blue-100 rounded-xl p-5 border border-blue-200">
                         <div className="text-sm font-medium text-blue-700 mb-1">Water Collection</div>
                         <div className="text-2xl font-bold text-gray-900">{billsReportData.summary.water.collectionRate}%</div>
-                        <div className="text-xs text-gray-700 mt-1">Ksh {billsReportData.summary.water.totalCollected.toLocaleString()} collected</div>
+                        <div className="text-xs text-gray-700 mt-1">
+                          Ksh {billsReportData.summary.water.totalCollected?.toLocaleString() || 0} collected
+                        </div>
+                        <div className="text-xs text-gray-500 mt-1">
+                          of Ksh {billsReportData.summary.water.totalBilled?.toLocaleString() || 0} billed
+                        </div>
                       </div>
                       <div className="bg-linear-to-br from-yellow-50 to-yellow-100 rounded-xl p-5 border border-yellow-200">
                         <div className="text-sm font-medium text-yellow-700 mb-1">Electricity Collection</div>
                         <div className="text-2xl font-bold text-gray-900">{billsReportData.summary.electricity.collectionRate}%</div>
-                        <div className="text-xs text-gray-700 mt-1">Ksh {billsReportData.summary.electricity.totalCollected.toLocaleString()} collected</div>
+                        <div className="text-xs text-gray-700 mt-1">
+                          Ksh {billsReportData.summary.electricity.totalCollected?.toLocaleString() || 0} collected
+                        </div>
+                        <div className="text-xs text-gray-500 mt-1">
+                          of Ksh {billsReportData.summary.electricity.totalBilled?.toLocaleString() || 0} billed
+                        </div>
                       </div>
                       <div className="bg-linear-to-br from-red-50 to-red-100 rounded-xl p-5 border border-red-200">
                         <div className="text-sm font-medium text-red-700 mb-1">Total Arrears</div>
-                        <div className="kpi-value font-bold text-gray-900" title={formatExactKes(billsReportData.summary.overall.totalArrears)}>{formatCompactKes(billsReportData.summary.overall.totalArrears)}</div>
+                        <div className="kpi-value font-bold text-gray-900" title={formatExactKes(billsReportData.summary.overall.totalArrears || 0)}>
+                          {formatCompactKes(billsReportData.summary.overall.totalArrears || 0)}
+                        </div>
+                        <div className="text-xs text-gray-700 mt-1">
+                          {billsReportData.summary.totalTenants || 0} tenants with bills
+                        </div>
                       </div>
                       <div className="bg-linear-to-br from-purple-50 to-purple-100 rounded-xl p-5 border border-purple-200">
                         <div className="text-sm font-medium text-purple-700 mb-1">Delinquent Bills</div>
-                        <div className="text-2xl font-bold text-gray-900">{billsReportData.summary.overall.delinquentBillsCount}</div>
+                        <div className="text-2xl font-bold text-gray-900">{billsReportData.summary.overall.delinquentBillsCount || 0}</div>
                         <div className="text-xs text-gray-700 mt-1">Over 30 days overdue</div>
+                        {billsReportData.summary.totalCredit > 0 && (
+                          <div className="text-xs text-blue-600 mt-1">
+                            Credit: Ksh {billsReportData.summary.totalCredit.toLocaleString()}
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -3723,23 +3781,119 @@ export default function PropertyDetailInfoPage() {
                       <h3 className="text-lg font-bold text-gray-900 mb-3">Bill Payment Breakdown</h3>
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                         <div className="bg-green-50 rounded-lg p-3 text-center">
-                          <div className="text-2xl font-bold text-green-700">{billsReportData.summary.overall.paymentBreakdown.paid}</div>
+                          <div className="text-2xl font-bold text-green-700">{billsReportData.summary.overall.paymentBreakdown.paid || 0}</div>
                           <div className="text-xs text-gray-700">Paid</div>
                         </div>
                         <div className="bg-yellow-50 rounded-lg p-3 text-center">
-                          <div className="text-2xl font-bold text-yellow-700">{billsReportData.summary.overall.paymentBreakdown.partial}</div>
+                          <div className="text-2xl font-bold text-yellow-700">{billsReportData.summary.overall.paymentBreakdown.partial || 0}</div>
                           <div className="text-xs text-gray-700">Partial</div>
                         </div>
                         <div className="bg-red-50 rounded-lg p-3 text-center">
-                          <div className="text-2xl font-bold text-red-700">{billsReportData.summary.overall.paymentBreakdown.unpaid}</div>
+                          <div className="text-2xl font-bold text-red-700">{billsReportData.summary.overall.paymentBreakdown.unpaid || 0}</div>
                           <div className="text-xs text-gray-700">Unpaid</div>
                         </div>
                         <div className="bg-orange-50 rounded-lg p-3 text-center">
-                          <div className="text-2xl font-bold text-orange-700">{billsReportData.summary.overall.paymentBreakdown.overdue}</div>
+                          <div className="text-2xl font-bold text-orange-700">{billsReportData.summary.overall.paymentBreakdown.overdue || 0}</div>
                           <div className="text-xs text-gray-700">Overdue</div>
                         </div>
                       </div>
                     </div>
+
+                    {/* Monthly Trends */}
+                    {billsReportData.monthlyTrends && billsReportData.monthlyTrends.length > 0 && (
+                      <div className="mb-6">
+                        <h3 className="text-lg font-bold text-gray-900 mb-3">Monthly Trends</h3>
+                        <div className="overflow-x-auto">
+                          <table className="w-full">
+                            <thead>
+                              <tr className="border-b-2 border-gray-200">
+                                <th className="text-left py-3 px-4 font-semibold text-gray-900">Month</th>
+                                <th className="text-right py-3 px-4 font-semibold text-gray-900">Water Expected</th>
+                                <th className="text-right py-3 px-4 font-semibold text-gray-900">Water Collected</th>
+                                <th className="text-right py-3 px-4 font-semibold text-gray-900">Water Arrears</th>
+                                <th className="text-right py-3 px-4 font-semibold text-gray-900">Elec Expected</th>
+                                <th className="text-right py-3 px-4 font-semibold text-gray-900">Elec Collected</th>
+                                <th className="text-right py-3 px-4 font-semibold text-gray-900">Elec Arrears</th>
+                                <th className="text-right py-3 px-4 font-semibold text-gray-900">Total Expected</th>
+                                <th className="text-right py-3 px-4 font-semibold text-gray-900">Total Collected</th>
+                                <th className="text-right py-3 px-4 font-semibold text-gray-900">Total Arrears</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {billsReportData.monthlyTrends.map((trend: any, idx: number) => (
+                                <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50">
+                                  <td className="py-3 px-4 font-medium text-gray-900">{trend.month}</td>
+                                  <td className="py-3 px-4 text-right text-gray-900">Ksh {trend.water.expected.toLocaleString()}</td>
+                                  <td className="py-3 px-4 text-right text-green-600">Ksh {trend.water.collected.toLocaleString()}</td>
+                                  <td className="py-3 px-4 text-right text-red-600">Ksh {trend.water.arrears.toLocaleString()}</td>
+                                  <td className="py-3 px-4 text-right text-gray-900">Ksh {trend.electricity.expected.toLocaleString()}</td>
+                                  <td className="py-3 px-4 text-right text-green-600">Ksh {trend.electricity.collected.toLocaleString()}</td>
+                                  <td className="py-3 px-4 text-right text-red-600">Ksh {trend.electricity.arrears.toLocaleString()}</td>
+                                  <td className="py-3 px-4 text-right font-semibold text-gray-900">Ksh {trend.total.expected.toLocaleString()}</td>
+                                  <td className="py-3 px-4 text-right font-semibold text-green-600">Ksh {trend.total.collected.toLocaleString()}</td>
+                                  <td className="py-3 px-4 text-right font-semibold text-red-600">Ksh {trend.total.arrears.toLocaleString()}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Tenant Outstanding Bills */}
+                    {billsReportData.tenantOutstanding && billsReportData.tenantOutstanding.length > 0 && (
+                      <div className="mb-6">
+                        <h3 className="text-lg font-bold text-gray-900 mb-3">Tenants with Outstanding Bills</h3>
+                        <div className="overflow-x-auto">
+                          <table className="w-full">
+                            <thead>
+                              <tr className="border-b-2 border-gray-200">
+                                <th className="text-left py-3 px-4 font-semibold text-gray-900">Tenant</th>
+                                <th className="text-left py-3 px-4 font-semibold text-gray-900">Unit</th>
+                                <th className="text-right py-3 px-4 font-semibold text-gray-900">Water Total</th>
+                                <th className="text-right py-3 px-4 font-semibold text-gray-900">Water Outstanding</th>
+                                <th className="text-left py-3 px-4 font-semibold text-gray-900">Water Status</th>
+                                <th className="text-right py-3 px-4 font-semibold text-gray-900">Elec Total</th>
+                                <th className="text-right py-3 px-4 font-semibold text-gray-900">Elec Outstanding</th>
+                                <th className="text-left py-3 px-4 font-semibold text-gray-900">Elec Status</th>
+                                <th className="text-right py-3 px-4 font-semibold text-gray-900">Total Outstanding</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {billsReportData.tenantOutstanding.map((tenant: any, idx: number) => (
+                                <tr key={idx} className="border-b border-gray-100 hover:bg-gray-50">
+                                  <td className="py-3 px-4 font-medium text-gray-900">{tenant.tenantName}</td>
+                                  <td className="py-3 px-4 text-gray-900">{tenant.unitNo}</td>
+                                  <td className="py-3 px-4 text-right text-gray-900">Ksh {tenant.water.total.toLocaleString()}</td>
+                                  <td className="py-3 px-4 text-right text-red-600 font-semibold">Ksh {tenant.water.outstanding.toLocaleString()}</td>
+                                  <td className="py-3 px-4">
+                                    <span className={`inline-flex px-2 py-1 rounded-full text-xs font-semibold ${
+                                      tenant.water.status === 'PAID' ? 'bg-green-100 text-green-700' :
+                                      tenant.water.status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' :
+                                      'bg-red-100 text-red-700'
+                                    }`}>
+                                      {tenant.water.status}
+                                    </span>
+                                  </td>
+                                  <td className="py-3 px-4 text-right text-gray-900">Ksh {tenant.electricity.total.toLocaleString()}</td>
+                                  <td className="py-3 px-4 text-right text-red-600 font-semibold">Ksh {tenant.electricity.outstanding.toLocaleString()}</td>
+                                  <td className="py-3 px-4">
+                                    <span className={`inline-flex px-2 py-1 rounded-full text-xs font-semibold ${
+                                      tenant.electricity.status === 'PAID' ? 'bg-green-100 text-green-700' :
+                                      tenant.electricity.status === 'PARTIAL' ? 'bg-yellow-100 text-yellow-700' :
+                                      'bg-red-100 text-red-700'
+                                    }`}>
+                                      {tenant.electricity.status}
+                                    </span>
+                                  </td>
+                                  <td className="py-3 px-4 text-right font-bold text-red-600">Ksh {tenant.totalOutstanding.toLocaleString()}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
 
                     {/* Delinquent Bills Table */}
                     {billsReportData.delinquentBills && billsReportData.delinquentBills.length > 0 && (
@@ -3754,8 +3908,10 @@ export default function PropertyDetailInfoPage() {
                                 <th className="text-left py-3 px-4 font-semibold text-gray-900">Unit</th>
                                 <th className="text-left py-3 px-4 font-semibold text-gray-900">Type</th>
                                 <th className="text-right py-3 px-4 font-semibold text-gray-900">Amount</th>
+                                <th className="text-right py-3 px-4 font-semibold text-gray-900">Paid</th>
                                 <th className="text-right py-3 px-4 font-semibold text-gray-900">Balance</th>
                                 <th className="text-right py-3 px-4 font-semibold text-gray-900">Days Overdue</th>
+                                <th className="text-left py-3 px-4 font-semibold text-gray-900">Status</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -3772,13 +3928,42 @@ export default function PropertyDetailInfoPage() {
                                     </span>
                                   </td>
                                   <td className="py-3 px-4 text-right text-gray-900">Ksh {bill.amount.toLocaleString()}</td>
+                                  <td className="py-3 px-4 text-right text-green-600">Ksh {bill.amountPaid.toLocaleString()}</td>
                                   <td className="py-3 px-4 text-right text-red-600 font-semibold">Ksh {bill.balance.toLocaleString()}</td>
-                                  <td className="py-3 px-4 text-right text-orange-600 font-semibold">{bill.daysOverdue} days</td>
+                                  <td className="py-3 px-4 text-right">
+                                    <span className={`font-semibold ${
+                                      bill.daysOverdue > 90 ? 'text-red-700' :
+                                      bill.daysOverdue > 60 ? 'text-red-600' :
+                                      bill.daysOverdue > 30 ? 'text-orange-600' : 'text-gray-600'
+                                    }`}>
+                                      {bill.daysOverdue} days
+                                    </span>
+                                  </td>
+                                  <td className="py-3 px-4">
+                                    <span className="inline-flex px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700">
+                                      {bill.status}
+                                    </span>
+                                  </td>
                                 </tr>
                               ))}
                             </tbody>
                           </table>
                         </div>
+                      </div>
+                    )}
+
+                    {/* No Data Message */}
+                    {!billsReportData.tenantOutstanding?.length && !billsReportData.delinquentBills?.length && (
+                      <div className="text-center py-8">
+                        <div className="w-16 h-16 mx-auto mb-4 bg-green-100 rounded-full flex items-center justify-center">
+                          <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                        </div>
+                        <p className="text-gray-900 font-medium text-lg">All Bills Are Up to Date</p>
+                        <p className="text-gray-600 mt-2">
+                          No outstanding bills or delinquent bills found for the selected period.
+                        </p>
                       </div>
                     )}
                   </>
