@@ -191,6 +191,13 @@ export default function RegisterPage() {
             </Link>
           </div>
         </form>
+
+        {/* Powered by MasterKimaru */}
+        <div className="text-center pt-4 border-t border-white/10">
+          <p className="text-white/50 text-xs tracking-wider">
+            Powered by <span className="text-white/70 font-medium">MasterKimaru</span>
+          </p>
+        </div>
       </div>
     </div>
   )
