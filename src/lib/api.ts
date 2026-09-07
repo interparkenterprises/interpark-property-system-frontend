@@ -598,10 +598,12 @@ export const tenantsAPI = {
     }
   },
 
-  getByProperty: async (propertyId: string): Promise<Tenant[]> => {
+  getByProperty: async (propertyId: string, includeLeft?: boolean): Promise<Tenant[]> => {
     try {
-      const response = await api.get(`/tenants/property/${propertyId}`);
-      return response.data;
+      const params = includeLeft ? { includeLeft: 'true' } : {};
+      const response = await api.get(`/tenants/property/${propertyId}`, { params });
+      // The response now has a 'tenants' property containing the array
+      return response.data.tenants || response.data || [];
     } catch (error) {
       console.error('Error fetching tenants by property:', error);
       return [];
