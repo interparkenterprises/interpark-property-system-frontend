@@ -2,7 +2,8 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
-import { Property, Unit, ServiceProvider, Tenant, DailyReport, ActivationRequest } from '@/types';
+import { Property, Unit, ServiceProvider, Tenant, DailyReport, ActivationRequest,  TenantLeftReason,
+  TENANT_LEFT_REASON_LABELS, } from '@/types';
 import { propertiesAPI, unitsAPI, serviceProvidersAPI, tenantsAPI, dailyReportsAPI, activationsAPI } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import PropertyForm from '@/components/forms/PropertyForm';
@@ -52,6 +53,14 @@ export default function PropertyDetailPage() {
   const [showTenantForm, setShowTenantForm] = useState(false);
   const [editingTenant, setEditingTenant] = useState<Tenant | null>(null);
   const [deletingTenantId, setDeletingTenantId] = useState<string | null>(null);
+    // ---- Tenant "mark as left" modal state ----
+  const [deleteTenantModal, setDeleteTenantModal] = useState<{
+    open: boolean;
+    tenantId: string | null;
+    tenantName: string;
+  }>({ open: false, tenantId: null, tenantName: '' });
+  const [selectedLeftReason, setSelectedLeftReason] = useState<TenantLeftReason | ''>('');
+  const [deleteTenantModalError, setDeleteTenantModalError] = useState<string | null>(null);
   const [propertyTenants, setPropertyTenants] = useState<Tenant[]>([]);
   const [propertyImageUrl, setPropertyImageUrl] = useState<string | null>(null);
   const [showImageModal, setShowImageModal] = useState(false);
@@ -315,17 +324,60 @@ export default function PropertyDetailPage() {
     setActiveTab('tenants');
   };
 
-  const handleDeleteTenant = async (tenantId: string) => {
-    if (confirm('Are you sure you want to delete this tenant?')) {
-      setDeletingTenantId(tenantId);
-      try {
-        await tenantsAPI.delete(tenantId);
-        await fetchPropertyTenants();
-        await fetchProperty();
-      } catch (error) {
-        console.error('Error deleting tenant:', error);
-      } finally {
-        setDeletingTenantId(null);
+  // Opens the "mark as left" modal and remembers which tenant we're acting on
+  const openDeleteTenantModal = (tenant: Tenant) => {
+    setDeleteTenantModal({
+      open: true,
+      tenantId: tenant.id,
+      tenantName: tenant.fullName,
+    });
+    setSelectedLeftReason('');
+    setDeleteTenantModalError(null);
+  };
+
+  // Closes the modal — refuses to close while a request is in flight
+  const closeDeleteTenantModal = () => {
+    if (deletingTenantId) return;
+    setDeleteTenantModal({ open: false, tenantId: null, tenantName: '' });
+    setSelectedLeftReason('');
+    setDeleteTenantModalError(null);
+  };
+
+  // Actual delete — called when user clicks "Mark as Left"
+  const handleConfirmDeleteTenant = async () => {
+    const { tenantId, tenantName } = deleteTenantModal;
+    if (!tenantId) return;
+
+    setDeletingTenantId(tenantId);
+    setDeleteTenantModalError(null);
+
+    let succeeded = false;
+    try {
+      const result = await tenantsAPI.delete(tenantId, {
+        leftReason: selectedLeftReason === '' ? null : selectedLeftReason,
+      });
+
+      toast.success(
+        result?.message ?? `Tenant '${tenantName}' marked as left successfully.`
+      );
+
+      await Promise.all([fetchPropertyTenants(), fetchProperty()]);
+      succeeded = true;
+    } catch (error: any) {
+      console.error('Error marking tenant as left:', error);
+      const msg =
+        error?.response?.data?.message ??
+        error?.message ??
+        'Failed to mark tenant as left';
+      setDeleteTenantModalError(msg);
+      toast.error(msg);
+    } finally {
+      setDeletingTenantId(null);
+      // Only close on success — on error the user sees the modal with the error
+      if (succeeded) {
+        setDeleteTenantModal({ open: false, tenantId: null, tenantName: '' });
+        setSelectedLeftReason('');
+        setDeleteTenantModalError(null);
       }
     }
   };
@@ -678,6 +730,147 @@ export default function PropertyDetailPage() {
                   <h3 className="text-white text-2xl font-bold mb-1">{property.name}</h3>
                   <p className="text-gray-200 text-sm">{property.address}</p>
                 </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      {/* ---- Mark Tenant as Left Modal ---- */}
+      <AnimatePresence>
+        {deleteTenantModal.open && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+            onClick={closeDeleteTenantModal}
+          >
+            <motion.div
+              variants={modalVariants}
+              initial="hidden"
+              animate="visible"
+              exit="exit"
+              className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="px-6 pt-6 pb-4 border-b border-gray-100">
+                <div className="flex items-start gap-4">
+                  <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center shrink-0">
+                    <svg
+                      className="w-6 h-6 text-red-600"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                      />
+                    </svg>
+                  </div>
+                  <div className="flex-1">
+                    {/* FIX: was text-heading-color — now explicit gray-900 */}
+                    <h3 className="text-lg font-bold text-gray-900">
+                      Mark tenant as left?
+                    </h3>
+                    {/* FIX: strengthened contrast on body copy */}
+                    <p className="text-sm text-gray-700 mt-1">
+                      <strong className="text-gray-900 font-semibold">
+                        {deleteTenantModal.tenantName}
+                      </strong>{' '}
+                      will be marked as{' '}
+                      {/* FIX: <code> now has explicit color + bg so it never inherits white */}
+                      <code className="text-xs font-semibold text-red-700 bg-red-50 px-1.5 py-0.5 rounded">
+                        LEFT
+                      </code>
+                      . All payment history, invoices, and documents will be
+                      preserved for historical records.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Body */}
+              <div className="px-6 py-5 space-y-3">
+                <label
+                  htmlFor="leftReason"
+                  className="block text-sm font-semibold text-gray-800"
+                >
+                  Reason for leaving{' '}
+                  <span className="text-gray-500 font-normal">(optional)</span>
+                </label>
+                <select
+                  id="leftReason"
+                  value={selectedLeftReason}
+                  onChange={(e) =>
+                    setSelectedLeftReason(e.target.value as TenantLeftReason | '')
+                  }
+                  disabled={!!deletingTenantId}
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary disabled:bg-gray-100 disabled:text-gray-500"
+                >
+                  {/* FIX: option elements explicitly colored — invisible options
+                      are a classic symptom of dark-mode globals leaking in */}
+                  <option value="" className="bg-white text-gray-900">
+                    — Not specified —
+                  </option>
+                  {(Object.keys(TENANT_LEFT_REASON_LABELS) as TenantLeftReason[]).map(
+                    (key) => (
+                      <option
+                        key={key}
+                        value={key}
+                        className="bg-white text-gray-900"
+                      >
+                        {TENANT_LEFT_REASON_LABELS[key]}
+                      </option>
+                    )
+                  )}
+                </select>
+
+                {selectedLeftReason === '' && (
+                  <p className="text-xs text-gray-600">
+                    Leave blank if the reason is unknown. The tenant will still
+                    appear under Departed Tenants.
+                  </p>
+                )}
+
+                {deleteTenantModalError && (
+                  <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-800">
+                    {deleteTenantModalError}
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="px-6 py-4 bg-gray-50 flex flex-col sm:flex-row gap-3 sm:justify-end">
+                <Button
+                  variant="secondary"
+                  onClick={closeDeleteTenantModal}
+                  disabled={!!deletingTenantId}
+                  className="px-5 py-2.5"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleConfirmDeleteTenant}
+                  disabled={!!deletingTenantId}
+                  className="px-5 py-2.5 bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
+                >
+                  {deletingTenantId ? (
+                    <span className="flex items-center gap-2">
+                      {/* ...spinner + "Marking as Left…" — spinner inherits
+                          white text from button, fine as-is */}
+                      Marking as Left…
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-2">
+                      {/* ...check icon */}
+                      Mark as Left
+                    </span>
+                  )}
+                </Button>
               </div>
             </motion.div>
           </motion.div>
@@ -1952,7 +2145,7 @@ export default function PropertyDetailPage() {
                           
                           <PermissionGuard module="tenants" action="delete">
                             <Button
-                              onClick={() => handleDeleteTenant(tenant.id)}
+                              onClick={() => openDeleteTenantModal(tenant)}
                               disabled={deletingTenantId === tenant.id}
                               className="flex-1 px-4 py-2 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white transition-all duration-200 rounded-lg font-semibold disabled:opacity-50"
                             >

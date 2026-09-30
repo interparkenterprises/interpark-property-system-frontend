@@ -297,6 +297,143 @@ export interface ServiceCharge {
   createdAt: string;
   updatedAt: string;
 }
+// =============================================
+// TENANT LIFECYCLE TYPES
+// =============================================
+
+export type TenantStatus = 'ACTIVE' | 'LEFT';
+
+export type TenantLeftReason =
+  | 'LEASE_EXPIRED'
+  | 'VOLUNTARY'
+  | 'EVICTED'
+  | 'NON_PAYMENT'
+  | 'TRANSFERRED'
+  | 'DECEASED'
+  | 'OTHER';
+
+/**
+ * Display labels for the churn/left reasons.
+ * Use these in the UI select and in the departed-tenants table.
+ */
+export const TENANT_LEFT_REASON_LABELS: Record<TenantLeftReason, string> = {
+  LEASE_EXPIRED: 'Lease Expired',
+  VOLUNTARY: 'Voluntary (Tenant Choice)',
+  EVICTED: 'Evicted',
+  NON_PAYMENT: 'Non-Payment',
+  TRANSFERRED: 'Transferred',
+  DECEASED: 'Deceased',
+  OTHER: 'Other',
+};
+
+/**
+ * Lifecycle metadata computed by the backend for every tenant.
+ * Always returned by GET /api/tenants/:id and embedded in list responses.
+ */
+export interface TenantLifecycle {
+  status: TenantStatus;
+  isActive: boolean;
+  leftAt: string | null;     // ISO timestamp or null for ACTIVE tenants
+  leftReason: TenantLeftReason | null;
+  tenureDays: number | null;
+}
+
+/**
+ * Payload accepted by DELETE /api/tenants/:id.
+ * `leftReason` is optional — omit or set to null for "unspecified".
+ */
+export interface DeleteTenantRequest {
+  leftReason?: TenantLeftReason | null;
+}
+
+/**
+ * Response returned by DELETE /api/tenants/:id.
+ */
+export interface DeleteTenantResponse {
+  success: boolean;
+  message: string;
+  data: {
+    tenantId: string;
+    tenantName: string;
+    unitId: string;
+    status: 'LEFT';
+    leftAt: string;                         // ISO timestamp — always present
+    leftReason: TenantLeftReason | null;
+    tenureDays: number | null;
+    preservedRentAmount: number;
+    preservedRecords: {
+      paymentReports: number;
+      invoices: number;
+      billInvoices: number;
+      bills: number;
+      demandLetters: number;
+      attachments: number;
+      incomes: number;
+    };
+    note: string;
+  };
+}
+
+/**
+ * Response returned by PATCH /api/tenants/:id/restore.
+ */
+export interface RestoreTenantRequest {
+  unitId?: string;      // optional: move to a different unit in the same property
+  rent?: number;        // optional: override rent on restore
+}
+
+export interface RestoreTenantResponse {
+  success: boolean;
+  message: string;
+  tenant: Tenant;
+  lifecycle: TenantLifecycle;
+  unitTransfer: {
+    oldUnitId: string;
+    newUnitId: string;
+    oldUnitRent: number;
+    newUnitRent: number;
+    status: 'completed';
+  } | null;
+}
+
+/**
+ * Response returned by GET /api/tenants/left.
+ */
+export interface LeftTenantsSummary {
+  totalDeparted: number;
+  withOutstandingBalance: number;
+  withoutOutstandingBalance: number;
+  totalRentOutstanding: number;
+  totalBillOutstanding: number;
+  totalOutstanding: number;
+  byReason: Record<string, number>;
+  averageTenureDays: number;
+}
+
+export interface LeftTenantsResponse {
+  success: boolean;
+  summary: LeftTenantsSummary;
+  tenants: Array<
+    Tenant & {
+      lifecycle: TenantLifecycle;
+      financials: {
+        rentOutstanding: number;
+        billOutstanding: number;
+        totalOutstanding: number;
+      };
+    }
+  >;
+}
+
+/**
+ * Response returned by GET /api/tenants/stats.
+ */
+export interface TenantStatsResponse {
+  active: number;
+  left: number;
+  total: number;
+  byReason: Record<string, number>;
+}
 
 export interface Tenant {
   id: string;
@@ -325,16 +462,30 @@ export interface Tenant {
   billInvoices?: BillInvoice[];
   createdAt: string;
   updatedAt: string;
-  
+
+  // ========== LIFECYCLE FIELDS (NEW) ==========
+  status: TenantStatus;                       // 'ACTIVE' | 'LEFT'
+  leftAt: string | null;                      // ISO timestamp or null
+  leftReason: TenantLeftReason | null;        // enum value or null
+  lifecycle?: TenantLifecycle;                // computed metadata block
+  // ===========================================
+
   // ========== WITHHOLDING TAX FIELDS ==========
-  withholdingTaxRate?: number;        // Percentage (e.g., 5 for 5%)
-  withholdingVatRate?: number;        // Percentage (e.g., 2 for 2%)
-  isWithholdingTaxExempt?: boolean;   // Exempt from withholding tax
+  withholdingTaxRate?: number;
+  withholdingVatRate?: number;
+  isWithholdingTaxExempt?: boolean;
   // ============================================
-  
+
   rentInfo?: RentInfo;
   rentSchedule?: RentScheduleItem[];
   paymentSummary?: PaymentSummary;
+
+  // Optional: present on LEFT tenants returned from /tenants/left
+  financials?: {
+    rentOutstanding: number;
+    billOutstanding: number;
+    totalOutstanding: number;
+  };
 }
 
 // Add these new interfaces

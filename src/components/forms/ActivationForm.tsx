@@ -18,6 +18,50 @@ interface ActivationFormProps {
   onCancel: () => void;
 }
 
+/**
+ * Calculate number of days between two dates.
+ * Same day = 0, next day = 1, etc. (matches backend "numberOfDays")
+ */
+const calculateDaysBetween = (
+  startDate: string,
+  endDate: string
+): number | null => {
+  if (!startDate || !endDate) return null;
+
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+
+  // Reset time components for date-only comparison
+  const startDateOnly = new Date(
+    start.getFullYear(),
+    start.getMonth(),
+    start.getDate()
+  );
+  const endDateOnly = new Date(
+    end.getFullYear(),
+    end.getMonth(),
+    end.getDate()
+  );
+
+  if (endDateOnly < startDateOnly) return null;
+
+  const diffTime = endDateOnly.getTime() - startDateOnly.getTime();
+  const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+
+  return diffDays; // 0 for same day, 1 for next day, etc.
+};
+
+/**
+ * Calculate billing days (matches backend controller logic):
+ *   0 days (same day) = 1 billing day
+ *   otherwise = numberOfDays + 1 (inclusive billing)
+ */
+const calculateBillingDays = (numberOfDays: number | null): number => {
+  if (numberOfDays === null || numberOfDays === undefined) return 0;
+  if (numberOfDays === 0) return 1;
+  return numberOfDays + 1;
+};
+
 export default function ActivationForm({
   propertyId,
   activation,
@@ -26,6 +70,12 @@ export default function ActivationForm({
 }: ActivationFormProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Track manual overrides so auto-calc doesn't fight the user
+  const [manualOverrides, setManualOverrides] = useState({
+    numberOfDays: false,
+    proposedBudget: false,
+  });
 
   // Form state with all fields from backend model
   const [formData, setFormData] = useState({
@@ -38,7 +88,7 @@ export default function ActivationForm({
     designation: '',
     email: '',
     mobileNo: '',
-    
+
     // Part 2 - Description of Activation/Exhibition
     activationType: 'OFFICE_SPACE' as ActivationType,
     startDate: '',
@@ -48,16 +98,16 @@ export default function ActivationForm({
     description: '',
     expectedVisitors: '',
     soundSystem: false,
-    
+
     // Part 3 - Cost of Activation/Exhibition
     licenseFeePerDay: '',
     numberOfDays: '',
     proposedBudget: '',
-    
+
     // VAT Information
     vatType: 'INCLUSIVE' as VATType,
     vat: '16',
-    
+
     // Payment Details
     bankName: '',
     bankBranch: '',
@@ -66,7 +116,7 @@ export default function ActivationForm({
     swiftCode: '',
     paybillNumber: '',
     mpesaAccount: '',
-    
+
     // Manager Information (for submission)
     managerName: '',
     managerDesignation: '',
@@ -76,13 +126,62 @@ export default function ActivationForm({
   const [vatDetails, setVatDetails] = useState({
     baseAmount: 0,
     vatAmount: 0,
-    totalAmount: 0
+    totalAmount: 0,
   });
 
-  // Function to calculate VAT details based on backend logic
+  // =========================================================
+  // AUTO-CALC #1: numberOfDays from startDate + endDate
+  // =========================================================
+  useEffect(() => {
+    if (manualOverrides.numberOfDays) return;
+    if (!formData.startDate || !formData.endDate) return;
+
+    const days = calculateDaysBetween(formData.startDate, formData.endDate);
+    if (days === null) return;
+
+    const newValue = days.toString();
+    setFormData((prev) => {
+      if (prev.numberOfDays === newValue) return prev;
+      return { ...prev, numberOfDays: newValue };
+    });
+  }, [formData.startDate, formData.endDate, manualOverrides.numberOfDays]);
+
+  // =========================================================
+  // AUTO-CALC #2: proposedBudget from licenseFeePerDay + numberOfDays
+  // =========================================================
+  useEffect(() => {
+    if (manualOverrides.proposedBudget) return;
+
+    const feePerDay = parseFloat(formData.licenseFeePerDay);
+    if (!feePerDay || feePerDay <= 0) return;
+
+    const numberOfDays =
+      formData.numberOfDays === '' ? null : parseInt(formData.numberOfDays);
+
+    const billingDays = calculateBillingDays(numberOfDays);
+    if (billingDays <= 0) return;
+
+    const calculatedBudget = feePerDay * billingDays;
+    const newValue = calculatedBudget.toFixed(2);
+
+    setFormData((prev) => {
+      if (prev.proposedBudget === newValue) return prev;
+      return { ...prev, proposedBudget: newValue };
+    });
+  }, [
+    formData.licenseFeePerDay,
+    formData.numberOfDays,
+    manualOverrides.proposedBudget,
+  ]);
+
+  // =========================================================
+  // VAT calculation (existing)
+  // =========================================================
   const calculateVATDetails = () => {
-    const baseAmount = parseFloat(formData.proposedBudget) || 
-                      parseFloat(formData.licenseFeePerDay) || 0;
+    const baseAmount =
+      parseFloat(formData.proposedBudget) ||
+      parseFloat(formData.licenseFeePerDay) ||
+      0;
     const vatRate = parseFloat(formData.vat) || 0;
     const vatType = formData.vatType;
 
@@ -90,43 +189,47 @@ export default function ActivationForm({
       return {
         baseAmount: baseAmount || 0,
         vatAmount: 0,
-        totalAmount: baseAmount || 0
+        totalAmount: baseAmount || 0,
       };
     }
 
     if (vatType === 'INCLUSIVE') {
-      // VAT is already included in the base amount
       const vatAmount = (baseAmount * vatRate) / (100 + vatRate);
       const netAmount = baseAmount - vatAmount;
       return {
         baseAmount: netAmount,
         vatAmount,
-        totalAmount: baseAmount
+        totalAmount: baseAmount,
       };
     } else if (vatType === 'EXCLUSIVE') {
-      // VAT is added to base amount
       const vatAmount = (baseAmount * vatRate) / 100;
       return {
         baseAmount,
         vatAmount,
-        totalAmount: baseAmount + vatAmount
+        totalAmount: baseAmount + vatAmount,
       };
     }
 
     return {
       baseAmount: baseAmount || 0,
       vatAmount: 0,
-      totalAmount: baseAmount || 0
+      totalAmount: baseAmount || 0,
     };
   };
 
-  // Update VAT calculations when relevant fields change
   useEffect(() => {
     const details = calculateVATDetails();
     setVatDetails(details);
-  }, [formData.proposedBudget, formData.licenseFeePerDay, formData.vat, formData.vatType]);
+  }, [
+    formData.proposedBudget,
+    formData.licenseFeePerDay,
+    formData.vat,
+    formData.vatType,
+  ]);
 
+  // =========================================================
   // Load activation data if editing
+  // =========================================================
   useEffect(() => {
     if (activation) {
       setFormData({
@@ -139,26 +242,28 @@ export default function ActivationForm({
         designation: activation.designation || '',
         email: activation.email || '',
         mobileNo: activation.mobileNo || '',
-        
+
         // Part 2 - Description of Activation/Exhibition
         activationType: activation.activationType || 'OFFICE_SPACE',
-        startDate: activation.startDate ? activation.startDate.split('T')[0] : '',
+        startDate: activation.startDate
+          ? activation.startDate.split('T')[0]
+          : '',
         setupTime: activation.setupTime || '9:00 AM',
         endDate: activation.endDate ? activation.endDate.split('T')[0] : '',
         tearDownTime: activation.tearDownTime || '5:00 PM',
         description: activation.description || '',
         expectedVisitors: activation.expectedVisitors?.toString() || '',
         soundSystem: activation.soundSystem || false,
-        
+
         // Part 3 - Cost of Activation/Exhibition
         licenseFeePerDay: activation.licenseFeePerDay?.toString() || '',
         numberOfDays: activation.numberOfDays?.toString() || '',
         proposedBudget: activation.proposedBudget?.toString() || '',
-        
+
         // VAT Information
         vatType: activation.vatType || 'INCLUSIVE',
         vat: activation.vat?.toString() || '16',
-        
+
         // Payment Details
         bankName: activation.bankName || '',
         bankBranch: activation.bankBranch || '',
@@ -167,19 +272,35 @@ export default function ActivationForm({
         swiftCode: activation.swiftCode || '',
         paybillNumber: activation.paybillNumber || '',
         mpesaAccount: activation.mpesaAccount || '',
-        
+
         // Manager Information
         managerName: activation.managerName || '',
         managerDesignation: activation.managerDesignation || '',
       });
+
+      // Reset manual overrides when loading a different activation
+      setManualOverrides({ numberOfDays: false, proposedBudget: false });
+    } else {
+      // Reset overrides when creating a new activation
+      setManualOverrides({ numberOfDays: false, proposedBudget: false });
     }
   }, [activation]);
 
+  // =========================================================
+  // Input handlers
+  // =========================================================
   const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
+    e: React.ChangeEvent<
+      HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+    >
   ) => {
     const { name, value, type } = e.target;
-    
+
+    // Mark as manually overridden if user edits auto-calculated fields
+    if (name === 'numberOfDays' || name === 'proposedBudget') {
+      setManualOverrides((prev) => ({ ...prev, [name]: true }));
+    }
+
     if (type === 'checkbox') {
       setFormData((prev) => ({
         ...prev,
@@ -193,27 +314,36 @@ export default function ActivationForm({
     }
   };
 
+  // Reset an override so auto-calc resumes for that field
+  const resetOverride = (field: 'numberOfDays' | 'proposedBudget') => {
+    setManualOverrides((prev) => ({ ...prev, [field]: false }));
+  };
+
+  // =========================================================
+  // Submit
+  // =========================================================
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setLoading(true);
 
-    // Validate required fields from backend model
     const requiredFields = [
       'companyName', 'postalAddress', 'telephone', 'contactPerson',
       'designation', 'email', 'mobileNo', 'startDate', 'setupTime',
-      'endDate', 'tearDownTime', 'activationType'
+      'endDate', 'tearDownTime', 'activationType',
     ];
 
-    const missingFields = requiredFields.filter(field => {
+    const missingFields = requiredFields.filter((field) => {
       const value = formData[field as keyof typeof formData];
       return !value || (typeof value === 'string' && value.trim() === '');
     });
 
     if (missingFields.length > 0) {
-      setError(`Missing required fields: ${missingFields.map(field => 
-        field.replace(/([A-Z])/g, ' $1').toLowerCase()
-      ).join(', ')}`);
+      setError(
+        `Missing required fields: ${missingFields
+          .map((field) => field.replace(/([A-Z])/g, ' $1').toLowerCase())
+          .join(', ')}`
+      );
       setLoading(false);
       return;
     }
@@ -222,9 +352,16 @@ export default function ActivationForm({
     const startDate = new Date(formData.startDate);
     const endDate = new Date(formData.endDate);
 
-    // Reset time components for pure date comparison
-    const startDateOnly = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
-    const endDateOnly = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+    const startDateOnly = new Date(
+      startDate.getFullYear(),
+      startDate.getMonth(),
+      startDate.getDate()
+    );
+    const endDateOnly = new Date(
+      endDate.getFullYear(),
+      endDate.getMonth(),
+      endDate.getDate()
+    );
 
     if (startDateOnly > endDateOnly) {
       setError('End date must be on or after start date');
@@ -251,7 +388,7 @@ export default function ActivationForm({
         designation: formData.designation.trim(),
         email: formData.email.trim(),
         mobileNo: formData.mobileNo.trim(),
-        
+
         // Part 2 - Description of Activation/Exhibition
         activationType: formData.activationType,
         startDate: formData.startDate,
@@ -259,18 +396,27 @@ export default function ActivationForm({
         endDate: formData.endDate,
         tearDownTime: formData.tearDownTime.trim(),
         description: formData.description.trim() || undefined,
-        expectedVisitors: formData.expectedVisitors ? parseInt(formData.expectedVisitors) : undefined,
+        expectedVisitors: formData.expectedVisitors
+          ? parseInt(formData.expectedVisitors)
+          : undefined,
         soundSystem: formData.soundSystem,
-        
+
         // Part 3 - Cost of Activation/Exhibition
-        licenseFeePerDay: formData.licenseFeePerDay ? parseFloat(formData.licenseFeePerDay) : undefined,
-        numberOfDays: formData.numberOfDays ? parseInt(formData.numberOfDays) : undefined,
-        proposedBudget: formData.proposedBudget ? parseFloat(formData.proposedBudget) : undefined,
-        
+        licenseFeePerDay: formData.licenseFeePerDay
+          ? parseFloat(formData.licenseFeePerDay)
+          : undefined,
+        numberOfDays:
+          formData.numberOfDays !== ''
+            ? parseInt(formData.numberOfDays)
+            : undefined,
+        proposedBudget: formData.proposedBudget
+          ? parseFloat(formData.proposedBudget)
+          : undefined,
+
         // VAT Information
         vatType: formData.vatType,
         vat: vatValue,
-        
+
         // Payment Details
         bankName: formData.bankName.trim() || undefined,
         bankBranch: formData.bankBranch.trim() || undefined,
@@ -279,17 +425,15 @@ export default function ActivationForm({
         swiftCode: formData.swiftCode.trim() || undefined,
         paybillNumber: formData.paybillNumber.trim() || undefined,
         mpesaAccount: formData.mpesaAccount.trim() || undefined,
-        
+
         // Manager Information
         managerName: formData.managerName.trim() || undefined,
         managerDesignation: formData.managerDesignation.trim() || undefined,
       };
 
       if (activation) {
-        // Update existing activation
         await activationsAPI.update(activation.id, data);
       } else {
-        // Create new activation with propertyId
         await activationsAPI.create({
           ...data,
           propertyId,
@@ -310,6 +454,9 @@ export default function ActivationForm({
     setVatDetails(details);
   };
 
+  // =========================================================
+  // Render
+  // =========================================================
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       {error && (
@@ -330,7 +477,7 @@ export default function ActivationForm({
           </svg>
           Company Information
         </h3>
-        
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="md:col-span-2">
             <label className="block text-sm font-semibold text-gray-300 mb-2">
@@ -456,152 +603,152 @@ export default function ActivationForm({
       {/* Part 2 - Description of Activation/Exhibition */}
       <div className="bg-gray-800 rounded-xl p-6 border border-gray-700 shadow-lg space-y-4">
         <h3 className="text-lg font-bold text-white flex items-center gap-2">
-            <svg className="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
-            Activation Details
+          </svg>
+          Activation Details
         </h3>
-        
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
+          <div>
             <label className="block text-sm font-semibold text-gray-300 mb-2">
-                Activation Type <span className="text-red-400">*</span>
+              Activation Type <span className="text-red-400">*</span>
             </label>
             <input
-                type="text"
-                name="activationType"
-                value={formData.activationType}
-                onChange={handleChange}
-                required
-                className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
-                placeholder="e.g., Product Launch, Exhibition, Pop-up Store, etc."
-                list="activation-types-suggestions"
+              type="text"
+              name="activationType"
+              value={formData.activationType}
+              onChange={handleChange}
+              required
+              className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
+              placeholder="e.g., Product Launch, Exhibition, Pop-up Store, etc."
+              list="activation-types-suggestions"
             />
-            
+
             <datalist id="activation-types-suggestions">
-                <option value="OFFICE_SPACE">Office Space</option>
-                <option value="RETAIL_SPACE">Retail Space</option>
-                <option value="WAREHOUSE">Warehouse</option>
-                <option value="EVENT_SPACE">Event Space</option>
-                <option value="POP_UP_STORE">Pop-up Store</option>
-                <option value="SHOWROOM">Showroom</option>
-                <option value="PRODUCT_LAUNCH">Product Launch</option>
-                <option value="PROMOTIONAL_EVENT">Promotional Event</option>
-                <option value="EXHIBITION">Exhibition</option>
-                <option value="MARKETING_CAMPAIGN">Marketing Campaign</option>
-                <option value="BRAND_ACTIVATION">Brand Activation</option>
-                <option value="TRADE_SHOW">Trade Show</option>
-                <option value="ROADSHOW">Roadshow</option>
-                <option value="SAMPLE_DISTRIBUTION">Sample Distribution</option>
-                <option value="MEDIA_EVENT">Media Event</option>
-                <option value="CORPORATE_EVENT">Corporate Event</option>
-                <option value="FITNESS_CLASS">Fitness Class</option>
-                <option value="WORKSHOP">Workshop</option>
-                <option value="SEMINAR">Seminar</option>
-                <option value="CONFERENCE">Conference</option>
-                <option value="OTHER">Other</option>
+              <option value="OFFICE_SPACE">Office Space</option>
+              <option value="RETAIL_SPACE">Retail Space</option>
+              <option value="WAREHOUSE">Warehouse</option>
+              <option value="EVENT_SPACE">Event Space</option>
+              <option value="POP_UP_STORE">Pop-up Store</option>
+              <option value="SHOWROOM">Showroom</option>
+              <option value="PRODUCT_LAUNCH">Product Launch</option>
+              <option value="PROMOTIONAL_EVENT">Promotional Event</option>
+              <option value="EXHIBITION">Exhibition</option>
+              <option value="MARKETING_CAMPAIGN">Marketing Campaign</option>
+              <option value="BRAND_ACTIVATION">Brand Activation</option>
+              <option value="TRADE_SHOW">Trade Show</option>
+              <option value="ROADSHOW">Roadshow</option>
+              <option value="SAMPLE_DISTRIBUTION">Sample Distribution</option>
+              <option value="MEDIA_EVENT">Media Event</option>
+              <option value="CORPORATE_EVENT">Corporate Event</option>
+              <option value="FITNESS_CLASS">Fitness Class</option>
+              <option value="WORKSHOP">Workshop</option>
+              <option value="SEMINAR">Seminar</option>
+              <option value="CONFERENCE">Conference</option>
+              <option value="OTHER">Other</option>
             </datalist>
-            </div>
+          </div>
 
-            <div>
+          <div>
             <label className="block text-sm font-semibold text-gray-300 mb-2">
-                Start Date <span className="text-red-400">*</span>
+              Start Date <span className="text-red-400">*</span>
             </label>
             <input
-                type="date"
-                name="startDate"
-                value={formData.startDate}
-                onChange={handleChange}
-                required
-                className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white"
+              type="date"
+              name="startDate"
+              value={formData.startDate}
+              onChange={handleChange}
+              required
+              className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white"
             />
-            </div>
+          </div>
 
-            <div>
+          <div>
             <label className="block text-sm font-semibold text-gray-300 mb-2">
-                Setup Time <span className="text-red-400">*</span>
+              Setup Time <span className="text-red-400">*</span>
             </label>
             <input
-                type="text"
-                name="setupTime"
-                value={formData.setupTime}
-                onChange={handleChange}
-                required
-                className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
-                placeholder="e.g., 9:00 AM"
+              type="text"
+              name="setupTime"
+              value={formData.setupTime}
+              onChange={handleChange}
+              required
+              className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
+              placeholder="e.g., 9:00 AM"
             />
-            </div>
+          </div>
 
-            <div>
+          <div>
             <label className="block text-sm font-semibold text-gray-300 mb-2">
-                End Date <span className="text-red-400">*</span>
+              End Date <span className="text-red-400">*</span>
             </label>
             <input
-                type="date"
-                name="endDate"
-                value={formData.endDate}
-                onChange={handleChange}
-                required
-                className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white"
+              type="date"
+              name="endDate"
+              value={formData.endDate}
+              onChange={handleChange}
+              required
+              className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white"
             />
-            </div>
+          </div>
 
-            <div>
+          <div>
             <label className="block text-sm font-semibold text-gray-300 mb-2">
-                Tear Down Time <span className="text-red-400">*</span>
+              Tear Down Time <span className="text-red-400">*</span>
             </label>
             <input
-                type="text"
-                name="tearDownTime"
-                value={formData.tearDownTime}
-                onChange={handleChange}
-                required
-                className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
-                placeholder="e.g., 5:00 PM"
+              type="text"
+              name="tearDownTime"
+              value={formData.tearDownTime}
+              onChange={handleChange}
+              required
+              className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
+              placeholder="e.g., 5:00 PM"
             />
-            </div>
+          </div>
 
-            <div>
+          <div>
             <label className="block text-sm font-semibold text-gray-300 mb-2">
-                Expected Visitors
+              Expected Visitors
             </label>
             <input
-                type="number"
-                name="expectedVisitors"
-                value={formData.expectedVisitors}
-                onChange={handleChange}
-                min="0"
-                className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
-                placeholder="Estimated number of visitors"
+              type="number"
+              name="expectedVisitors"
+              value={formData.expectedVisitors}
+              onChange={handleChange}
+              min="0"
+              className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
+              placeholder="Estimated number of visitors"
             />
-            </div>
+          </div>
 
-            <div className="md:col-span-2">
+          <div className="md:col-span-2">
             <label className="block text-sm font-semibold text-gray-300 mb-2">
-                Description
+              Description
             </label>
             <textarea
-                name="description"
-                value={formData.description}
-                onChange={handleChange}
-                rows={3}
-                className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
-                placeholder="Describe the activation/exhibition"
+              name="description"
+              value={formData.description}
+              onChange={handleChange}
+              rows={3}
+              className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
+              placeholder="Describe the activation/exhibition"
             />
-            </div>
+          </div>
 
-            <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3">
             <input
-                type="checkbox"
-                name="soundSystem"
-                checked={formData.soundSystem}
-                onChange={handleChange}
-                className="w-5 h-5 text-blue-500 border-gray-600 rounded focus:ring-2 focus:ring-blue-500 focus:ring-offset-gray-800 transition-all cursor-pointer bg-gray-700"
+              type="checkbox"
+              name="soundSystem"
+              checked={formData.soundSystem}
+              onChange={handleChange}
+              className="w-5 h-5 text-blue-500 border-gray-600 rounded focus:ring-2 focus:ring-blue-500 focus:ring-offset-gray-800 transition-all cursor-pointer bg-gray-700"
             />
             <label className="text-sm font-medium text-gray-300">
-                Sound System Required
+              Sound System Required
             </label>
-            </div>
+          </div>
         </div>
       </div>
 
@@ -613,7 +760,7 @@ export default function ActivationForm({
           </svg>
           Financial Details
         </h3>
-        
+
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
             <label className="block text-sm font-semibold text-gray-300 mb-2">
@@ -633,27 +780,55 @@ export default function ActivationForm({
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-gray-300 mb-2">
-              Number of Days
-            </label>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-sm font-semibold text-gray-300">
+                Number of Days
+              </label>
+              {manualOverrides.numberOfDays && (
+                <button
+                  type="button"
+                  onClick={() => resetOverride('numberOfDays')}
+                  className="text-xs text-blue-400 hover:text-blue-300 underline"
+                >
+                  Auto-calculate
+                </button>
+              )}
+            </div>
             <input
               type="number"
               name="numberOfDays"
               value={formData.numberOfDays}
               onChange={handleChange}
               min="0"
-              className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
+              className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400 ${
+                manualOverrides.numberOfDays
+                  ? 'border-yellow-600'
+                  : 'border-gray-600'
+              }`}
               placeholder="0"
             />
             <p className="text-sm text-gray-400 mt-1">
-              Enter 0 for single-day activations (e.g., January 1st only)
+              {manualOverrides.numberOfDays
+                ? 'Manually overridden — click "Auto-calculate" to resume auto-fill from dates.'
+                : 'Auto-calculated from start & end dates. Enter 0 for single-day activations.'}
             </p>
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-gray-300 mb-2">
-              Proposed Budget (KES)
-            </label>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-sm font-semibold text-gray-300">
+                Proposed Budget (KES)
+              </label>
+              {manualOverrides.proposedBudget && (
+                <button
+                  type="button"
+                  onClick={() => resetOverride('proposedBudget')}
+                  className="text-xs text-blue-400 hover:text-blue-300 underline"
+                >
+                  Auto-calculate
+                </button>
+              )}
+            </div>
             <input
               type="number"
               name="proposedBudget"
@@ -662,9 +837,18 @@ export default function ActivationForm({
               onBlur={triggerVATCalculation}
               min="0"
               step="0.01"
-              className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
+              className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400 ${
+                manualOverrides.proposedBudget
+                  ? 'border-yellow-600'
+                  : 'border-gray-600'
+              }`}
               placeholder="0.00"
             />
+            <p className="text-sm text-gray-400 mt-1">
+              {manualOverrides.proposedBudget
+                ? 'Manually overridden — click "Auto-calculate" to resume auto-fill from fee × days.'
+                : 'Auto-calculated from license fee × billing days.'}
+            </p>
           </div>
         </div>
       </div>
@@ -677,7 +861,7 @@ export default function ActivationForm({
           </svg>
           VAT Information
         </h3>
-        
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-semibold text-gray-300 mb-2">
@@ -695,8 +879,8 @@ export default function ActivationForm({
               <option value="NOT_APPLICABLE">VAT NOT APPLICABLE</option>
             </select>
             <p className="text-sm text-gray-400 mt-1">
-              {formData.vatType === 'INCLUSIVE' 
-                ? 'VAT is already included in the prices' 
+              {formData.vatType === 'INCLUSIVE'
+                ? 'VAT is already included in the prices'
                 : formData.vatType === 'EXCLUSIVE'
                 ? 'VAT will be added to the prices'
                 : 'No VAT will be applied'}
@@ -733,29 +917,42 @@ export default function ActivationForm({
               <div className="flex justify-between items-center">
                 <span className="text-gray-300">Base Amount:</span>
                 <span className="font-medium text-white">
-                  KES {vatDetails.baseAmount.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  KES{' '}
+                  {vatDetails.baseAmount.toLocaleString('en-KE', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}
                 </span>
               </div>
-              
+
               <div className="flex justify-between items-center">
                 <span className="text-gray-300">
-                  VAT ({formData.vat}%) {formData.vatType === 'INCLUSIVE' ? '(Included)' : '(Exclusive)'}:
+                  VAT ({formData.vat}%){' '}
+                  {formData.vatType === 'INCLUSIVE' ? '(Included)' : '(Exclusive)'}:
                 </span>
                 <span className="font-medium text-white">
-                  KES {vatDetails.vatAmount.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  KES{' '}
+                  {vatDetails.vatAmount.toLocaleString('en-KE', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}
                 </span>
               </div>
-              
+
               <div className="pt-2 border-t border-gray-700">
                 <div className="flex justify-between items-center">
                   <span className="text-gray-300 font-semibold">Total Amount:</span>
                   <span className="font-bold text-lg text-white">
-                    KES {vatDetails.totalAmount.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    KES{' '}
+                    {vatDetails.totalAmount.toLocaleString('en-KE', {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
                   </span>
                 </div>
               </div>
             </div>
-            
+
             {formData.vatType === 'INCLUSIVE' && vatDetails.vatAmount > 0 && (
               <p className="text-sm text-gray-400 mt-2">
                 Note: KES {vatDetails.vatAmount.toFixed(2)} VAT is already included in the total amount
@@ -783,7 +980,7 @@ export default function ActivationForm({
           </svg>
           Payment Details
         </h3>
-        
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-semibold text-gray-300 mb-2">
@@ -902,7 +1099,7 @@ export default function ActivationForm({
           <p className="text-sm text-gray-400 mb-4">
             This information will be used for the manager's signature when submitting the request.
           </p>
-          
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-semibold text-gray-300 mb-2">

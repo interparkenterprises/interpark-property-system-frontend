@@ -1,16 +1,19 @@
 import { AlertCircle, BarChart3, LockKeyhole, RefreshCw, ServerOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
+/** Skeleton with a subtle staggered pulse so loading feels calm, not broken. */
 export function AnalyticsLoading() {
   return (
     <div className="space-y-6" aria-live="polite" aria-label="Loading analytics">
-      <div className="h-32 animate-pulse rounded-2xl bg-slate-800" />
+      <div className="h-24 animate-pulse rounded-2xl bg-slate-800" />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {[0, 1, 2, 3].map(item => <div key={item} className="h-32 animate-pulse rounded-2xl bg-slate-800" />)}
+        {[0, 1, 2, 3].map(item => (
+          <div key={item} className="h-32 animate-pulse rounded-2xl bg-slate-800" style={{ animationDelay: `${item * 120}ms` }} />
+        ))}
       </div>
       <div className="grid gap-6 xl:grid-cols-2">
         <div className="h-80 animate-pulse rounded-2xl bg-slate-800" />
-        <div className="h-80 animate-pulse rounded-2xl bg-slate-800" />
+        <div className="h-80 animate-pulse rounded-2xl bg-slate-800" style={{ animationDelay: '150ms' }} />
       </div>
     </div>
   );
@@ -40,7 +43,7 @@ export function AnalyticsUnauthorized({ detail = 'Your account does not have the
 
 export function AnalyticsEmpty({ title = 'No analytics records', detail = 'No supported records matched the selected filters.' }: { title?: string; detail?: string }) {
   return (
-    <div className="flex min-h-56 flex-col items-center justify-center rounded-xl border border-dashed border-slate-600 bg-slate-900/40 p-8 text-center">
+    <div className="flex h-full min-h-56 flex-col items-center justify-center rounded-xl border border-dashed border-slate-600 bg-slate-900/40 p-8 text-center">
       <BarChart3 className="h-9 w-9 text-slate-500" />
       <p className="mt-3 font-medium text-slate-200">{title}</p>
       <p className="mt-1 max-w-md text-sm text-slate-400">{detail}</p>

@@ -108,6 +108,13 @@ import {
   VATType, 
   PropertyCollectionStatementRequest,
   PropertyCollectionStatementResponse,
+  DeleteTenantRequest,
+  DeleteTenantResponse,
+  LeftTenantsResponse,
+  RestoreTenantRequest,
+  RestoreTenantResponse,
+  TenantLeftReason,
+  TenantStatsResponse,
 } from '@/types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ;
@@ -602,7 +609,6 @@ export const tenantsAPI = {
     try {
       const params = includeLeft ? { includeLeft: 'true' } : {};
       const response = await api.get(`/tenants/property/${propertyId}`, { params });
-      // The response now has a 'tenants' property containing the array
       return response.data.tenants || response.data || [];
     } catch (error) {
       console.error('Error fetching tenants by property:', error);
@@ -630,25 +636,16 @@ export const tenantsAPI = {
   },
 
   getOverdue: async (
-    propertyId?: string, 
-    daysOverdue?: number | string, 
+    propertyId?: string,
+    daysOverdue?: number | string,
     customDays?: number
   ): Promise<OverdueTenantsResponse> => {
     try {
       const params: Record<string, string> = {};
-      
-      if (propertyId) {
-        params.propertyId = propertyId;
-      }
-      
-      if (daysOverdue) {
-        params.daysOverdue = daysOverdue.toString();
-      }
-      
-      if (customDays && daysOverdue === 'custom') {
-        params.customDays = customDays.toString();
-      }
-      
+      if (propertyId) params.propertyId = propertyId;
+      if (daysOverdue) params.daysOverdue = daysOverdue.toString();
+      if (customDays && daysOverdue === 'custom') params.customDays = customDays.toString();
+
       const response = await api.get('/tenants/overdue', { params });
       return response.data;
     } catch (error) {
@@ -692,9 +689,91 @@ export const tenantsAPI = {
     }
   },
 
-  delete: async (id: string): Promise<void> => {
+  // =============================================
+  // SOFT DELETE (MARK AS LEFT) — UPDATED
+  // =============================================
+  /**
+   * Soft-delete a tenant. The backend marks it as LEFT, sets `leftAt`, and
+   * optionally stores a `leftReason`. All history is preserved.
+   *
+   * @example
+   *   await tenantsAPI.delete('tenant-id');                              // no reason
+   *   await tenantsAPI.delete('tenant-id', { leftReason: 'VOLUNTARY' }); // with reason
+   */
+  delete: async (
+    id: string,
+    payload?: DeleteTenantRequest
+  ): Promise<DeleteTenantResponse> => {
     try {
-      await api.delete(`/tenants/${id}`);
+      // Always send a JSON body — the backend reads req.body?.leftReason safely
+      const body: DeleteTenantRequest = {
+        leftReason: payload?.leftReason ?? null,
+      };
+      const response = await api.delete(`/tenants/${id}`, { data: body });
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  // =============================================
+  // RESTORE (REACTIVATE) — NEW
+  // =============================================
+  /**
+   * Reactivate a LEFT tenant. Optionally move to a different unit in the
+   * same property and/or override the rent.
+   *
+   * @example
+   *   await tenantsAPI.restore('tenant-id');                                  // same unit
+   *   await tenantsAPI.restore('tenant-id', { unitId: 'new-unit' });         // move unit
+   */
+  restore: async (
+    id: string,
+    payload?: RestoreTenantRequest
+  ): Promise<RestoreTenantResponse> => {
+    try {
+      const response = await api.patch(`/tenants/${id}/restore`, payload ?? {});
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  // =============================================
+  // DEPARTED TENANTS — NEW
+  // =============================================
+  /**
+   * Fetch all LEFT tenants (departed tenants).
+   * ADMIN + MANAGER only.
+   */
+  getLeft: async (params?: {
+    propertyId?: string;
+    leftReason?: TenantLeftReason;
+    sortBy?: 'leftAt' | 'updatedAt';
+  }): Promise<LeftTenantsResponse> => {
+    try {
+      const query: Record<string, string> = {};
+      if (params?.propertyId) query.propertyId = params.propertyId;
+      if (params?.leftReason) query.leftReason = params.leftReason;
+      if (params?.sortBy) query.sortBy = params.sortBy;
+
+      const response = await api.get('/tenants/left', { params: query });
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  // =============================================
+  // TENANT STATS — NEW
+  // =============================================
+  /**
+   * Counts of ACTIVE vs LEFT tenants, plus a breakdown by leftReason.
+   */
+  getStats: async (): Promise<TenantStatsResponse> => {
+    try {
+      const response = await api.get('/tenants/stats');
+      return response.data;
     } catch (error) {
       return handleApiError(error);
     }
@@ -714,7 +793,7 @@ export const tenantsAPI = {
   },
 
   // =============================================
-  // ATTACHMENTS
+  // ATTACHMENTS (unchanged)
   // =============================================
 
   getAttachments: async (tenantId: string): Promise<AttachmentsListResponse> => {
@@ -730,11 +809,8 @@ export const tenantsAPI = {
     try {
       const formData = new FormData();
       formData.append('file', file);
-      
       const response = await api.post(`/tenants/${tenantId}/attachments`, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
+        headers: { 'Content-Type': 'multipart/form-data' },
       });
       return response.data;
     } catch (error) {
@@ -758,7 +834,10 @@ export const tenantsAPI = {
     }
   },
 
-  updateAttachment: async (attachmentId: string, data: UpdateAttachmentRequest): Promise<AttachmentUploadResponse> => {
+  updateAttachment: async (
+    attachmentId: string,
+    data: UpdateAttachmentRequest
+  ): Promise<AttachmentUploadResponse> => {
     try {
       const response = await api.put(`/tenants/attachments/${attachmentId}`, data);
       return response.data;
