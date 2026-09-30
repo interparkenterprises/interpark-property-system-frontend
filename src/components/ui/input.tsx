@@ -1,25 +1,46 @@
-import React from 'react';
+import * as React from 'react'
+import { cn } from '@/lib/utils'
+import { Label } from './label'
 
-interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
-  label?: string;
-  error?: string;
+export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
+  label?: string
+  error?: string
+  helperText?: string
 }
 
-export const Input: React.FC<InputProps> = ({ label, error, className = '', ...props }) => {
-  return (
-    <div className="w-full">
-      {label && (
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          {label}
-        </label>
-      )}
+export const Input = React.forwardRef<HTMLInputElement, InputProps>(
+  ({ label, error, helperText, id, className, required, 'aria-describedby': describedBy, ...props }, ref) => {
+    const generatedId = React.useId()
+    const inputId = id ?? generatedId
+    const messageId = `${inputId}-message`
+    const control = (
       <input
-        className={`w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 ${
-          error ? 'border-red-500' : ''
-        } ${className}`}
+        ref={ref}
+        id={inputId}
+        required={required}
+        aria-invalid={Boolean(error) || undefined}
+        aria-describedby={error || helperText ? messageId : describedBy}
+        className={cn(
+          'flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground shadow-xs outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/25 disabled:cursor-not-allowed disabled:bg-muted disabled:opacity-60',
+          error && 'border-destructive focus-visible:border-destructive focus-visible:ring-destructive/20',
+          className,
+        )}
         {...props}
       />
-      {error && <p className="mt-1 text-sm text-red-600">{error}</p>}
-    </div>
-  );
-};
+    )
+
+    if (!label && !error && !helperText) return control
+    return (
+      <div className="w-full space-y-1.5">
+        {label && <Label htmlFor={inputId} required={required}>{label}</Label>}
+        {control}
+        {(error || helperText) && (
+          <p id={messageId} className={cn('text-xs text-muted-foreground', error && 'text-destructive')}>
+            {error || helperText}
+          </p>
+        )}
+      </div>
+    )
+  },
+)
+Input.displayName = 'Input'

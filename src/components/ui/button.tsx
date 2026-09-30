@@ -1,38 +1,52 @@
-import React from 'react';
+import * as React from 'react'
+import { Loader2 } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
-interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'primary' | 'secondary' | 'danger' | 'outline';
-  size?: 'sm' | 'md' | 'lg';
+type ButtonVariant = 'default' | 'primary' | 'secondary' | 'outline' | 'ghost' | 'destructive' | 'danger' | 'link'
+type ButtonSize = 'sm' | 'default' | 'md' | 'lg' | 'icon'
+
+export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: ButtonVariant
+  size?: ButtonSize
+  loading?: boolean
 }
 
-export const Button: React.FC<ButtonProps> = ({ 
-  children, 
-  variant = 'primary', 
-  size = 'md', 
-  className = '',
-  ...props 
-}) => {
-  const baseClasses =
-    'inline-flex items-center justify-center rounded font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed';
+const variantClasses: Record<ButtonVariant, string> = {
+  default: 'bg-primary text-primary-foreground hover:bg-primary/90',
+  primary: 'bg-primary text-primary-foreground hover:bg-primary/90',
+  secondary: 'bg-secondary text-secondary-foreground hover:bg-secondary/75',
+  outline: 'border border-border bg-background text-foreground hover:bg-muted',
+  ghost: 'text-foreground hover:bg-muted',
+  destructive: 'bg-destructive text-white hover:bg-destructive/90',
+  danger: 'bg-destructive text-white hover:bg-destructive/90',
+  link: 'h-auto rounded-none p-0 text-primary underline-offset-4 hover:underline',
+}
 
-  const variantClasses = {
-    primary: 'bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500',
-    secondary: 'bg-gray-200 text-gray-900 hover:bg-gray-300 focus:ring-gray-400',
-    danger: 'bg-red-600 text-white hover:bg-red-700 focus:ring-red-500',
-    outline: 'border border-gray-300 text-gray-700 bg-white hover:bg-gray-100 focus:ring-gray-400',
-  };
+const sizeClasses: Record<ButtonSize, string> = {
+  sm: 'h-8 px-3 text-xs',
+  default: 'h-9 px-4 py-2 text-sm',
+  md: 'h-9 px-4 py-2 text-sm',
+  lg: 'h-10 px-6 text-sm',
+  icon: 'h-9 w-9 p-0',
+}
 
-  const sizeClasses = {
-    sm: 'px-3 py-1.5 text-sm',
-    md: 'px-4 py-2 text-base',
-    lg: 'px-6 py-3 text-lg',
-  };
-
-  const classes = `${baseClasses} ${variantClasses[variant]} ${sizeClasses[size]} ${className}`;
-
-  return (
-    <button className={classes} {...props}>
+export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
+  ({ children, variant = 'default', size = 'default', loading = false, disabled, className, ...props }, ref) => (
+    <button
+      ref={ref}
+      className={cn(
+        'inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 rounded-md font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50',
+        variantClasses[variant],
+        sizeClasses[size],
+        className,
+      )}
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
+      {...props}
+    >
+      {loading && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
       {children}
     </button>
-  );
-};
+  ),
+)
+Button.displayName = 'Button'

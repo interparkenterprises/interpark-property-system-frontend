@@ -1,43 +1,86 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* ================================
    INTERPARK GLOBAL THEME
    ================================ */
 
 :root {
-  /* Brand Colors */
   --color-dark-aqua: #005478;
-  --color-black: #231F20;
-  --color-blue-gray: #58595B;
+  --color-black: #231f20;
+  --color-blue-gray: #58595b;
 
-  /* Light Mode */
-  --background: #70d1e9;
-  --foreground: var(--color-black);
-  --heading-color: var(--color-dark-aqua);
-  --text-color: var(--color-blue-gray);
+  --background: #f7f8fa;
+  --foreground: #231f20;
+  --card: #ffffff;
+  --card-foreground: #231f20;
+  --muted: #f0f2f4;
+  --muted-foreground: #62666a;
+  --border: #dfe3e6;
+  --input: #cdd3d7;
+  --primary: #005478;
+  --primary-foreground: #ffffff;
+  --secondary: #e8eef1;
+  --secondary-foreground: #24404d;
+  --destructive: #b42318;
+  --success: #16794b;
+  --warning: #a15c00;
+  --ring: #087ba7;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #3c4448;
+  --sidebar-active: #e4f1f6;
+  --sidebar-active-foreground: #004a6b;
+  --sidebar-border: #dfe3e6;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    /* Dark Mode */
-    --background: #0a0a0a;
-    --foreground: #ededed;
-    --heading-color: #00a3d7; /* lighter aqua accent */
-    --text-color: #cccccc;
-  }
+.dark {
+  --background: #111719;
+  --foreground: #f1f4f5;
+  --card: #182023;
+  --card-foreground: #f1f4f5;
+  --muted: #222c30;
+  --muted-foreground: #aeb9be;
+  --border: #303b40;
+  --input: #425057;
+  --primary: #2b93ba;
+  --primary-foreground: #ffffff;
+  --secondary: #253238;
+  --secondary-foreground: #e7edef;
+  --destructive: #f97066;
+  --success: #47b881;
+  --warning: #f5ad42;
+  --ring: #52b4d8;
+  --sidebar: #141c1f;
+  --sidebar-foreground: #d7dfe2;
+  --sidebar-active: #193a48;
+  --sidebar-active-foreground: #f4fbfd;
+  --sidebar-border: #2b373c;
 }
 
 @theme inline {
-  /* Map custom CSS variables to Tailwind tokens */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --color-primary: var(--color-dark-aqua);
-  --color-secondary: var(--color-blue-gray);
-  --color-text: var(--text-color);
-
-  /* Typography */
-  --font-sans: "Myriad Pro", "Segoe UI", Helvetica, Arial, sans-serif;
-  --font-condensed: "Myriad Pro Condensed", "Arial Narrow", sans-serif;
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-destructive: var(--destructive);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-active: var(--sidebar-active);
+  --color-sidebar-active-foreground: var(--sidebar-active-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --font-sans: "Inter", "Segoe UI", Helvetica, Arial, sans-serif;
 }
 
 /* ================================
@@ -52,44 +95,50 @@ html, body {
   padding: 0;
 }
 
-/* Headings */
-h1, h2, h3, h4, h5, h6 {
-  color: var(--heading-color);
-  font-family: var(--font-condensed);
-  font-weight: 700;
-  line-height: 1.2;
+html {
+  color-scheme: light;
 }
 
-/* Paragraphs */
-p {
-  color: var(--text-color);
-  line-height: 1.6;
+.dark {
+  color-scheme: dark;
 }
 
-
-
-/* Links */
-a {
-  color: var(--color-dark-aqua);
-  text-decoration: none;
-  font-weight: 500;
+body {
+  min-width: 320px;
 }
 
-a:hover {
-  text-decoration: underline;
+button,
+input,
+select,
+textarea {
+  font: inherit;
 }
 
 /* Utility helpers */
 .text-primary {
-  color: var(--color-dark-aqua);
+  color: var(--primary);
 }
 
 .bg-primary {
-  background-color: var(--color-dark-aqua);
+  background-color: var(--primary);
 }
 
 .border-primary {
-  border-color: var(--color-dark-aqua);
+  border-color: var(--primary);
+}
+
+.sidebar-scrollbar {
+  scrollbar-color: color-mix(in srgb, var(--sidebar-foreground) 22%, transparent) transparent;
+  scrollbar-width: thin;
+}
+
+.sidebar-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar-scrollbar::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--sidebar-foreground) 22%, transparent);
+  border-radius: 999px;
 }
 
 /* Overflow-safe values for KPI and summary cards. Exact table values are unaffected. */

@@ -1,126 +1,111 @@
-'use client';
+'use client'
 
-import React from 'react';
-import { createPortal } from 'react-dom';
+import * as React from 'react'
+import { createPortal } from 'react-dom'
+import { X } from 'lucide-react'
+import { cn } from '@/lib/utils'
+
+interface DialogContextValue {
+  close: () => void
+  titleId: string
+  descriptionId: string
+}
+
+const DialogContext = React.createContext<DialogContextValue | null>(null)
 
 interface DialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  children: React.ReactNode;
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  children: React.ReactNode
 }
 
-interface DialogContentProps {
-  children: React.ReactNode;
-  className?: string;
-}
+export function Dialog({ open, onOpenChange, children }: DialogProps) {
+  const titleId = React.useId()
+  const descriptionId = React.useId()
 
-interface DialogHeaderProps {
-  children: React.ReactNode;
-}
-
-interface DialogTitleProps {
-  children: React.ReactNode;
-  className?: string;
-}
-
-interface DialogDescriptionProps {
-  children: React.ReactNode;
-  className?: string;
-}
-
-interface DialogFooterProps {
-  children: React.ReactNode;
-  className?: string;
-}
-
-export const Dialog: React.FC<DialogProps> = ({ open, onOpenChange, children }) => {
   React.useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onOpenChange(false);
-      }
-    };
-
-    if (open) {
-      document.addEventListener('keydown', handleEscape);
-      document.body.style.overflow = 'hidden';
+    if (!open) return
+    const previousOverflow = document.body.style.overflow
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onOpenChange(false)
     }
-
+    document.body.style.overflow = 'hidden'
+    document.addEventListener('keydown', handleEscape)
     return () => {
-      document.removeEventListener('keydown', handleEscape);
-      document.body.style.overflow = 'unset';
-    };
-  }, [open, onOpenChange]);
+      document.body.style.overflow = previousOverflow
+      document.removeEventListener('keydown', handleEscape)
+    }
+  }, [open, onOpenChange])
 
-  if (!open) return null;
+  if (!open) return null
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity"
-        onClick={() => onOpenChange(false)}
-        aria-hidden="true"
-      />
-
-      {/* Dialog Content Wrapper */}
-      <div className="relative z-10 w-full max-w-lg mx-4 my-8">
-        {children}
+    <DialogContext.Provider value={{ close: () => onOpenChange(false), titleId, descriptionId }}>
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
+        <button
+          type="button"
+          className="absolute inset-0 cursor-default bg-black/55"
+          onClick={() => onOpenChange(false)}
+          aria-label="Close dialog"
+          tabIndex={-1}
+        />
+        <div className="relative z-10 w-full max-w-lg">{children}</div>
       </div>
-    </div>,
-    document.body
-  );
-};
+    </DialogContext.Provider>,
+    document.body,
+  )
+}
 
-export const DialogContent: React.FC<DialogContentProps> = ({
-  children,
-  className = '',
-}) => {
-  return (
-    <div
-      className={`bg-white rounded-lg shadow-xl border border-gray-200 overflow-hidden ${className}`}
-      onClick={(e) => e.stopPropagation()} // Prevent closing when clicking inside
-    >
-      {children}
-    </div>
-  );
-};
+export const DialogContent = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
+  ({ children, className, ...props }, forwardedRef) => {
+    const context = React.useContext(DialogContext)
+    const localRef = React.useRef<HTMLDivElement>(null)
+    React.useImperativeHandle(forwardedRef, () => localRef.current as HTMLDivElement)
 
-export const DialogHeader: React.FC<DialogHeaderProps> = ({ children }) => {
-  return <div className="px-6 py-4 border-b border-gray-200">{children}</div>;
-};
+    React.useEffect(() => {
+      localRef.current?.focus()
+    }, [])
 
-export const DialogTitle: React.FC<DialogTitleProps> = ({
-  children,
-  className = '',
-}) => {
-  return (
-    <h2
-      className={`text-xl font-bold text-gray-900 leading-none ${className}`}
-    >
-      {children}
-    </h2>
-  );
-};
+    return (
+      <div
+        ref={localRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={context?.titleId}
+        aria-describedby={context?.descriptionId}
+        tabIndex={-1}
+        className={cn('relative max-h-[90dvh] overflow-y-auto rounded-lg border border-border bg-card text-card-foreground shadow-lg outline-none', className)}
+        {...props}
+      >
+        {children}
+        <button
+          type="button"
+          onClick={context?.close}
+          className="absolute right-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label="Close dialog"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+    )
+  },
+)
+DialogContent.displayName = 'DialogContent'
 
-export const DialogDescription: React.FC<DialogDescriptionProps> = ({
-  children,
-  className = '',
-}) => {
-  return (
-    <div className={`text-sm text-gray-500 mt-1 ${className}`}>{children}</div>
-  );
-};
+export function DialogHeader({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+  return <div className={cn('space-y-1.5 border-b border-border px-5 py-4 pr-12', className)} {...props} />
+}
 
-export const DialogFooter: React.FC<DialogFooterProps> = ({
-  children,
-  className = '',
-}) => {
-  return (
-    <div
-      className={`px-6 py-4 border-t border-gray-200 bg-gray-50 ${className}`}
-    >
-      <div className="flex justify-end gap-3">{children}</div>
-    </div>
-  );
-};
+export function DialogTitle({ className, ...props }: React.HTMLAttributes<HTMLHeadingElement>) {
+  const context = React.useContext(DialogContext)
+  return <h2 id={context?.titleId} className={cn('text-lg font-semibold leading-none', className)} {...props} />
+}
+
+export function DialogDescription({ className, ...props }: React.HTMLAttributes<HTMLParagraphElement>) {
+  const context = React.useContext(DialogContext)
+  return <p id={context?.descriptionId} className={cn('text-sm leading-5 text-muted-foreground', className)} {...props} />
+}
+
+export function DialogFooter({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+  return <div className={cn('flex flex-col-reverse gap-2 border-t border-border bg-muted/35 px-5 py-4 sm:flex-row sm:justify-end', className)} {...props} />
+}

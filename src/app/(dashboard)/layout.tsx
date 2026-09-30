@@ -3,14 +3,14 @@
 import { useEffect, useRef } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { useAuth } from '@/context/AuthContext'
-import Sidebar from '@/components/layout/Sidebar'
+import AppShell from '@/components/layout/AppShell'
 
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  const { isAuthenticated, isLoading, user, refreshUserData } = useAuth()
+  const { isAuthenticated, isLoading, refreshUserData } = useAuth()
   const router = useRouter()
   const pathname = usePathname()
   const hasRefreshed = useRef(false)
@@ -42,10 +42,10 @@ export default function DashboardLayout({
   // Show proper loading state
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-screen bg-slate-900">
+      <div className="flex min-h-dvh items-center justify-center bg-background">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#005478] mx-auto"></div>
-          <p className="mt-4 text-white">Loading your dashboard...</p>
+          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-border border-t-primary" />
+          <p className="mt-4 text-sm text-muted-foreground">Loading your dashboard...</p>
         </div>
       </div>
     )
@@ -56,16 +56,5 @@ export default function DashboardLayout({
     return null
   }
 
-  return (
-    <div className="flex h-screen bg-slate-950">
-      <Sidebar />
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-slate-950">
-        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-slate-950">
-          <div className="container mx-auto px-4 pb-8 pt-20 sm:px-6 md:px-6 md:py-8">
-            {children}
-          </div>
-        </main>
-      </div>
-    </div>
-  )
+  return <AppShell>{children}</AppShell>
 }
