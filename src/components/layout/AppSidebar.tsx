@@ -14,6 +14,8 @@ import {
   ListChecks,
   LogOut,
   Newspaper,
+  PanelLeftClose,
+  PanelLeftOpen,
   ShieldCheck,
   UserRoundPlus,
   UserRoundSearch,
@@ -38,6 +40,7 @@ interface MenuItem {
 interface AppSidebarProps {
   collapsed: boolean
   mobileOpen: boolean
+  onDesktopToggle: () => void
   onMobileClose: () => void
 }
 
@@ -60,7 +63,7 @@ const administrationItems: MenuItem[] = [
   { name: 'Role Management', href: '/roles', icon: ShieldCheck, requiredPermissions: ['MANAGE_ROLES'], requiredRole: ['ADMIN', 'MANAGER'], hideForManagedUser: true },
 ]
 
-export default function AppSidebar({ collapsed, mobileOpen, onMobileClose }: AppSidebarProps) {
+export default function AppSidebar({ collapsed, mobileOpen, onDesktopToggle, onMobileClose }: AppSidebarProps) {
   const pathname = usePathname()
   const router = useRouter()
   const { logout } = useAuth()
@@ -206,8 +209,13 @@ export default function AppSidebar({ collapsed, mobileOpen, onMobileClose }: App
           collapsed ? 'md:w-16' : 'md:w-64',
         )}
       >
-        <div className={cn('flex h-14 shrink-0 items-center border-b border-sidebar-border px-3', collapsed && 'md:justify-center md:px-2')}>
-          <Link href="/dashboard" onClick={onMobileClose} className="flex min-w-0 items-center" aria-label="Interpark dashboard">
+        <div className={cn('relative flex h-16 shrink-0 items-center gap-2 border-b border-sidebar-border px-3', collapsed && 'md:justify-center md:px-2')}>
+          <Link
+            href="/dashboard"
+            onClick={onMobileClose}
+            className={cn('flex min-w-0 flex-1 items-center', collapsed && 'md:flex-none')}
+            aria-label="Interpark dashboard"
+          >
             <span className={cn('flex items-center', collapsed && 'md:hidden')}>
               <Image
                 src="/brand/interpark-logo-light.svg"
@@ -245,6 +253,18 @@ export default function AppSidebar({ collapsed, mobileOpen, onMobileClose }: App
               </div>
             )}
           </Link>
+          <button
+            type="button"
+            onClick={onDesktopToggle}
+            className={cn(
+              'hidden h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:inline-flex',
+              collapsed && 'absolute -right-3 top-1/2 h-7 w-7 -translate-y-1/2 rounded-full border border-sidebar-border bg-sidebar shadow-xs',
+            )}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {collapsed ? <PanelLeftOpen className="h-4 w-4" aria-hidden="true" /> : <PanelLeftClose className="h-4 w-4" aria-hidden="true" />}
+          </button>
           <button
             type="button"
             onClick={onMobileClose}

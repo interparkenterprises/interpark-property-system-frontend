@@ -1,45 +1,48 @@
-'use client';
+'use client'
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import LandlordForm from '@/components/forms/LandlordForm';
-import { Button } from '@/components/ui/button';
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import LandlordForm from '@/components/forms/LandlordForm'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { PageHeader } from '@/components/ui/page-header'
 
 export default function CreateLandlordPage() {
-  const router = useRouter();
-  const [success, setSuccess] = useState(false);
+  const router = useRouter()
+  const [success, setSuccess] = useState(false)
 
   const handleSuccess = () => {
-    setSuccess(true);
+    setSuccess(true)
     setTimeout(() => {
-      router.push('/dashboard/landlords');
-    }, 2000);
-  };
+      router.push('/dashboard/landlords')
+    }, 2000)
+  }
 
   const handleCancel = () => {
-    router.back();
-  };
+    router.back()
+  }
 
   if (success) {
     return (
-      <div className="bg-green-50 border border-green-200 text-green-600 px-4 py-3 rounded">
-        Landlord created successfully! Redirecting...
+      <div className="max-w-4xl space-y-6 pb-4">
+        <PageHeader
+          title="Create Landlord"
+          description="Add a new landlord to the property management system."
+        />
+        <Alert variant="success">
+          <AlertTitle>Landlord created successfully</AlertTitle>
+          <AlertDescription>Redirecting to the landlords page...</AlertDescription>
+        </Alert>
       </div>
-    );
+    )
   }
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-semibold text-gray-800">Create Landlord</h1>
-        <Button variant="secondary" onClick={handleCancel}>
-          Cancel
-        </Button>
-      </div>
-
-      <div className="bg-white p-6 rounded-lg shadow">
-        <LandlordForm onSuccess={handleSuccess} onCancel={handleCancel} />
-      </div>
+    <div className="space-y-6 pb-4">
+      <PageHeader
+        title="Create Landlord"
+        description="Add a new landlord to the property management system."
+      />
+      <LandlordForm onSuccess={handleSuccess} onCancel={handleCancel} />
     </div>
-  );
+  )
 }

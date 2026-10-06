@@ -1,11 +1,14 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Landlord } from '@/types';
 import { landlordsAPI } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/ui/page-header';
 import LandlordForm from '@/components/forms/LandlordForm';
+
+type LandlordApiResponse = Landlord | { data: Landlord };
 
 export default function LandlordDetailPage() {
   const params = useParams();
@@ -16,20 +19,21 @@ export default function LandlordDetailPage() {
 
   const landlordId = params.id as string;
 
-  useEffect(() => {
-    fetchLandlord();
-  }, [landlordId]);
-
-  const fetchLandlord = async () => {
+  const fetchLandlord = useCallback(async () => {
     try {
-      const data = await landlordsAPI.getById(landlordId);
-      setLandlord(data);
+      const response = await landlordsAPI.getById(landlordId) as LandlordApiResponse;
+      setLandlord('data' in response ? response.data : response);
     } catch (error) {
       console.error('Error fetching landlord:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [landlordId]);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => void fetchLandlord());
+    return () => window.cancelAnimationFrame(frame);
+  }, [fetchLandlord]);
 
   const handleDelete = async () => {
     if (confirm('Are you sure you want to delete this landlord?')) {
@@ -57,20 +61,16 @@ export default function LandlordDetailPage() {
 
   if (editing) {
     return (
-      <div>
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-semibold text-gray-800">Edit Landlord</h1>
-          <Button variant="secondary" onClick={() => setEditing(false)}>
-            Cancel
-          </Button>
-        </div>
-        <div className="bg-white p-6 rounded-lg shadow">
-          <LandlordForm 
-            landlord={landlord} 
-            onSuccess={handleUpdateSuccess}
-            onCancel={() => setEditing(false)}
-          />
-        </div>
+      <div className="space-y-6 pb-4">
+        <PageHeader
+          title="Edit Landlord"
+          description={`Update contact information for ${landlord.name}.`}
+        />
+        <LandlordForm
+          landlord={landlord}
+          onSuccess={handleUpdateSuccess}
+          onCancel={() => setEditing(false)}
+        />
       </div>
     );
   }

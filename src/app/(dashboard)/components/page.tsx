@@ -55,7 +55,6 @@ export default function ComponentsPage() {
       <PageHeader
         title="UI Components"
         description="Interpark ERP component system and visual reference."
-        breadcrumbs={<span>Internal / Design system</span>}
         actions={<Button><CirclePlus className="h-4 w-4" />Example action</Button>}
       />
 

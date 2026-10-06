@@ -2,8 +2,8 @@ import * as React from 'react'
 import { Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-type ButtonVariant = 'default' | 'primary' | 'secondary' | 'outline' | 'ghost' | 'destructive' | 'danger' | 'link'
-type ButtonSize = 'sm' | 'default' | 'md' | 'lg' | 'icon'
+export type ButtonVariant = 'default' | 'primary' | 'secondary' | 'outline' | 'ghost' | 'destructive' | 'danger' | 'link'
+export type ButtonSize = 'sm' | 'default' | 'md' | 'lg' | 'icon'
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant
@@ -30,16 +30,28 @@ const sizeClasses: Record<ButtonSize, string> = {
   icon: 'h-9 w-9 p-0',
 }
 
+export function buttonStyles({
+  variant = 'default',
+  size = 'default',
+  className,
+}: {
+  variant?: ButtonVariant
+  size?: ButtonSize
+  className?: string
+} = {}) {
+  return cn(
+    'inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 rounded-md font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50',
+    variantClasses[variant],
+    sizeClasses[size],
+    className,
+  )
+}
+
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ children, variant = 'default', size = 'default', loading = false, disabled, className, ...props }, ref) => (
     <button
       ref={ref}
-      className={cn(
-        'inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 rounded-md font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50',
-        variantClasses[variant],
-        sizeClasses[size],
-        className,
-      )}
+      className={buttonStyles({ variant, size, className })}
       disabled={disabled || loading}
       aria-busy={loading || undefined}
       {...props}

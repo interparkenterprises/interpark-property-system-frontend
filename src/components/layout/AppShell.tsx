@@ -72,13 +72,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <AppSidebar
         collapsed={collapsed}
         mobileOpen={mobileOpen}
+        onDesktopToggle={toggleDesktopSidebar}
         onMobileClose={() => setMobileOpen(false)}
       />
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <AppHeader
-          collapsed={collapsed}
-          onDesktopToggle={toggleDesktopSidebar}
           onMobileOpen={() => setMobileOpen(true)}
           userName={user?.name}
         />
