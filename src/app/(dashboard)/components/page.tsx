@@ -1,12 +1,13 @@
 'use client'
 
 import { useState } from 'react'
-import { ArrowRight, Building2, CirclePlus, FileText, Inbox, Save, Search, UserRound } from 'lucide-react'
+import { ArrowRight, Building2, CirclePlus, FileText, Home, Inbox, Save, Search, UserRound } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { DetailItem, DetailList } from '@/components/ui/detail-list'
 import { EmptyState } from '@/components/ui/empty-state'
 import { FormActions } from '@/components/ui/form-actions'
 import { FormField } from '@/components/ui/form-field'
@@ -14,14 +15,18 @@ import { FormSection } from '@/components/ui/form-section'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { PageHeader } from '@/components/ui/page-header'
+import { Progress } from '@/components/ui/progress'
+import { SectionHeader } from '@/components/ui/section-header'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { StatusBadge } from '@/components/ui/status-badge'
+import { StatCard } from '@/components/ui/stat-card'
 import { Switch } from '@/components/ui/Switch'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 function ShowcaseSection({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
   return (
@@ -49,6 +54,7 @@ const surfaces = [
 export default function ComponentsPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [notificationsEnabled, setNotificationsEnabled] = useState(true)
+  const [tabsExample, setTabsExample] = useState('overview')
 
   return (
     <div className="space-y-10 pb-12">
@@ -164,6 +170,113 @@ export default function ComponentsPage() {
             <CardFooter className="justify-end"><Button variant="outline" size="sm">Open invoice <ArrowRight className="h-3.5 w-3.5" /></Button></CardFooter>
           </Card>
         </div>
+      </ShowcaseSection>
+
+      <ShowcaseSection title="Tabs" description="Accessible layered navigation with keyboard selection and responsive overflow.">
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Card>
+            <CardHeader><CardTitle>Default</CardTitle><CardDescription>Compact muted list with a surface-backed active tab.</CardDescription></CardHeader>
+            <CardContent>
+              <Tabs value={tabsExample} onValueChange={setTabsExample}>
+                <TabsList aria-label="Dashboard sections">
+                  <TabsTrigger value="overview">Overview</TabsTrigger>
+                  <TabsTrigger value="analytics">Analytics</TabsTrigger>
+                  <TabsTrigger value="reports">Reports</TabsTrigger>
+                  <TabsTrigger value="settings">Settings</TabsTrigger>
+                </TabsList>
+                <TabsContent value="overview"><p className="text-sm text-muted-foreground">View key metrics and recent project activity.</p></TabsContent>
+                <TabsContent value="analytics"><p className="text-sm text-muted-foreground">Review performance and portfolio trends.</p></TabsContent>
+                <TabsContent value="reports"><p className="text-sm text-muted-foreground">Generate and export operational reports.</p></TabsContent>
+                <TabsContent value="settings"><p className="text-sm text-muted-foreground">Manage workspace preferences.</p></TabsContent>
+              </Tabs>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader><CardTitle>Line</CardTitle><CardDescription>Transparent list with a restrained active indicator.</CardDescription></CardHeader>
+            <CardContent>
+              <Tabs defaultValue="overview">
+                <TabsList variant="line" aria-label="Report sections">
+                  <TabsTrigger value="overview">Overview</TabsTrigger>
+                  <TabsTrigger value="analytics">Analytics</TabsTrigger>
+                  <TabsTrigger value="reports">Reports</TabsTrigger>
+                </TabsList>
+                <TabsContent value="overview"><p className="text-sm text-muted-foreground">Summary report content.</p></TabsContent>
+                <TabsContent value="analytics"><p className="text-sm text-muted-foreground">Analytics report content.</p></TabsContent>
+                <TabsContent value="reports"><p className="text-sm text-muted-foreground">Saved report content.</p></TabsContent>
+              </Tabs>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader><CardTitle>Overflow</CardTitle><CardDescription>Long labels remain on one scrollable line on narrow screens.</CardDescription></CardHeader>
+            <CardContent>
+              <Tabs defaultValue="overview">
+                <TabsList aria-label="Operations sections">
+                  <TabsTrigger value="overview">Overview</TabsTrigger>
+                  <TabsTrigger value="leases">Lease Portfolio</TabsTrigger>
+                  <TabsTrigger value="collections">Rent Collection</TabsTrigger>
+                  <TabsTrigger value="maintenance">Maintenance Requests</TabsTrigger>
+                  <TabsTrigger value="compliance">Compliance Reports</TabsTrigger>
+                  <TabsTrigger value="settings">Account Settings</TabsTrigger>
+                </TabsList>
+                <TabsContent value="overview"><p className="text-sm text-muted-foreground">Operational workspace overview.</p></TabsContent>
+                <TabsContent value="leases"><p className="text-sm text-muted-foreground">Lease portfolio content.</p></TabsContent>
+                <TabsContent value="collections"><p className="text-sm text-muted-foreground">Rent collection content.</p></TabsContent>
+                <TabsContent value="maintenance"><p className="text-sm text-muted-foreground">Maintenance request content.</p></TabsContent>
+                <TabsContent value="compliance"><p className="text-sm text-muted-foreground">Compliance report content.</p></TabsContent>
+                <TabsContent value="settings"><p className="text-sm text-muted-foreground">Account settings content.</p></TabsContent>
+              </Tabs>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader><CardTitle>Vertical</CardTitle><CardDescription>The same primitive supports vertical orientation.</CardDescription></CardHeader>
+            <CardContent>
+              <Tabs defaultValue="account" orientation="vertical">
+                <TabsList aria-label="Account sections">
+                  <TabsTrigger value="account">Account</TabsTrigger>
+                  <TabsTrigger value="password">Password</TabsTrigger>
+                  <TabsTrigger value="notifications">Notifications</TabsTrigger>
+                </TabsList>
+                <TabsContent value="account"><p className="text-sm text-muted-foreground">Manage account details.</p></TabsContent>
+                <TabsContent value="password"><p className="text-sm text-muted-foreground">Update password settings.</p></TabsContent>
+                <TabsContent value="notifications"><p className="text-sm text-muted-foreground">Choose notification preferences.</p></TabsContent>
+              </Tabs>
+            </CardContent>
+          </Card>
+        </div>
+      </ShowcaseSection>
+
+      <ShowcaseSection title="Property Summary" description="Reusable statistics, section introductions, details and progress indicators.">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <StatCard label="Total Units" value="24" description="Across three blocks" icon={<Building2 className="h-5 w-5" />} tone="primary" />
+          <StatCard label="Occupied" value="21" description="Three units available" icon={<Home className="h-5 w-5" />} tone="success" />
+          <StatCard label="Occupancy Rate" value="87.5%" description="Up 2.5% this month" icon={<ArrowRight className="h-5 w-5" />} tone="info" />
+          <StatCard label="Open Actions" value="4" description="Two require approval" icon={<FileText className="h-5 w-5" />} tone="warning" />
+        </div>
+        <Card>
+          <CardHeader>
+            <SectionHeader
+              title="Property information"
+              description="Registered identity, usage and ownership details."
+              leading={<div className="rounded-md bg-primary/10 p-2 text-primary"><Building2 className="h-5 w-5" /></div>}
+              actions={<Button size="sm" variant="outline">Edit details</Button>}
+            />
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <DetailList>
+              <DetailItem label="Address">Riverside Drive, Nairobi</DetailItem>
+              <DetailItem label="LR Number">LR-DEMO-201</DetailItem>
+              <DetailItem label="Landlord">Amina Holdings Ltd</DetailItem>
+              <DetailItem label="Usage"><StatusBadge status="RESIDENTIAL" appearance="neutral" /></DetailItem>
+            </DetailList>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm"><span className="font-medium">Occupancy</span><span className="text-muted-foreground">87.5%</span></div>
+              <Progress value={87.5} label="Property occupancy" />
+            </div>
+          </CardContent>
+        </Card>
       </ShowcaseSection>
 
       <ShowcaseSection title="Badges & Status" description="General labels and semantic ERP statuses.">

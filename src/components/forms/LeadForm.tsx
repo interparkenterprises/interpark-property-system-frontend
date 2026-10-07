@@ -1,159 +1,141 @@
-'use client';
+'use client'
 
-import { useState, useEffect } from 'react';
-import { Lead, Property } from '@/types';
-import { leadsAPI, propertiesAPI } from '@/lib/api';
-import { Button } from '@/components/ui/button';
-import { useGlobalPermissions } from '@/app/providers/PermissionsProvider';
+import { useCallback, useEffect, useState } from 'react'
+import type { AxiosError } from 'axios'
+import { FileClock } from 'lucide-react'
+import type { Lead, Property } from '@/types'
+import { leadsAPI, propertiesAPI } from '@/lib/api'
+import { useGlobalPermissions } from '@/app/providers/PermissionsProvider'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { FormActions } from '@/components/ui/form-actions'
+import { FormField } from '@/components/ui/form-field'
+import { FormSection } from '@/components/ui/form-section'
+import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
 
 interface LeadFormProps {
-  lead?: Lead;
-  onSuccess?: () => void;
-  onCancel?: () => void;
+  lead?: Lead
+  onSuccess?: () => void
+  onCancel?: () => void
 }
 
-// Draft storage key generator
-const getDraftKey = (leadId?: string) => 
-  leadId ? `lead_form_draft_${leadId}` : 'lead_form_draft_new';
+interface LeadFormData {
+  name: string
+  email: string
+  phone: string
+  address: string
+  idNumber: string
+  companyName: string
+  natureOfLead: string
+  notes: string
+  propertyId: string
+}
+
+const NO_PROPERTY_VALUE = '__no_property__'
+
+const getDraftKey = (leadId?: string) =>
+  leadId ? `lead_form_draft_${leadId}` : 'lead_form_draft_new'
+
+const getInitialFormData = (lead?: Lead): LeadFormData => ({
+  name: lead?.name ?? '',
+  email: lead?.email ?? '',
+  phone: lead?.phone ?? '',
+  address: lead?.address ?? '',
+  idNumber: lead?.idNumber ?? '',
+  companyName: lead?.companyName ?? '',
+  natureOfLead: lead?.natureOfLead ?? '',
+  notes: lead?.notes ?? '',
+  propertyId: lead?.propertyId ?? '',
+})
 
 export default function LeadForm({ lead, onSuccess, onCancel }: LeadFormProps) {
-  const { 
-    isAdmin, 
-    isManager, 
-    isManagedUser, 
-    getAccessiblePropertyIds 
-  } = useGlobalPermissions();
-  
-  const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    phone: '',
-    address: '',
-    idNumber: '',
-    companyName: '',
-    natureOfLead: '',
-    notes: '',
-    propertyId: '',
-  });
-  const [properties, setProperties] = useState<Property[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [hasDraft, setHasDraft] = useState(false);
+  const { isManagedUser, getAccessiblePropertyIds } = useGlobalPermissions()
+  const draftKey = getDraftKey(lead?.id)
+  const [formData, setFormData] = useState<LeadFormData>(() => getInitialFormData(lead))
+  const [properties, setProperties] = useState<Property[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [hasDraft, setHasDraft] = useState(false)
 
-  // Load draft from localStorage
-  const loadDraft = () => {
+  const fetchProperties = useCallback(async () => {
     try {
-      const draftKey = getDraftKey(lead?.id);
-      const savedDraft = localStorage.getItem(draftKey);
-      if (savedDraft) {
-        const parsedDraft = JSON.parse(savedDraft);
-        setFormData(parsedDraft);
-        setHasDraft(true);
-        return true;
+      let data = await propertiesAPI.getAll()
+
+      if (isManagedUser) {
+        const accessibleIds = getAccessiblePropertyIds()
+        data = data.filter((property) => accessibleIds.includes(property.id))
       }
-    } catch (error) {
-      console.error('Error loading draft:', error);
-    }
-    return false;
-  };
 
-  // Save draft to localStorage
-  const saveDraft = (data: typeof formData) => {
-    try {
-      const draftKey = getDraftKey(lead?.id);
-      localStorage.setItem(draftKey, JSON.stringify(data));
-    } catch (error) {
-      console.error('Error saving draft:', error);
+      setProperties(data)
+    } catch (fetchError) {
+      console.error('Error fetching properties:', fetchError)
     }
-  };
-
-  // Clear draft from localStorage
-  const clearDraft = () => {
-    try {
-      const draftKey = getDraftKey(lead?.id);
-      localStorage.removeItem(draftKey);
-      setHasDraft(false);
-    } catch (error) {
-      console.error('Error clearing draft:', error);
-    }
-  };
+  }, [getAccessiblePropertyIds, isManagedUser])
 
   useEffect(() => {
-    fetchProperties();
-    
-    if (lead) {
-      // Editing existing lead - check for draft first
-      const draftLoaded = loadDraft();
-      
-      if (!draftLoaded) {
-        // No draft found, use lead data
-        setFormData({
-          name: lead.name,
-          email: lead.email || '',
-          phone: lead.phone,
-          address: lead.address || '',
-          idNumber: lead.idNumber || '',
-          companyName: lead.companyName || '',
-          natureOfLead: lead.natureOfLead || '',
-          notes: lead.notes || '',
-          propertyId: lead.propertyId || '',
-        });
-      }
-    } else {
-      // Creating new lead - try to load draft
-      loadDraft();
-    }
-  }, [lead]);
+    const frame = window.requestAnimationFrame(() => {
+      void fetchProperties()
 
-  const fetchProperties = async () => {
+      try {
+        const savedDraft = localStorage.getItem(draftKey)
+        if (savedDraft) {
+          setFormData(JSON.parse(savedDraft) as LeadFormData)
+          setHasDraft(true)
+          return
+        }
+      } catch (draftError) {
+        console.error('Error loading draft:', draftError)
+      }
+
+      setFormData(getInitialFormData(lead))
+      setHasDraft(false)
+    })
+
+    return () => window.cancelAnimationFrame(frame)
+  }, [draftKey, fetchProperties, lead])
+
+  const saveDraft = (data: LeadFormData) => {
     try {
-      let data = await propertiesAPI.getAll();
-      
-      // Filter properties based on user permissions
-      if (isManagedUser) {
-        const accessibleIds = getAccessiblePropertyIds();
-        data = data.filter(property => accessibleIds.includes(property.id));
-      }
-      // For ADMIN and MANAGER, show all properties
-      // MANAGERs can create leads for any property (but leads are filtered by createdById)
-      
-      setProperties(data);
-    } catch (error) {
-      console.error('Error fetching properties:', error);
+      localStorage.setItem(draftKey, JSON.stringify(data))
+    } catch (draftError) {
+      console.error('Error saving draft:', draftError)
     }
-  };
+  }
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    const newFormData = {
-      ...formData,
-      [e.target.name]: e.target.value
-    };
-    
-    setFormData(newFormData);
-    
-    // Auto-save draft on every change
-    saveDraft(newFormData);
-    
-    // Mark as having draft data
-    if (!hasDraft) {
-      setHasDraft(true);
+  const clearDraft = () => {
+    try {
+      localStorage.removeItem(draftKey)
+      setHasDraft(false)
+    } catch (draftError) {
+      console.error('Error clearing draft:', draftError)
     }
-  };
+  }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
+  const updateField = (name: keyof LeadFormData, value: string) => {
+    const newFormData = { ...formData, [name]: value }
+    setFormData(newFormData)
+    saveDraft(newFormData)
+    if (!hasDraft) setHasDraft(true)
+  }
 
-    // Validate required fields
+  const handleChange = (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    updateField(event.target.name as keyof LeadFormData, event.target.value)
+  }
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    setLoading(true)
+    setError('')
+
     if (!formData.name.trim() || !formData.phone.trim()) {
-      setError('Name and phone are required fields.');
-      setLoading(false);
-      return;
+      setError('Name and phone are required fields.')
+      setLoading(false)
+      return
     }
 
     try {
-      // Prepare payload with proper undefined values for optional fields
       const payload: Partial<Lead> = {
         name: formData.name.trim(),
         phone: formData.phone.trim(),
@@ -164,239 +146,169 @@ export default function LeadForm({ lead, onSuccess, onCancel }: LeadFormProps) {
         natureOfLead: formData.natureOfLead.trim() || undefined,
         notes: formData.notes.trim() || undefined,
         propertyId: formData.propertyId || undefined,
-      };
+      }
 
       if (lead) {
-        await leadsAPI.update(lead.id, payload);
+        await leadsAPI.update(lead.id, payload)
       } else {
-        await leadsAPI.create(payload);
+        await leadsAPI.create(payload)
       }
-      
-      // Clear draft after successful submission
-      clearDraft();
-      
-      onSuccess?.();
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to save lead');
+
+      clearDraft()
+      onSuccess?.()
+    } catch (submitError) {
+      const apiError = submitError as AxiosError<{ message?: string }>
+      setError(apiError.response?.data?.message || 'Failed to save lead')
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
   const handleClearDraft = () => {
-    if (confirm('Are you sure you want to clear the saved draft? This action cannot be undone.')) {
-      // Reset to original data
-      if (lead) {
-        setFormData({
-          name: lead.name,
-          email: lead.email || '',
-          phone: lead.phone,
-          address: lead.address || '',
-          idNumber: lead.idNumber || '',
-          companyName: lead.companyName || '',
-          natureOfLead: lead.natureOfLead || '',
-          notes: lead.notes || '',
-          propertyId: lead.propertyId || '',
-        });
-      } else {
-        // Clear form for new lead
-        setFormData({
-          name: '',
-          email: '',
-          phone: '',
-          address: '',
-          idNumber: '',
-          companyName: '',
-          natureOfLead: '',
-          notes: '',
-          propertyId: '',
-        });
-      }
-      clearDraft();
-    }
-  };
+    if (!window.confirm('Are you sure you want to clear the saved draft? This action cannot be undone.')) return
+
+    setFormData(getInitialFormData(lead))
+    clearDraft()
+  }
+
+  const submitLabel = lead ? 'Update Lead' : 'Create Lead'
+  const propertyDescription = isManagedUser && properties.length === 0
+    ? "You don't have access to any properties. Please contact an administrator."
+    : 'Optional. Associate this lead with an available property.'
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="max-w-4xl space-y-4">
       {hasDraft && (
-        <div className="bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 rounded flex justify-between items-center">
-          <span className="flex items-center gap-2">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            <span>Draft saved - Your changes are being automatically saved</span>
-          </span>
-          <button
-            type="button"
-            onClick={handleClearDraft}
-            className="text-sm text-blue-600 hover:text-blue-800 underline"
-          >
+        <Alert variant="info" className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 gap-3">
+            <FileClock className="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
+            <div className="min-w-0">
+              <AlertTitle>Draft saved</AlertTitle>
+              <AlertDescription>Your changes are being automatically saved.</AlertDescription>
+            </div>
+          </div>
+          <Button type="button" variant="ghost" size="sm" onClick={handleClearDraft}>
             Clear Draft
-          </button>
-        </div>
+          </Button>
+        </Alert>
       )}
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded">
-          {error}
-        </div>
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Name *
-          </label>
-          <input
+      <FormSection
+        title="Contact details"
+        description="Record the lead's primary identity and contact information."
+      >
+        <div className="grid gap-5 md:grid-cols-2">
+          <Input
+            label="Name"
             name="name"
+            autoComplete="name"
             value={formData.name}
             onChange={handleChange}
             required
-            placeholder="Full name"
-            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
           />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Phone *
-          </label>
-          <input
+          <Input
+            label="Phone"
             name="phone"
+            type="tel"
+            autoComplete="tel"
             value={formData.phone}
             onChange={handleChange}
             required
-            placeholder="+254 7XX XXX XXX"
-            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
           />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Email
-          </label>
-          <input
+          <Input
+            label="Email"
             name="email"
             type="email"
+            autoComplete="email"
             value={formData.email}
             onChange={handleChange}
-            placeholder="name@example.com"
-            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
           />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            ID Number
-          </label>
-          <input
+          <Input
+            label="ID Number"
             name="idNumber"
+            type="text"
             value={formData.idNumber}
             onChange={handleChange}
-            placeholder="National ID number"
-            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
           />
         </div>
-      </div>
+      </FormSection>
 
-      <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-          Company Name
-        </label>
-        <input
-          name="companyName"
-          value={formData.companyName}
-          onChange={handleChange}
-          placeholder="Company name (if applicable)"
-          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
-        />
-      </div>
+      <FormSection
+        title="Lead details"
+        description="Add company, enquiry, and property information when applicable."
+      >
+        <div className="grid gap-5 md:grid-cols-2">
+          <Input
+            label="Company Name"
+            name="companyName"
+            value={formData.companyName}
+            onChange={handleChange}
+          />
+          <Input
+            label="Address"
+            name="address"
+            autoComplete="street-address"
+            value={formData.address}
+            onChange={handleChange}
+          />
+          <Input
+            label="Nature of Lead"
+            name="natureOfLead"
+            value={formData.natureOfLead}
+            onChange={handleChange}
+          />
+          <FormField label="Property" htmlFor="lead-property" description={propertyDescription}>
+            <Select
+              value={formData.propertyId || NO_PROPERTY_VALUE}
+              onValueChange={(value) => updateField('propertyId', value === NO_PROPERTY_VALUE ? '' : value)}
+            >
+              <SelectTrigger id="lead-property">
+                <SelectValue placeholder="Select property (optional)" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_PROPERTY_VALUE}>No property selected</SelectItem>
+                {properties.map((property) => (
+                  <SelectItem key={property.id} value={property.id}>
+                    {property.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </FormField>
+        </div>
+      </FormSection>
 
-      <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-          Address
-        </label>
-        <input
-          name="address"
-          value={formData.address}
-          onChange={handleChange}
-          placeholder="Street, City, County"
-          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
-        />
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-          Nature of Lead
-        </label>
-        <input
-          name="natureOfLead"
-          value={formData.natureOfLead}
-          onChange={handleChange}
-          placeholder="e.g., Rental inquiry, Property viewing, Commercial lease, etc."
-          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
-        />
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-          Property
-        </label>
-        <select
-          name="propertyId"
-          value={formData.propertyId}
-          onChange={handleChange}
-          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-        >
-          <option value="" className="text-gray-500 dark:text-gray-400">
-            Select Property (Optional)
-          </option>
-          {properties.map(property => (
-            <option key={property.id} value={property.id} className="text-gray-900 dark:text-gray-100">
-              {property.name}
-            </option>
-          ))}
-        </select>
-        {isManagedUser && properties.length === 0 && (
-          <p className="mt-1 text-sm text-amber-600 dark:text-amber-400">
-            You don't have access to any properties. Please contact an administrator.
-          </p>
-        )}
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-          Notes
-        </label>
-        <textarea
+      <FormSection
+        title="Notes"
+        description="Capture any additional context useful to the property team."
+        footer={
+          <FormActions>
+            {onCancel && (
+              <Button type="button" variant="outline" onClick={onCancel}>
+                Cancel
+              </Button>
+            )}
+            <Button type="submit" loading={loading}>
+              {loading ? 'Saving lead...' : submitLabel}
+            </Button>
+          </FormActions>
+        }
+      >
+        <Textarea
+          label="Notes"
           name="notes"
           value={formData.notes}
           onChange={handleChange}
-          rows={4}
-          placeholder="Additional notes about the lead..."
-          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
+          rows={5}
+          className="min-h-32"
         />
-      </div>
-
-      <div className="flex justify-end space-x-3 pt-4">
-        {onCancel && (
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={onCancel}
-          >
-            Cancel
-          </Button>
-        )}
-        <Button
-          type="submit"
-          disabled={loading}
-        >
-          {loading ? 'Saving...' : lead ? 'Update' : 'Create'} Lead
-        </Button>
-      </div>
+      </FormSection>
     </form>
-  );
+  )
 }

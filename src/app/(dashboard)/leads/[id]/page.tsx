@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Lead } from '@/types';
 import { leadsAPI } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/ui/page-header';
 import LeadForm from '@/components/forms/LeadForm';
 import Link from 'next/link';
 import { PermissionGuard } from '@/components/auth/PermissionGuard';
@@ -15,7 +16,7 @@ export default function LeadDetailPage() {
   const params = useParams();
   const router = useRouter();
   const { user } = useAuth();
-  const { canEditLead, canDeleteLead, isAdmin, isManager, getAccessiblePropertyIds } = useGlobalPermissions();
+  const { canDeleteLead, isAdmin, isManager, getAccessiblePropertyIds } = useGlobalPermissions();
   const [lead, setLead] = useState<Lead | null>(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -23,11 +24,7 @@ export default function LeadDetailPage() {
 
   const leadId = params.id as string;
 
-  useEffect(() => {
-    fetchLead();
-  }, [leadId]);
-
-  const fetchLead = async () => {
+  const fetchLead = useCallback(async () => {
     try {
       const data = await leadsAPI.getById(leadId);
       
@@ -57,7 +54,12 @@ export default function LeadDetailPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [getAccessiblePropertyIds, isAdmin, isManager, leadId, user]);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => void fetchLead());
+    return () => window.cancelAnimationFrame(frame);
+  }, [fetchLead]);
 
   const handleDelete = async () => {
     if (!canDeleteLead) {
@@ -77,7 +79,7 @@ export default function LeadDetailPage() {
 
   const handleUpdateSuccess = () => {
     setEditing(false);
-    fetchLead();
+    void fetchLead();
   };
 
   if (loading) {
@@ -115,27 +117,16 @@ export default function LeadDetailPage() {
 
   if (editing) {
     return (
-      <div>
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center space-x-4">
-            <Link href="/leads">
-              <Button variant="secondary" size="sm">
-                ← Back
-              </Button>
-            </Link>
-            <h1 className="text-2xl font-semibold text-gray-800 dark:text-gray-100">Edit Lead</h1>
-          </div>
-          <Button variant="secondary" onClick={() => setEditing(false)}>
-            Cancel
-          </Button>
-        </div>
-        <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
-          <LeadForm 
-            lead={lead} 
-            onSuccess={handleUpdateSuccess}
-            onCancel={() => setEditing(false)}
-          />
-        </div>
+      <div className="space-y-6 pb-4">
+        <PageHeader
+          title="Edit Lead"
+          description={`Update contact, enquiry, and property information for ${lead.name}.`}
+        />
+        <LeadForm
+          lead={lead}
+          onSuccess={handleUpdateSuccess}
+          onCancel={() => setEditing(false)}
+        />
       </div>
     );
   }
