@@ -2,10 +2,19 @@
 
 import { useState } from 'react'
 import { ArrowRight, Building2, CirclePlus, FileText, Home, Inbox, Save, Search, UserRound } from 'lucide-react'
+import { Area, AreaChart, CartesianGrid, XAxis } from 'recharts'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  ChartContainer,
+  ChartLegend,
+  ChartLegendContent,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from '@/components/ui/chart'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { DetailItem, DetailList } from '@/components/ui/detail-list'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -50,6 +59,46 @@ const surfaces = [
   { name: 'Warning', className: 'bg-warning text-white border-warning' },
   { name: 'Destructive', className: 'bg-destructive text-white border-destructive' },
 ]
+
+const collectionData = [
+  { month: 'May', collected: 680000, outstanding: 120000 },
+  { month: 'Jun', collected: 742000, outstanding: 98000 },
+  { month: 'Jul', collected: 715000, outstanding: 135000 },
+  { month: 'Aug', collected: 804000, outstanding: 76000 },
+  { month: 'Sep', collected: 836000, outstanding: 64000 },
+  { month: 'Oct', collected: 872000, outstanding: 48000 },
+]
+
+const collectionConfig = {
+  collected: {
+    label: 'Collected',
+    color: 'var(--chart-1)',
+  },
+  outstanding: {
+    label: 'Outstanding',
+    color: 'var(--chart-3)',
+  },
+} satisfies ChartConfig
+
+const occupancyData = [
+  { month: 'May', occupied: 18, vacant: 6 },
+  { month: 'Jun', occupied: 19, vacant: 5 },
+  { month: 'Jul', occupied: 19, vacant: 5 },
+  { month: 'Aug', occupied: 20, vacant: 4 },
+  { month: 'Sep', occupied: 20, vacant: 4 },
+  { month: 'Oct', occupied: 21, vacant: 3 },
+]
+
+const occupancyConfig = {
+  occupied: {
+    label: 'Occupied',
+    color: 'var(--chart-2)',
+  },
+  vacant: {
+    label: 'Vacant',
+    color: 'var(--chart-4)',
+  },
+} satisfies ChartConfig
 
 export default function ComponentsPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -168,6 +217,100 @@ export default function ComponentsPage() {
             <CardHeader><CardTitle>Invoice INV-2048</CardTitle><CardDescription>Due 15 October 2026</CardDescription></CardHeader>
             <CardContent><StatusBadge status="PENDING" appearance="warning" /></CardContent>
             <CardFooter className="justify-end"><Button variant="outline" size="sm">Open invoice <ArrowRight className="h-3.5 w-3.5" /></Button></CardFooter>
+          </Card>
+        </div>
+      </ShowcaseSection>
+
+      <ShowcaseSection title="Charts" description="Shadcn-style responsive area charts using shared themes, tooltips and legends.">
+        <div className="grid gap-4 xl:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>Monthly collections</CardTitle>
+              <CardDescription>Collected and outstanding rent for the last six months.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ChartContainer config={collectionConfig} className="h-[280px] w-full aspect-auto">
+                <AreaChart accessibilityLayer data={collectionData} margin={{ left: 8, right: 8 }}>
+                  <defs>
+                    <linearGradient id="fillCollected" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="var(--color-collected)" stopOpacity={0.8} />
+                      <stop offset="95%" stopColor="var(--color-collected)" stopOpacity={0.1} />
+                    </linearGradient>
+                    <linearGradient id="fillOutstanding" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="var(--color-outstanding)" stopOpacity={0.7} />
+                      <stop offset="95%" stopColor="var(--color-outstanding)" stopOpacity={0.08} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid vertical={false} />
+                  <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} />
+                  <ChartTooltip
+                    cursor={false}
+                    content={<ChartTooltipContent indicator="line" />}
+                  />
+                  <ChartLegend content={<ChartLegendContent />} />
+                  <Area
+                    dataKey="collected"
+                    type="natural"
+                    fill="url(#fillCollected)"
+                    fillOpacity={0.4}
+                    stroke="var(--color-collected)"
+                    stackId="a"
+                  />
+                  <Area
+                    dataKey="outstanding"
+                    type="natural"
+                    fill="url(#fillOutstanding)"
+                    fillOpacity={0.4}
+                    stroke="var(--color-outstanding)"
+                    stackId="a"
+                  />
+                </AreaChart>
+              </ChartContainer>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Occupancy trend</CardTitle>
+              <CardDescription>Occupied and vacant units over the last six months.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ChartContainer config={occupancyConfig} className="h-[280px] w-full aspect-auto">
+                <AreaChart accessibilityLayer data={occupancyData} margin={{ left: 8, right: 8 }}>
+                  <defs>
+                    <linearGradient id="fillOccupied" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="var(--color-occupied)" stopOpacity={0.8} />
+                      <stop offset="95%" stopColor="var(--color-occupied)" stopOpacity={0.1} />
+                    </linearGradient>
+                    <linearGradient id="fillVacant" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="var(--color-vacant)" stopOpacity={0.7} />
+                      <stop offset="95%" stopColor="var(--color-vacant)" stopOpacity={0.08} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid vertical={false} />
+                  <XAxis dataKey="month" tickLine={false} axisLine={false} tickMargin={8} />
+                  <ChartTooltip
+                    cursor={false}
+                    content={<ChartTooltipContent indicator="dot" />}
+                  />
+                  <ChartLegend content={<ChartLegendContent />} />
+                  <Area
+                    dataKey="occupied"
+                    type="natural"
+                    fill="url(#fillOccupied)"
+                    fillOpacity={0.4}
+                    stroke="var(--color-occupied)"
+                  />
+                  <Area
+                    dataKey="vacant"
+                    type="natural"
+                    fill="url(#fillVacant)"
+                    fillOpacity={0.4}
+                    stroke="var(--color-vacant)"
+                  />
+                </AreaChart>
+              </ChartContainer>
+            </CardContent>
           </Card>
         </div>
       </ShowcaseSection>

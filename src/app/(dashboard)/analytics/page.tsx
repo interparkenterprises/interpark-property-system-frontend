@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { getFirstAccessibleRoute } from '@/components/analytics/AnalyticsNavigation';
 import AnalyticsDashboard from '@/components/analytics/AnalyticsDashboard';
+import { AnalyticsLoading } from '@/components/analytics/AnalyticsStates';
 
 export default function AnalyticsPage() {
   const router = useRouter();
@@ -35,14 +36,7 @@ export default function AnalyticsPage() {
 
   // If loading, show a loading state
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-100">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-sky-400 mx-auto"></div>
-          <p className="mt-4 text-slate-400">Loading analytics...</p>
-        </div>
-      </div>
-    );
+    return <AnalyticsLoading />;
   }
 
   // If the user is on the overview page (they have access), render the dashboard

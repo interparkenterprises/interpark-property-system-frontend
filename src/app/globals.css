@@ -32,6 +32,11 @@
   --sidebar-active: #e4f1f6;
   --sidebar-active-foreground: #004a6b;
   --sidebar-border: #dfe3e6;
+  --chart-1: var(--primary);
+  --chart-2: var(--success);
+  --chart-3: var(--warning);
+  --chart-4: #7668ad;
+  --chart-5: #bd6436;
 }
 
 .dark {
@@ -56,6 +61,11 @@
   --sidebar-active: #193a48;
   --sidebar-active-foreground: #f4fbfd;
   --sidebar-border: #2b373c;
+  --chart-1: var(--primary);
+  --chart-2: var(--success);
+  --chart-3: var(--warning);
+  --chart-4: #a89be0;
+  --chart-5: #ec8b61;
 }
 
 @theme inline {
@@ -80,6 +90,11 @@
   --color-sidebar-active: var(--sidebar-active);
   --color-sidebar-active-foreground: var(--sidebar-active-foreground);
   --color-sidebar-border: var(--sidebar-border);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
   --font-sans: "Inter", "Segoe UI", Helvetica, Arial, sans-serif;
 }
 

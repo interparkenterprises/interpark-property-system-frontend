@@ -8,6 +8,7 @@ import {
   hasRequiredPermissions,
   getFirstAccessibleRoute 
 } from '@/components/analytics/AnalyticsNavigation';
+import { AnalyticsLoading } from '@/components/analytics/AnalyticsStates';
 
 export default function AnalyticsLayout({
   children,
@@ -59,14 +60,7 @@ export default function AnalyticsLayout({
 
   // If loading, show loading state
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-100">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-sky-400 mx-auto"></div>
-          <p className="mt-4 text-slate-400">Loading analytics...</p>
-        </div>
-      </div>
-    );
+    return <AnalyticsLoading />;
   }
 
   return <>{children}</>;

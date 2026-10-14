@@ -1,8 +1,10 @@
 'use client';
 
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { PageHeader } from '@/components/ui/page-header';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 const analyticsRoutes = [
   { href: '/analytics', label: 'Overview', requiredPermissions: ['VIEW_PAYMENT_REPORTS', 'VIEW_ARREARS', 'VIEW_UNITS', 'VIEW_TENANTS'], requiredRoles: [] },
@@ -66,6 +68,7 @@ const getFirstAccessibleRoute = (userPermissions: string[], userRole?: string): 
 
 export function AnalyticsNavigation() {
   const pathname = usePathname().replace(/\/$/, '') || '/';
+  const router = useRouter();
   const auth = useAuth();
 
   const userPermissions = auth?.permissions || [];
@@ -79,46 +82,25 @@ export function AnalyticsNavigation() {
 
   if (visibleRoutes.length === 0) {
     return (
-      <div className="rounded-lg border border-amber-500/30 bg-amber-950/20 p-4 text-center text-sm text-amber-100">
-        <p>You don't have permission to view any analytics sections.</p>
-        <p className="mt-1 text-xs text-amber-200/60">Please contact your administrator for access.</p>
-      </div>
+      <Alert variant="warning" className="text-center"><AlertDescription>You do not have permission to view any analytics sections. Please contact your administrator for access.</AlertDescription></Alert>
     );
   }
 
   return (
-    <div className="min-w-0 overflow-x-auto pb-1 scrollbar-thin">
-      <nav className="flex w-max min-w-full gap-2 sm:w-auto sm:min-w-0 sm:flex-wrap" aria-label="Analytics sections">
-        {visibleRoutes.map(tab => {
-          const active = pathname === tab.href;
-          return (
-            <Link
-              key={tab.href}
-              href={tab.href}
-              aria-current={active ? 'page' : undefined}
-              className={`shrink-0 rounded-lg px-3 py-2 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-sky-400 ${
-                active
-                  ? 'bg-[#0078a3] text-white shadow-sm'
-                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white'
-              }`}
-            >
-              {tab.label}
-            </Link>
-          );
-        })}
-      </nav>
-    </div>
+    <nav aria-label="Analytics sections" className="min-w-0">
+      <Tabs value={pathname} onValueChange={router.push}>
+        <TabsList className="max-w-full">
+          {visibleRoutes.map(tab => <TabsTrigger key={tab.href} value={tab.href}>{tab.label}</TabsTrigger>)}
+        </TabsList>
+      </Tabs>
+    </nav>
   );
 }
 
-export function AnalyticsPageHeader({ title, description }: { title: string; description: string }) {
+export function AnalyticsPageHeader({ title, description, actions }: { title: string; description: string; actions?: React.ReactNode }) {
   return (
     <header className="space-y-5">
-      <div>
-        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-sky-400">Interpark intelligence</p>
-        <h1 className="mt-2 text-3xl font-bold tracking-tight text-white">{title}</h1>
-        <p className="mt-2 max-w-3xl text-slate-400">{description}</p>
-      </div>
+      <PageHeader title={title} description={description} actions={actions} />
       <AnalyticsNavigation />
     </header>
   );
