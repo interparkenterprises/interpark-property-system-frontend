@@ -81,6 +81,9 @@ export default function PropertyDetailPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [fetchingTenants, setFetchingTenants] = useState(false);
 
+  // ---- Search state (shared across tabs, but only one tab is active at a time) ----
+  const [searchQuery, setSearchQuery] = useState('');
+
   const propertyId = params.id as string;
 
   // Check if user can access modules using canAccessModule
@@ -119,6 +122,74 @@ export default function PropertyDetailPage() {
   // Show the tenants tab either to normal tenant viewers OR to users that can only work from tenant-details
   const canViewTenantTab = canViewTenants || canAccessTenantDetailsPage;
 
+  // ---- Derived data (computed BEFORE any early return so hook order stays stable) ----
+  const units = property?.units || [];
+  const serviceProviders = property?.serviceProviders || [];
+  const leads = property?.leads || [];
+  const vacantUnits = units.filter(unit => unit.status === 'VACANT').length;
+  const occupiedUnits = units.filter(unit => unit.status === 'OCCUPIED').length;
+  const occupancyRate = units.length > 0 ? Math.round((occupiedUnits / units.length) * 100) : 0;
+
+  const normalizedSearch = searchQuery.trim().toLowerCase();
+
+  const filteredUnits = useMemo(() => {
+    if (!normalizedSearch) return units;
+    return units.filter((unit) => {
+      const haystack = [
+        unit.unitNo,
+        unit.type,
+        unit.floor,
+        unit.status,
+        unit.rentType,
+        unit.bedrooms?.toString(),
+        unit.bathrooms?.toString(),
+        unit.sizeSqFt?.toString(),
+        unit.rentAmount?.toString(),
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(normalizedSearch);
+    });
+  }, [units, normalizedSearch]);
+
+  const filteredTenants = useMemo(() => {
+    if (!normalizedSearch) return propertyTenants;
+    return propertyTenants.filter((tenant) => {
+      const haystack = [
+        tenant.fullName,
+        tenant.contact,
+        tenant.leaseTerm,
+        tenant.termStart,
+        tenant.unit?.unitNo,
+        tenant.unit?.type,
+        tenant.unit?.bedrooms?.toString(),
+        tenant.unit?.bathrooms?.toString(),
+        tenant.rent?.toString(),
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(normalizedSearch);
+    });
+  }, [propertyTenants, normalizedSearch]);
+
+  const filteredProviders = useMemo(() => {
+    if (!normalizedSearch) return serviceProviders;
+    return serviceProviders.filter((provider) => {
+      const haystack = [
+        provider.name,
+        provider.contact,
+        provider.contractPeriod,
+        provider.serviceContract,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(normalizedSearch);
+    });
+  }, [serviceProviders, normalizedSearch]);
+
   useEffect(() => {
     fetchProperty();
     if (canViewTenantTab) {
@@ -135,6 +206,11 @@ export default function PropertyDetailPage() {
       router.push('/unauthorized');
     }
   }, [loading, property, propertyId, canViewProperty, router]);
+
+  // Reset search whenever the active tab changes so stale queries don't leak across tabs
+  useEffect(() => {
+    setSearchQuery('');
+  }, [activeTab]);
 
   const fetchProperty = async () => {
     try {
@@ -591,6 +667,81 @@ export default function PropertyDetailPage() {
     },
   };
 
+  // ---- Reusable search bar component (NOT a hook — safe after returns) ----
+  const renderSearchBar = (placeholder: string) => (
+    <div className="relative w-full max-w-md">
+      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+        <svg
+          className="w-5 h-5 text-gray-400"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+          />
+        </svg>
+      </div>
+      <input
+        type="text"
+        value={searchQuery}
+        onChange={(e) => setSearchQuery(e.target.value)}
+        placeholder={placeholder}
+        className="w-full pl-10 pr-10 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all duration-200"
+      />
+      {searchQuery && (
+        <button
+          onClick={() => setSearchQuery('')}
+          className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 transition-colors"
+          aria-label="Clear search"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M6 18L18 6M6 6l12 12"
+            />
+          </svg>
+        </button>
+      )}
+    </div>
+  );
+
+  // ---- Reusable "no results" empty state ----
+  const renderNoResults = (itemLabel: string) => (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
+      className="col-span-full bg-linear-to-br from-white to-gray-50 rounded-2xl p-12 text-center border-2 border-dashed border-gray-300"
+    >
+      <div className="w-16 h-16 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+        <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+          />
+        </svg>
+      </div>
+      <h3 className="text-lg font-bold text-black mb-2">No {itemLabel} match your search</h3>
+      <p className="text-gray-600 mb-4">
+        Try a different keyword or clear the search to see everything.
+      </p>
+      <Button
+        onClick={() => setSearchQuery('')}
+        variant="secondary"
+        className="px-6 py-2.5"
+      >
+        Clear Search
+      </Button>
+    </motion.div>
+  );
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -674,13 +825,6 @@ export default function PropertyDetailPage() {
       </PermissionGuard>
     );
   }
-
-  const units = property.units || [];
-  const serviceProviders = property.serviceProviders || [];
-  const leads = property.leads || [];
-  const vacantUnits = units.filter(unit => unit.status === 'VACANT').length;
-  const occupiedUnits = units.filter(unit => unit.status === 'OCCUPIED').length;
-  const occupancyRate = units.length > 0 ? Math.round((occupiedUnits / units.length) * 100) : 0;
 
   return (
     <motion.div
@@ -1573,8 +1717,8 @@ export default function PropertyDetailPage() {
               </PermissionGuard>
             ) : (
               <div className="space-y-6">
-                {/* Add Unit Button */}
-                <div className="flex justify-between items-center">
+                {/* Header row with title + Add button */}
+                <div className="flex justify-between items-center flex-wrap gap-4">
                   <h2 className="text-2xl font-bold text-heading-color">Property Units</h2>
                   <PermissionGuard module="units" action="create">
                     <Button
@@ -1590,6 +1734,19 @@ export default function PropertyDetailPage() {
                     </Button>
                   </PermissionGuard>
                 </div>
+
+                {/* Search bar - only relevant when there are units */}
+                {units.length > 0 && (
+                  <div className="flex items-center justify-between flex-wrap gap-3">
+                    {renderSearchBar('Search units by number, type, floor, status...')}
+                    {normalizedSearch && (
+                      <span className="text-sm text-gray-600">
+                        Showing <strong className="text-gray-900">{filteredUnits.length}</strong> of{' '}
+                        <strong className="text-gray-900">{units.length}</strong> units
+                      </span>
+                    )}
+                  </div>
+                )}
 
                 {/* Units List */}
                 {units.length === 0 ? (
@@ -1616,9 +1773,13 @@ export default function PropertyDetailPage() {
                       </Button>
                     </PermissionGuard>
                   </motion.div>
+                ) : filteredUnits.length === 0 ? (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {renderNoResults('units')}
+                  </div>
                 ) : (
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {units.map((unit, index) => (
+                    {filteredUnits.map((unit, index) => (
                       <motion.div
                         key={unit.id}
                         initial={{ opacity: 0, y: 20 }}
@@ -1797,7 +1958,7 @@ export default function PropertyDetailPage() {
             {/* View for users with only financial permissions (no tenant management) */}
             {!canViewTenants && canAccessTenantDetailsPage && (
               <div className="space-y-6">
-                <div className="flex justify-between items-center">
+                <div className="flex justify-between items-center flex-wrap gap-3">
                   <div>
                     <h2 className="text-2xl font-bold text-heading-color">Property Tenants</h2>
                     <p className="text-sm text-gray-500 mt-1">
@@ -1808,6 +1969,19 @@ export default function PropertyDetailPage() {
                     <span className="font-semibold">Financial Access Only</span>
                   </div>
                 </div>
+
+                {/* Search bar for financial-only viewers */}
+                {propertyTenants.length > 0 && (
+                  <div className="flex items-center justify-between flex-wrap gap-3">
+                    {renderSearchBar('Search tenants by name, contact, unit...')}
+                    {normalizedSearch && (
+                      <span className="text-sm text-gray-600">
+                        Showing <strong className="text-gray-900">{filteredTenants.length}</strong> of{' '}
+                        <strong className="text-gray-900">{propertyTenants.length}</strong> tenants
+                      </span>
+                    )}
+                  </div>
+                )}
                 
                 {/* Tenants List - Read-only for financial users */}
                 {fetchingTenants ? (
@@ -1847,9 +2021,13 @@ export default function PropertyDetailPage() {
                     <h3 className="text-xl font-bold text-black mb-2">No tenants yet</h3>
                     <p className="text-black mb-6">No tenants have been added to this property.</p>
                   </motion.div>
+                ) : filteredTenants.length === 0 ? (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {renderNoResults('tenants')}
+                  </div>
                 ) : (
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {propertyTenants.map((tenant, index) => (
+                    {filteredTenants.map((tenant, index) => (
                       <motion.div
                         key={tenant.id}
                         initial={{ opacity: 0, y: 20 }}
@@ -1963,7 +2141,7 @@ export default function PropertyDetailPage() {
               </PermissionGuard>
             ) : canViewTenants && !showTenantForm ? (
               <div className="space-y-6">
-                <div className="flex justify-between items-center">
+                <div className="flex justify-between items-center flex-wrap gap-4">
                   <h2 className="text-2xl font-bold text-heading-color">Property Tenants</h2>
                   <PermissionGuard module="tenants" action="create">
                     <Button
@@ -1984,6 +2162,19 @@ export default function PropertyDetailPage() {
                     </Button>
                   </PermissionGuard>
                 </div>
+
+                {/* Search bar for full tenant managers */}
+                {propertyTenants.length > 0 && !fetchingTenants && (
+                  <div className="flex items-center justify-between flex-wrap gap-3">
+                    {renderSearchBar('Search tenants by name, contact, unit...')}
+                    {normalizedSearch && (
+                      <span className="text-sm text-gray-600">
+                        Showing <strong className="text-gray-900">{filteredTenants.length}</strong> of{' '}
+                        <strong className="text-gray-900">{propertyTenants.length}</strong> tenants
+                      </span>
+                    )}
+                  </div>
+                )}
                 
                 {/* Full Tenant List with Edit/Delete for users with tenant permissions */}
                 {fetchingTenants ? (
@@ -2031,9 +2222,13 @@ export default function PropertyDetailPage() {
                       </Button>
                     </PermissionGuard>
                   </motion.div>
+                ) : filteredTenants.length === 0 ? (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {renderNoResults('tenants')}
+                  </div>
                 ) : (
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {propertyTenants.map((tenant, index) => (
+                    {filteredTenants.map((tenant, index) => (
                       <motion.div
                         key={tenant.id}
                         initial={{ opacity: 0, y: 20 }}
@@ -2232,7 +2427,7 @@ export default function PropertyDetailPage() {
               </PermissionGuard>
             ) : (
               <div className="space-y-6">
-                <div className="flex justify-between items-center">
+                <div className="flex justify-between items-center flex-wrap gap-4">
                   <h2 className="text-2xl font-bold text-heading-color">Service Providers</h2>
                   <PermissionGuard permission={PermissionCode.CREATE_SERVICE_PROVIDER}>
                     <Button
@@ -2253,6 +2448,20 @@ export default function PropertyDetailPage() {
                     </Button>
                   </PermissionGuard>
                 </div>
+
+                {/* Search bar for service providers */}
+                {serviceProviders.length > 0 && (
+                  <div className="flex items-center justify-between flex-wrap gap-3">
+                    {renderSearchBar('Search providers by name, contact, contract...')}
+                    {normalizedSearch && (
+                      <span className="text-sm text-gray-600">
+                        Showing <strong className="text-gray-900">{filteredProviders.length}</strong> of{' '}
+                        <strong className="text-gray-900">{serviceProviders.length}</strong> providers
+                      </span>
+                    )}
+                  </div>
+                )}
+
                 {/* Service Providers List */}
                 {serviceProviders.length === 0 ? (
                   <motion.div
@@ -2281,9 +2490,13 @@ export default function PropertyDetailPage() {
                       </Button>
                     </PermissionGuard>
                   </motion.div>
+                ) : filteredProviders.length === 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {renderNoResults('service providers')}
+                  </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {serviceProviders.map((provider, index) => (
+                    {filteredProviders.map((provider, index) => (
                       <motion.div
                         key={provider.id}
                         initial={{ opacity: 0, y: 20 }}

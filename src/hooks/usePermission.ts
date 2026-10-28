@@ -8,6 +8,13 @@ interface ActionPermissions {
   canEdit: boolean;
   canDelete: boolean;
   canExport: boolean;
+  // NEW: aggregated-report download capabilities.
+  // Populated only for `payments` today; optional so other modules
+  // don't need to define them.
+  canDownloadReport?: boolean;
+  canDownloadBillReport?: boolean;
+  canDownloadComprehensiveReport?: boolean;
+  canDownloadReceipt?: boolean;
 }
 
 interface ModulePermissions {
@@ -46,27 +53,38 @@ export function usePermissions() {
   const permissions = useMemo((): ModulePermissions => {
     // If auth is loading or not ready, return all false
     if (!auth || auth.isLoading) {
+      const falseAction = (): ActionPermissions => ({
+        canView: false,
+        canCreate: false,
+        canEdit: false,
+        canDelete: false,
+        canExport: false,
+        canDownloadReport: false,
+        canDownloadBillReport: false,
+        canDownloadComprehensiveReport: false,
+        canDownloadReceipt: false,
+      });
       return {
-        employees: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
-        properties: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
-        units: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
-        tenants: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
-        leads: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
-        landlords: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
-        offers: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
-        invoices: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
-        payments: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
-        commissions: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
-        users: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
-        roles: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
-        reports: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
-        todos: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
-        news: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
-        serviceProviders: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
-        activations: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
-        bills: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
-        billInvoices: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
-        demandLetters: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
+        employees: falseAction(),
+        properties: falseAction(),
+        units: falseAction(),
+        tenants: falseAction(),
+        leads: falseAction(),
+        landlords: falseAction(),
+        offers: falseAction(),
+        invoices: falseAction(),
+        payments: falseAction(),
+        commissions: falseAction(),
+        users: falseAction(),
+        roles: falseAction(),
+        reports: falseAction(),
+        todos: falseAction(),
+        news: falseAction(),
+        serviceProviders: falseAction(),
+        activations: falseAction(),
+        bills: falseAction(),
+        billInvoices: falseAction(),
+        demandLetters: falseAction(),
       };
     }
 
@@ -93,6 +111,26 @@ export function usePermissions() {
       canDelete: hasPermission(deleteCode),
       canExport: hasPermission(exportCode),
     });
+
+    // Build the payments object with BOTH the generic ActionPermissions
+    // fields AND the dedicated download flags that page.tsx reads.
+    const paymentsPerms: ActionPermissions = {
+      ...makePerms(
+        PermissionCode.VIEW_PAYMENT_REPORTS,
+        PermissionCode.RECORD_PAYMENTS,
+        PermissionCode.EDIT_PAYMENT_RECORDS,
+        PermissionCode.DELETE_PAYMENT_RECORDS,
+        PermissionCode.DOWNLOAD_PAYMENT_RECEIPT
+      ),
+      canDownloadReport:
+        isAdmin || isManager || hasPermission(PermissionCode.DOWNLOAD_PAYMENT_REPORT),
+      canDownloadBillReport:
+        isAdmin || isManager || hasPermission(PermissionCode.DOWNLOAD_BILL_REPORT),
+      canDownloadComprehensiveReport:
+        isAdmin || isManager || hasPermission(PermissionCode.DOWNLOAD_COMPREHENSIVE_REPORT),
+      canDownloadReceipt:
+        isAdmin || isManager || hasPermission(PermissionCode.DOWNLOAD_PAYMENT_RECEIPT),
+    };
 
     return {
       employees: {
@@ -151,13 +189,7 @@ export function usePermissions() {
         PermissionCode.DELETE_INVOICES,
         PermissionCode.DOWNLOAD_INVOICES
       ),
-      payments: makePerms(
-        PermissionCode.VIEW_PAYMENT_REPORTS,
-        PermissionCode.RECORD_PAYMENTS,
-        PermissionCode.EDIT_PAYMENT_RECORDS,
-        PermissionCode.DELETE_PAYMENT_RECORDS,
-        PermissionCode.DOWNLOAD_PAYMENT_RECEIPT
-      ),
+      payments: paymentsPerms,
       commissions: makePerms(
         PermissionCode.VIEW_COMMISSIONS,
         PermissionCode.PROCESS_COMMISSIONS,
@@ -364,6 +396,10 @@ export function usePermissions() {
       canPreviewPayments: false,
       canViewArrears: false,
       canDownloadPaymentReceipt: false,
+      // NEW: aggregated report download permissions
+      canDownloadPaymentReport: false,
+      canDownloadBillReport: false,
+      canDownloadComprehensiveReport: false,
       // Download permissions
       canDownloadInvoice: false,
       canDownloadDemandLetter: false,
@@ -499,6 +535,13 @@ export function usePermissions() {
     canPreviewPayments: hasPermission(PermissionCode.PREVIEW_PAYMENTS),
     canViewArrears: hasPermission(PermissionCode.VIEW_ARREARS),
     canDownloadPaymentReceipt: hasPermission(PermissionCode.DOWNLOAD_PAYMENT_RECEIPT),
+    // NEW: aggregated report download permissions
+    canDownloadPaymentReport:
+      isAdmin || isManager || hasPermission(PermissionCode.DOWNLOAD_PAYMENT_REPORT),
+    canDownloadBillReport:
+      isAdmin || isManager || hasPermission(PermissionCode.DOWNLOAD_BILL_REPORT),
+    canDownloadComprehensiveReport:
+      isAdmin || isManager || hasPermission(PermissionCode.DOWNLOAD_COMPREHENSIVE_REPORT),
     // Download permissions
     canDownloadInvoice: hasPermission(PermissionCode.DOWNLOAD_INVOICES),
     canDownloadDemandLetter: hasPermission(PermissionCode.DOWNLOAD_DEMAND_LETTER),

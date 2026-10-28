@@ -147,7 +147,7 @@ export default function HomePage() {
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="absolute inset-0 bg-black/40" />
         <div className="absolute -top-32 -left-32 h-72 w-72 rounded-full bg-[#00A8C6]/20 blur-3xl sm:h-96 sm:w-96" />
-        <div className="absolute -bottom-40 -right-40 h-96 w-96 rounded-full bg-[#00A8C6]/10 blur-3xl sm:h-[28rem] sm:w-[28rem]" />
+        <div className="absolute -bottom-40 -right-40 h-96 w-96 rounded-full bg-[#00A8C6]/10 blur-3xl sm:h-112 sm:w-md" />
         <div className="absolute top-1/3 left-1/2 h-64 w-64 -translate-x-1/2 rounded-full bg-[#00A8C6]/5 blur-3xl" />
       </div>
 
