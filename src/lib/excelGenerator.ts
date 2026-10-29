@@ -7,6 +7,15 @@ export interface ExportSection {
   selected: boolean;
 }
 
+const CURRENCY_FMT = '"Ksh "#,##0.00';
+
+// Numeric columns (1-based) that hold currency amounts. Only numeric values in
+// these columns receive the currency number format:
+// B (Income Amount), C/D (Commission Income/Commission Amount), E (Charge Amount),
+// I-O (Rent Amount, Deposit, Rent Collected, Service Charge, VAT Collected,
+// Bills Amount, Outstanding in the Units & Tenants table)
+const CURRENCY_COLUMNS = [2, 3, 4, 5, 9, 10, 11, 12, 13, 14, 15];
+
 // Helper functions for Excel generation
 const addSubsectionHeader = (worksheet: ExcelJS.Worksheet, row: number, title: string) => {
   worksheet.mergeCells(`A${row}:R${row}`);
@@ -60,13 +69,13 @@ const addTableRow = (
   isTotalRow: boolean = false
 ) => {
   const rowData = worksheet.getRow(row);
-  
+
   // Set row height
   rowData.height = isTotalRow ? 28 : 25;
-  
+
   data.forEach((value, index) => {
     const cell = rowData.getCell(index + 1);
-    
+
     if (value && typeof value === 'object' && ('formula' in value || 'result' in value)) {
       if (value.formula) {
         cell.value = { formula: value.formula };
@@ -76,31 +85,28 @@ const addTableRow = (
     } else {
       cell.value = value;
     }
-    
+
     // Center alignment for all cells
-    cell.alignment = { 
-      horizontal: 'center', 
-      vertical: 'middle', 
-      wrapText: true 
+    cell.alignment = {
+      horizontal: 'center',
+      vertical: 'middle',
+      wrapText: true
     };
-    
+
     // Set font
     if (isTotalRow) {
       cell.font = { bold: true, size: 11, color: { argb: 'FF1A3A5C' } };
     } else {
       cell.font = { size: 10 };
     }
-    
-    // Apply currency formatting to numeric cells
-    if (typeof value === 'number' && value > 0) {
-      const colIndex = index + 1;
-      // Columns that should be formatted as currency: J, L, M, N, O, P, R
-      // Or specific columns for different sections
-      if ([2, 3, 4, 11, 12, 13, 14, 15, 16, 17].includes(colIndex)) {
-        cell.numFmt = '"Ksh "#,##0.00';
-      }
+
+    // Apply currency formatting to numeric cells in currency columns
+    // (applied regardless of the amount so zero/negative values keep the
+    // same formatting as the rest of the column)
+    if (typeof value === 'number' && CURRENCY_COLUMNS.includes(index + 1)) {
+      cell.numFmt = CURRENCY_FMT;
     }
-    
+
     cell.border = {
       top: { style: 'thin', color: { argb: 'FFD3D3D3' } },
       left: { style: 'thin', color: { argb: 'FFD3D3D3' } },
@@ -118,7 +124,7 @@ const addTableRow = (
       };
     });
   }
-  
+
   if (isTotalRow) {
     rowData.eachCell((cell) => {
       cell.fill = {
@@ -134,148 +140,66 @@ const addTableRow = (
   }
 };
 
+const colIndex = (letter: string) => letter.charCodeAt(0) - 64;
+const colLetter = (index: number) => String.fromCharCode(64 + index);
+
+/**
+ * Writes a totals row. The label is centered across the columns to the left of
+ * the first mapped total column, and each total amount is written directly
+ * under its matching data column (per columnMap), so amounts always align
+ * with the header they belong to. No values are ever written outside
+ * `lastColumn`.
+ */
 const addTotalRow = (
   worksheet: ExcelJS.Worksheet,
   startRow: number,
   endRow: number,
-  totals: any,
-  totalLabel: string = 'Total'
+  totals: Record<string, number>,
+  columnMap: { column: string; key: string }[],
+  totalLabel: string = 'Total',
+  lastColumn: string = 'R'
 ) => {
   const totalRow = endRow + 1;
-  
+  const lastColIdx = colIndex(lastColumn);
+
   // Clear any existing data in the total row
-  for (let col = 1; col <= 18; col++) {
-    worksheet.getCell(`${String.fromCharCode(64 + col)}${totalRow}`).value = null;
+  for (let col = 1; col <= lastColIdx; col++) {
+    worksheet.getCell(`${colLetter(col)}${totalRow}`).value = null;
   }
-  
-  // Set total label centered across columns A-C
-  worksheet.mergeCells(`A${totalRow}:C${totalRow}`);
+
+  // Base styling for the whole total band (fill + centered alignment)
+  for (let col = 1; col <= lastColIdx; col++) {
+    const cell = worksheet.getCell(`${colLetter(col)}${totalRow}`);
+    cell.font = { bold: true, size: 11, color: { argb: 'FF1A3A5C' } };
+    cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFE8F0FE' },
+    };
+    cell.border = {
+      top: { style: 'medium', color: { argb: 'FF0066B2' } },
+      bottom: { style: 'medium', color: { argb: 'FF0066B2' } },
+    };
+  }
+
+  // Total label centered across the label columns (A up to the column
+  // immediately before the first total column)
+  const firstTotalColIdx = columnMap.length > 0 ? colIndex(columnMap[0].column) : lastColIdx;
+  if (firstTotalColIdx > 2) {
+    worksheet.mergeCells(`A${totalRow}:${colLetter(firstTotalColIdx - 1)}${totalRow}`);
+  }
   const labelCell = worksheet.getCell(`A${totalRow}`);
   labelCell.value = totalLabel;
   labelCell.font = { bold: true, size: 12, color: { argb: 'FF1A3A5C' } };
-  labelCell.alignment = { horizontal: 'center', vertical: 'middle' };
-  labelCell.fill = {
-    type: 'pattern',
-    pattern: 'solid',
-    fgColor: { argb: 'FFE8F0FE' },
-  };
-  labelCell.border = {
-    top: { style: 'medium', color: { argb: 'FF0066B2' } },
-    bottom: { style: 'medium', color: { argb: 'FF0066B2' } },
-  };
-  
-  // Ground Rent total (Column J)
-  const groundRentCell = worksheet.getCell(`J${totalRow}`);
-  groundRentCell.value = totals.groundRent || 0;
-  groundRentCell.font = { bold: true, size: 11, color: { argb: 'FF1A3A5C' } };
-  groundRentCell.numFmt = '"Ksh "#,##0.00';
-  groundRentCell.alignment = { horizontal: 'center', vertical: 'middle' };
-  groundRentCell.fill = {
-    type: 'pattern',
-    pattern: 'solid',
-    fgColor: { argb: 'FFE8F0FE' },
-  };
-  groundRentCell.border = {
-    top: { style: 'medium', color: { argb: 'FF0066B2' } },
-    bottom: { style: 'medium', color: { argb: 'FF0066B2' } },
-  };
-  
-  // VAT total (Column L)
-  const vatCell = worksheet.getCell(`L${totalRow}`);
-  vatCell.value = totals.vat || 0;
-  vatCell.font = { bold: true, size: 11, color: { argb: 'FF1A3A5C' } };
-  vatCell.numFmt = '"Ksh "#,##0.00';
-  vatCell.alignment = { horizontal: 'center', vertical: 'middle' };
-  vatCell.fill = {
-    type: 'pattern',
-    pattern: 'solid',
-    fgColor: { argb: 'FFE8F0FE' },
-  };
-  vatCell.border = {
-    top: { style: 'medium', color: { argb: 'FF0066B2' } },
-    bottom: { style: 'medium', color: { argb: 'FF0066B2' } },
-  };
-  
-  // Service Charge total (Column M)
-  const serviceChargeCell = worksheet.getCell(`M${totalRow}`);
-  serviceChargeCell.value = totals.serviceCharge || 0;
-  serviceChargeCell.font = { bold: true, size: 11, color: { argb: 'FF1A3A5C' } };
-  serviceChargeCell.numFmt = '"Ksh "#,##0.00';
-  serviceChargeCell.alignment = { horizontal: 'center', vertical: 'middle' };
-  serviceChargeCell.fill = {
-    type: 'pattern',
-    pattern: 'solid',
-    fgColor: { argb: 'FFE8F0FE' },
-  };
-  serviceChargeCell.border = {
-    top: { style: 'medium', color: { argb: 'FF0066B2' } },
-    bottom: { style: 'medium', color: { argb: 'FF0066B2' } },
-  };
-  
-  // Rent total (Column N)
-  const rentCell = worksheet.getCell(`N${totalRow}`);
-  rentCell.value = totals.rent || 0;
-  rentCell.font = { bold: true, size: 11, color: { argb: 'FF1A3A5C' } };
-  rentCell.numFmt = '"Ksh "#,##0.00';
-  rentCell.alignment = { horizontal: 'center', vertical: 'middle' };
-  rentCell.fill = {
-    type: 'pattern',
-    pattern: 'solid',
-    fgColor: { argb: 'FFE8F0FE' },
-  };
-  rentCell.border = {
-    top: { style: 'medium', color: { argb: 'FF0066B2' } },
-    bottom: { style: 'medium', color: { argb: 'FF0066B2' } },
-  };
-  
-  // Amount Payable total (Column O)
-  const amountPayableCell = worksheet.getCell(`O${totalRow}`);
-  amountPayableCell.value = totals.amountPayable || 0;
-  amountPayableCell.font = { bold: true, size: 11, color: { argb: 'FF1A3A5C' } };
-  amountPayableCell.numFmt = '"Ksh "#,##0.00';
-  amountPayableCell.alignment = { horizontal: 'center', vertical: 'middle' };
-  amountPayableCell.fill = {
-    type: 'pattern',
-    pattern: 'solid',
-    fgColor: { argb: 'FFE8F0FE' },
-  };
-  amountPayableCell.border = {
-    top: { style: 'medium', color: { argb: 'FF0066B2' } },
-    bottom: { style: 'medium', color: { argb: 'FF0066B2' } },
-  };
-  
-  // Amount Paid total (Column P)
-  const amountPaidCell = worksheet.getCell(`P${totalRow}`);
-  amountPaidCell.value = totals.amountPaid || 0;
-  amountPaidCell.font = { bold: true, size: 11, color: { argb: 'FF1A3A5C' } };
-  amountPaidCell.numFmt = '"Ksh "#,##0.00';
-  amountPaidCell.alignment = { horizontal: 'center', vertical: 'middle' };
-  amountPaidCell.fill = {
-    type: 'pattern',
-    pattern: 'solid',
-    fgColor: { argb: 'FFE8F0FE' },
-  };
-  amountPaidCell.border = {
-    top: { style: 'medium', color: { argb: 'FF0066B2' } },
-    bottom: { style: 'medium', color: { argb: 'FF0066B2' } },
-  };
-  
-  // Balance total (Column R)
-  const balanceCell = worksheet.getCell(`R${totalRow}`);
-  balanceCell.value = totals.balance || 0;
-  balanceCell.font = { bold: true, size: 11, color: { argb: 'FF1A3A5C' } };
-  balanceCell.numFmt = '"Ksh "#,##0.00';
-  balanceCell.alignment = { horizontal: 'center', vertical: 'middle' };
-  balanceCell.fill = {
-    type: 'pattern',
-    pattern: 'solid',
-    fgColor: { argb: 'FFE8F0FE' },
-  };
-  balanceCell.border = {
-    top: { style: 'medium', color: { argb: 'FF0066B2' } },
-    bottom: { style: 'medium', color: { argb: 'FF0066B2' } },
-  };
-  
+
+  // Total amounts under their matching data columns
+  columnMap.forEach(({ column, key }) => {
+    const cell = worksheet.getCell(`${column}${totalRow}`);
+    cell.value = totals[key] || 0;
+    cell.numFmt = CURRENCY_FMT;
+  });
+
   // Set row height
   worksheet.getRow(totalRow).height = 30;
 };
@@ -288,7 +212,7 @@ const calculateVAT = (
   vatRate: number = 16
 ): { vatAmount: number; taxableAmount: number } => {
   const vatRateDecimal = vatRate / 100;
-  
+
   switch (vatType) {
     case 'INCLUSIVE':
       const totalInclusive = rentAmount + serviceChargeValue;
@@ -398,24 +322,25 @@ export const exportPropertyToExcel = async (
     ];
 
     propertyDetails.forEach(([label, value]) => {
-      // Label column - left aligned
+      // Label column - centered
       const labelCell = worksheet.getCell(`A${currentRow}`);
       labelCell.value = label;
       labelCell.font = { bold: true, size: 11, color: { argb: 'FF1A3A5C' } };
-      labelCell.alignment = { horizontal: 'right', vertical: 'middle' };
+      labelCell.alignment = { horizontal: 'center', vertical: 'middle' };
       labelCell.fill = {
         type: 'pattern',
         pattern: 'solid',
         fgColor: { argb: 'FFF5F8FA' },
       };
-      
-      // Value column - left aligned
-      worksheet.mergeCells(`B${currentRow}:R${currentRow}`);
+
+      // Value column - value written directly in column B (next to its label
+      // in column A) instead of merged across B:R, which pushed the text to
+      // the visual middle of the sheet (~column I)
       const valueCell = worksheet.getCell(`B${currentRow}`);
       valueCell.value = value;
       valueCell.font = { size: 11, color: { argb: 'FF333333' } };
-      valueCell.alignment = { horizontal: 'left', vertical: 'middle' };
-      
+      valueCell.alignment = { horizontal: 'center', vertical: 'middle' };
+
       currentRow++;
     });
 
@@ -432,30 +357,31 @@ export const exportPropertyToExcel = async (
     currentRow++;
 
     const summary = collectionStatement?.summary || {};
-    
-    const summaryData = [
+
+    // [label, value, isCurrency]
+    const summaryData: Array<[string, any, boolean?]> = [
       ['Total Units', summary.totalUnits || property.units?.length || 0],
       ['Occupied Units', summary.occupiedUnits || 0],
       ['Vacant Units', summary.vacantUnits || 0],
       ['Occupancy Rate', `${summary.occupancyRate || 0}%`],
-      ['Total Rent Potential', `Ksh ${(summary.totalRentPotential || 0).toLocaleString()}`],
-      ['Total Deposits', `Ksh ${(summary.totalDeposits || 0).toLocaleString()}`],
-      ['Total Rent Collected', `Ksh ${(summary.totalRentCollected || 0).toLocaleString()}`],
-      ['Total Service Charge', `Ksh ${(summary.totalServiceCharge || 0).toLocaleString()}`],
-      ['Total VAT Collected', `Ksh ${(summary.totalVATCollected || 0).toLocaleString()}`],
-      ['Total Bills Amount', `Ksh ${(summary.totalBillsAmount || 0).toLocaleString()}`],
-      ['Total Other Incomes', `Ksh ${(summary.totalOtherIncomes || 0).toLocaleString()}`],
-      ['Total Commissions', `Ksh ${(summary.totalCommissions || totals.totalCommissions || 0).toLocaleString()}`],
-      ['Total Outstanding', `Ksh ${(summary.totalOutstanding || 0).toLocaleString()}`],
-      ['Total Revenue', `Ksh ${(summary.totalRevenue || 0).toLocaleString()}`],
-      ['Net Revenue', `Ksh ${(summary.netRevenue || 0).toLocaleString()}`],
+      ['Total Rent Potential', summary.totalRentPotential || 0, true],
+      ['Total Deposits', summary.totalDeposits || 0, true],
+      ['Total Rent Collected', summary.totalRentCollected || 0, true],
+      ['Total Service Charge', summary.totalServiceCharge || 0, true],
+      ['Total VAT Collected', summary.totalVATCollected || 0, true],
+      ['Total Bills Amount', summary.totalBillsAmount || 0, true],
+      ['Total Other Incomes', summary.totalOtherIncomes || 0, true],
+      ['Total Commissions', summary.totalCommissions || totals.totalCommissions || 0, true],
+      ['Total Outstanding', summary.totalOutstanding || 0, true],
+      ['Total Revenue', summary.totalRevenue || 0, true],
+      ['Net Revenue', summary.netRevenue || 0, true],
     ];
 
-    summaryData.forEach(([label, value], index) => {
+    summaryData.forEach(([label, value, isCurrency], index) => {
       const labelCell = worksheet.getCell(`A${currentRow}`);
       labelCell.value = label;
       labelCell.font = { bold: true, size: 11, color: { argb: 'FF1A3A5C' } };
-      labelCell.alignment = { horizontal: 'left', vertical: 'middle' };
+      labelCell.alignment = { horizontal: 'center', vertical: 'middle' };
       if (index % 2 === 0) {
         labelCell.fill = {
           type: 'pattern',
@@ -463,16 +389,21 @@ export const exportPropertyToExcel = async (
           fgColor: { argb: 'FFF5F8FA' },
         };
       }
-      
-      worksheet.mergeCells(`B${currentRow}:R${currentRow}`);
+
+      // Value written directly in column B (next to its label in column A)
+      // instead of merged across B:R, which pushed the amount to the visual
+      // middle of the sheet (~column I)
       const valueCell = worksheet.getCell(`B${currentRow}`);
       valueCell.value = value;
       valueCell.font = { size: 11 };
-      valueCell.alignment = { horizontal: 'left', vertical: 'middle' };
+      valueCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      if (isCurrency) {
+        valueCell.numFmt = CURRENCY_FMT;
+      }
       if (label.includes('Total') && !label.includes('Units')) {
         valueCell.font = { bold: true, size: 11, color: { argb: 'FF004080' } };
       }
-      
+
       currentRow++;
     });
 
@@ -482,7 +413,7 @@ export const exportPropertyToExcel = async (
   // ========== UNITS & TENANTS SECTION ==========
   if (selectedSectionIds.includes('unitsAndTenants')) {
     const unitSummaries = collectionStatement?.unitSummaries || [];
-    
+
     addSubsectionHeader(worksheet, currentRow, 'UNITS & TENANTS');
     currentRow++;
 
@@ -494,18 +425,15 @@ export const exportPropertyToExcel = async (
     addTableHeaders(worksheet, currentRow, unitHeaders);
     currentRow++;
 
-    let unitTotals = { 
-      groundRent: 0, 
-      deposit: 0, 
-      rentCollected: 0, 
-      serviceCharge: 0, 
-      vat: 0, 
-      billsAmount: 0, 
-      outstanding: 0,
+    // Totals keys map 1:1 onto the table columns I-O
+    let unitTotals = {
       rent: 0,
-      amountPayable: 0,
-      amountPaid: 0,
-      balance: 0
+      deposit: 0,
+      rentCollected: 0,
+      serviceCharge: 0,
+      vat: 0,
+      billsAmount: 0,
+      outstanding: 0
     };
 
     if (unitSummaries.length > 0) {
@@ -527,22 +455,18 @@ export const exportPropertyToExcel = async (
           unit.financialSummary?.billsAmount || 0,
           unit.financialSummary?.outstanding || 0,
         ];
-        
+
         addTableRow(worksheet, currentRow, rowData, index % 2 === 0);
-        
+
         // Update totals
-        unitTotals.groundRent += unit.rentAmount || 0;
+        unitTotals.rent += unit.rentAmount || 0;
         unitTotals.deposit += unit.financialSummary?.deposit || 0;
         unitTotals.rentCollected += unit.financialSummary?.rentCollected || 0;
         unitTotals.serviceCharge += unit.financialSummary?.serviceCharge || 0;
         unitTotals.vat += unit.financialSummary?.vatCollected || 0;
         unitTotals.billsAmount += unit.financialSummary?.billsAmount || 0;
         unitTotals.outstanding += unit.financialSummary?.outstanding || 0;
-        unitTotals.rent += unit.rentAmount || 0;
-        unitTotals.amountPayable += unit.rentAmount || 0;
-        unitTotals.amountPaid += unit.financialSummary?.rentCollected || 0;
-        unitTotals.balance += unit.financialSummary?.outstanding || 0;
-        
+
         currentRow++;
       });
     } else {
@@ -566,19 +490,35 @@ export const exportPropertyToExcel = async (
           '', // bills amount
           '', // outstanding
         ];
-        
+
         addTableRow(worksheet, currentRow, rowData, index % 2 === 0);
-        
-        unitTotals.groundRent += unit.rentAmount || 0;
-        unitTotals.deposit += tenant?.deposit || 0;
+
         unitTotals.rent += unit.rentAmount || 0;
-        unitTotals.amountPayable += unit.rentAmount || 0;
+        unitTotals.deposit += tenant?.deposit || 0;
         currentRow++;
       });
     }
 
-    // Add unit totals row
-    addTotalRow(worksheet, currentRow - (unitSummaries.length || property.units?.length || 1), currentRow - 1, unitTotals, 'GRAND TOTAL');
+    // Add unit totals row - each amount under its matching column:
+    // I=Rent Amount, J=Deposit, K=Rent Collected, L=Service Charge,
+    // M=VAT Collected, N=Bills Amount, O=Outstanding
+    addTotalRow(
+      worksheet,
+      currentRow - (unitSummaries.length || property.units?.length || 1),
+      currentRow - 1,
+      unitTotals,
+      [
+        { column: 'I', key: 'rent' },
+        { column: 'J', key: 'deposit' },
+        { column: 'K', key: 'rentCollected' },
+        { column: 'L', key: 'serviceCharge' },
+        { column: 'M', key: 'vat' },
+        { column: 'N', key: 'billsAmount' },
+        { column: 'O', key: 'outstanding' },
+      ],
+      'GRAND TOTAL',
+      'O'
+    );
     currentRow += 2;
   }
 
@@ -596,19 +536,19 @@ export const exportPropertyToExcel = async (
 
     if (incomes.length > 0) {
       incomes.forEach((income: any, index: number) => {
-        const tenantName = income.tenantId 
+        const tenantName = income.tenantId
           ? getTenantName(income.tenantId, property)
           : 'Property Income';
-        
+
         const rowData = [
           tenantName,
           income.amount || 0,
           income.frequency || 'MONTHLY',
           income.createdAt ? new Date(income.createdAt).toLocaleDateString('en-GB') : '-',
         ];
-        
+
         addTableRow(worksheet, currentRow, rowData, index % 2 === 0);
-        
+
         totalIncomeAmount += income.amount || 0;
         currentRow++;
       });
@@ -618,37 +558,17 @@ export const exportPropertyToExcel = async (
       currentRow++;
     }
 
-    // Add income total
-    const totalRow = currentRow;
-    worksheet.mergeCells(`A${totalRow}:C${totalRow}`);
-    const labelCell = worksheet.getCell(`A${totalRow}`);
-    labelCell.value = 'Total Income';
-    labelCell.font = { bold: true, size: 12, color: { argb: 'FF1A3A5C' } };
-    labelCell.alignment = { horizontal: 'center', vertical: 'middle' };
-    labelCell.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: 'FFE8F0FE' },
-    };
-    labelCell.border = {
-      top: { style: 'medium', color: { argb: 'FF0066B2' } },
-      bottom: { style: 'medium', color: { argb: 'FF0066B2' } },
-    };
-    
-    const amountCell = worksheet.getCell(`D${totalRow}`);
-    amountCell.value = `Ksh ${totalIncomeAmount.toLocaleString()}`;
-    amountCell.font = { bold: true, size: 12, color: { argb: 'FF1A3A5C' } };
-    amountCell.alignment = { horizontal: 'center', vertical: 'middle' };
-    amountCell.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: 'FFE8F0FE' },
-    };
-    amountCell.border = {
-      top: { style: 'medium', color: { argb: 'FF0066B2' } },
-      bottom: { style: 'medium', color: { argb: 'FF0066B2' } },
-    };
-    
+    // Add income total - amount under the "Amount" column (B)
+    addTotalRow(
+      worksheet,
+      currentRow - 1,
+      currentRow - 1,
+      { amount: totalIncomeAmount },
+      [{ column: 'B', key: 'amount' }],
+      'Total Income',
+      'D'
+    );
+
     currentRow += 2;
   }
 
@@ -677,7 +597,7 @@ export const exportPropertyToExcel = async (
           // Try to get from property manager
           managerName = property.manager?.name || commission.managerId;
         }
-        
+
         const rowData = [
           managerName,
           commission.commissionFee ? `${commission.commissionFee}%` : '0%',
@@ -688,9 +608,9 @@ export const exportPropertyToExcel = async (
           commission.status || 'PENDING',
           commission.paidDate ? new Date(commission.paidDate).toLocaleDateString('en-GB') : '-',
         ];
-        
+
         addTableRow(worksheet, currentRow, rowData, index % 2 === 0);
-        
+
         totalCommissionAmount += commission.commissionAmount || 0;
         if (commission.status === 'PENDING') pendingCommissions += commission.commissionAmount || 0;
         if (commission.status === 'PAID') paidCommissions += commission.commissionAmount || 0;
@@ -702,26 +622,23 @@ export const exportPropertyToExcel = async (
       currentRow++;
     }
 
-    // Add commission summary
-    const commissionSummary = [
-      ['Total Commissions:', `Ksh ${totalCommissionAmount.toLocaleString()}`],
-      ['Pending Commissions:', `Ksh ${pendingCommissions.toLocaleString()}`],
-      ['Paid Commissions:', `Ksh ${paidCommissions.toLocaleString()}`]
+    // Add commission summary - amounts under the "Commission Amount" column (D)
+    const commissionSummary: Array<[string, number]> = [
+      ['Total Commissions', totalCommissionAmount],
+      ['Pending Commissions', pendingCommissions],
+      ['Paid Commissions', paidCommissions]
     ];
 
     commissionSummary.forEach(([label, value]) => {
-      worksheet.mergeCells(`A${currentRow}:B${currentRow}`);
-      const labelCell = worksheet.getCell(`A${currentRow}`);
-      labelCell.value = label;
-      labelCell.font = { bold: true, size: 11, color: { argb: 'FF1A3A5C' } };
-      labelCell.alignment = { horizontal: 'right', vertical: 'middle' };
-      
-      worksheet.mergeCells(`C${currentRow}:H${currentRow}`);
-      const valueCell = worksheet.getCell(`C${currentRow}`);
-      valueCell.value = value;
-      valueCell.font = { bold: true, size: 11, color: { argb: 'FF004080' } };
-      valueCell.alignment = { horizontal: 'left', vertical: 'middle' };
-      
+      addTotalRow(
+        worksheet,
+        currentRow,
+        currentRow,
+        { amount: value },
+        [{ column: 'D', key: 'amount' }],
+        `${label}:`,
+        'H'
+      );
       currentRow++;
     });
     currentRow += 2;
@@ -752,9 +669,9 @@ export const exportPropertyToExcel = async (
           provider.chargeAmount || 0,
           provider.chargeFrequency || 'MONTHLY',
         ];
-        
+
         addTableRow(worksheet, currentRow, rowData, index % 2 === 0);
-        
+
         totalProviderCharges += provider.chargeAmount || 0;
         currentRow++;
       });
@@ -764,40 +681,17 @@ export const exportPropertyToExcel = async (
       currentRow++;
     }
 
-    // Add provider total
-    const totalRow = currentRow;
-    worksheet.mergeCells(`A${totalRow}:D${totalRow}`);
-    const labelCell = worksheet.getCell(`A${totalRow}`);
-    labelCell.value = 'Total Charges';
-    labelCell.font = { bold: true, size: 12, color: { argb: 'FF1A3A5C' } };
-    labelCell.alignment = { horizontal: 'center', vertical: 'middle' };
-    labelCell.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: 'FFE8F0FE' },
-    };
-    labelCell.border = {
-      top: { style: 'medium', color: { argb: 'FF0066B2' } },
-      bottom: { style: 'medium', color: { argb: 'FF0066B2' } },
-    };
-    
-    const amountCell = worksheet.getCell(`E${totalRow}`);
-    amountCell.value = `Ksh ${totalProviderCharges.toLocaleString()}`;
-    amountCell.font = { bold: true, size: 12, color: { argb: 'FF1A3A5C' } };
-    amountCell.alignment = { horizontal: 'center', vertical: 'middle' };
-    amountCell.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: 'FFE8F0FE' },
-    };
-    amountCell.border = {
-      top: { style: 'medium', color: { argb: 'FF0066B2' } },
-      bottom: { style: 'medium', color: { argb: 'FF0066B2' } },
-    };
-    
-    // Merge Frequency column for total row
-    worksheet.mergeCells(`F${totalRow}:F${totalRow}`);
-    
+    // Add provider total - amount under the "Charge Amount" column (E)
+    addTotalRow(
+      worksheet,
+      currentRow - 1,
+      currentRow - 1,
+      { charges: totalProviderCharges },
+      [{ column: 'E', key: 'charges' }],
+      'Total Charges',
+      'F'
+    );
+
     currentRow += 2;
   }
 
@@ -806,7 +700,7 @@ export const exportPropertyToExcel = async (
   worksheet.mergeCells(`A${currentRow}:R${currentRow}`);
   const footerLine = worksheet.getCell(`A${currentRow}`);
   footerLine.value = '_______________________________________________________________';
-  footerLine.alignment = { horizontal: 'center' };
+  footerLine.alignment = { horizontal: 'center', vertical: 'middle' };
   footerLine.font = { color: { argb: 'FF666666' } };
   currentRow++;
 
@@ -815,7 +709,7 @@ export const exportPropertyToExcel = async (
   footerCell.value = 'INTERPARK ENTERPRISES LIMITED';
   footerCell.font = { size: 14, bold: true, color: { argb: 'FF0066B2' } };
   footerCell.alignment = { horizontal: 'center', vertical: 'middle' };
-  
+
   // Add contact info
   currentRow++;
   worksheet.mergeCells(`A${currentRow}:R${currentRow}`);
@@ -856,7 +750,7 @@ export const exportPropertyToExcel = async (
   }.xlsx`;
 
   const buffer = await workbook.xlsx.writeBuffer();
-  
+
   return {
     buffer,
     filename,
