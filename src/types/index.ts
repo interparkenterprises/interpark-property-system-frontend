@@ -486,6 +486,113 @@ export interface Tenant {
     billOutstanding: number;
     totalOutstanding: number;
   };
+  isFrozen?: boolean;
+  freezePeriods?: TenantFreezePeriod[];
+}
+
+// =============================================
+// TENANT FREEZE TYPES (NEW)
+// =============================================
+export interface TenantFreezePeriod {
+  id: string;
+  startDate: string;
+  endDate: string | null;
+  reason: string | null;
+  frozenById: string;
+  unfrozenById?: string;
+  frozenBy?: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  unfrozenBy?: {
+    id: string;
+    name: string;
+    email: string;
+  };
+}
+
+export interface FreezeTenantRequest {
+  freezeStartDate?: string;
+  freezeEndDate?: string;
+  reason?: string;
+}
+
+export interface UnfreezeTenantRequest {
+  unfreezeDate?: string;
+  reason?: string;
+}
+
+export interface FreezeTenantResponse {
+  success: boolean;
+  message: string;
+  data: {
+    tenant: Tenant;
+    freezePeriod: TenantFreezePeriod;
+    lifecycle: TenantLifecycle;
+  };
+}
+
+export interface UnfreezeTenantResponse {
+  success: boolean;
+  message: string;
+  data: {
+    tenant: Tenant;
+    closedFreezePeriod: TenantFreezePeriod;
+    lifecycle: TenantLifecycle;
+  };
+}
+
+export interface FreezeSummary {
+  id: string;
+  startDate: string;
+  endDate: string | null;
+  isOpen: boolean;
+  reason: string | null;
+  frozenBy?: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  unfrozenBy?: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  durationDays: number;
+  frozenMonthsCount: number;
+  frozenMonths: string[];
+  arrearsAtStart: number;
+  arrearsAtEnd: number;
+  collectedDuringFreeze: number;
+  arrearsDelta: number;
+}
+
+export interface TenantFreezeHistoryResponse {
+  success: boolean;
+  data: {
+    tenant: {
+      id: string;
+      fullName: string;
+      status: TenantStatus;
+      isFrozen: boolean;
+    };
+    currentArrears: number;
+    freezeSummaries: FreezeSummary[];
+    lifecycle: TenantLifecycle;
+  };
+}
+
+export interface GetTenantsResponse {
+  tenants: Tenant[];
+  metadata: {
+    totalCount: number;
+    activeTenantsCount: number;
+    leftTenantsCount: number;
+    frozenTenantsCount: number;
+    showLeftTenants: boolean;
+    filter: string;
+  };
 }
 
 // Add these new interfaces

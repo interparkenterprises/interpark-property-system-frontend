@@ -3,7 +3,7 @@ import { WhatsAppSendButton } from '@/components/tenant/WhatsAppSendButton';
 import { useEffect, useState, useCallback, useMemo, JSX } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { motion, Variants } from 'framer-motion';
-import { Tenant, Invoice, InvoiceStatus, PaymentReport, PaymentPreview, CreatePaymentReportResponse, PaymentStatus, BillInvoice, PaymentPolicy, DemandLetter, DemandLetterStatus, CreatePaymentReportRequest } from '@/types';
+import { Tenant, Invoice, InvoiceStatus, PaymentReport, PaymentPreview, CreatePaymentReportResponse, PaymentStatus, BillInvoice, PaymentPolicy, DemandLetter, DemandLetterStatus, CreatePaymentReportRequest, FreezeTenantRequest, UnfreezeTenantRequest, TenantFreezeHistoryResponse, FreezeSummary } from '@/types';
 import { tenantsAPI, invoicesAPI, paymentsAPI, billInvoicesAPI, demandLettersAPI } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Dialog,  DialogContent,  DialogDescription,  DialogFooter,  DialogHeader,  DialogTitle,} from '@/components/ui/dialog';
@@ -87,11 +87,26 @@ export default function TenantDetailPage() {
     
   const canCreatePayments = isAdmin || isManager || hasPermission(PermissionCode.RECORD_PAYMENTS);
   const canDeletePayments = isAdmin || isManager || hasPermission(PermissionCode.DELETE_PAYMENT_RECORDS);
-  const canDownloadPaymentReports = isAdmin || isManager || hasPermission(PermissionCode.VIEW_PAYMENT_REPORTS);
-  
+
+  // Aggregated payment report PDF — dedicated permission, NOT bound to view.
+  const canDownloadPaymentReports =
+    isAdmin || isManager || hasPermission(PermissionCode.DOWNLOAD_PAYMENT_REPORT);
+
+  // Single payment receipt PDF — dedicated permission.
+  const canDownloadPaymentReceipts =
+    isAdmin || isManager || hasPermission(PermissionCode.DOWNLOAD_PAYMENT_RECEIPT);
+
   const canViewBillInvoices = isAdmin || isManager || hasPermission(PermissionCode.VIEW_BILL_INVOICES);
   const canDeleteBillInvoices = isAdmin || isManager || hasPermission(PermissionCode.DELETE_BILL_INVOICE);
-  const canDownloadBillInvoices = isAdmin || isManager || hasPermission(PermissionCode.DOWNLOAD_BILL_INVOICE);
+
+  // Bill invoice PDF (single) — existing permission.
+  const canDownloadBillInvoices =
+    isAdmin || isManager || hasPermission(PermissionCode.DOWNLOAD_BILL_INVOICE);
+
+  // Aggregated bill report PDF — new permission.
+  const canDownloadBillReports =
+    isAdmin || isManager || hasPermission(PermissionCode.DOWNLOAD_BILL_REPORT);
+
   const canCreateBillInvoices = isAdmin || isManager || hasPermission(PermissionCode.CREATE_BILL_INVOICE);
   
   const canViewDemandLetters = isAdmin || isManager ||
@@ -105,8 +120,13 @@ export default function TenantDetailPage() {
     hasPermission(PermissionCode.AUTO_GENERATE_DEMAND_LETTER);
   
   const canViewOverdueInvoices = isAdmin || isManager || hasPermission(PermissionCode.VIEW_OVERDUE_INVOICES);
-  
-  const canViewComprehensiveReport = isAdmin || isManager;
+
+  // Aggregated comprehensive report PDF — new permission.
+  // (Kept `canViewComprehensiveReport` as an alias so the rest of the file
+  // doesn't need to change; remove the alias in a later cleanup.)
+  const canDownloadComprehensiveReport =
+    isAdmin || isManager || hasPermission(PermissionCode.DOWNLOAD_COMPREHENSIVE_REPORT);
+  const canViewComprehensiveReport = canDownloadComprehensiveReport;
   
   // Also check module-level permissions from the centralized system
   const canAccessTenantsModule = canAccessModule('tenants');
@@ -164,6 +184,59 @@ export default function TenantDetailPage() {
   const [downloadingReceiptId, setDownloadingReceiptId] = useState<string | null>(null);
   const [deletingPaymentReportId, setDeletingPaymentReportId] = useState<string | null>(null);
 
+  // ==============================================
+  // TENANT FREEZE STATE
+  // ==============================================
+  const [freezeDialogOpen, setFreezeDialogOpen] = useState(false);
+  const [freezeAction, setFreezeAction] = useState<'freeze' | 'unfreeze'>('freeze');
+  const [freezeStartDate, setFreezeStartDate] = useState('');
+  const [freezeEndDate, setFreezeEndDate] = useState('');
+  const [freezeReason, setFreezeReason] = useState('');
+  const [unfreezeDate, setUnfreezeDate] = useState(new Date().toISOString().split('T')[0]);
+  const [freezeSubmitting, setFreezeSubmitting] = useState(false);
+  const [freezeHistory, setFreezeHistory] = useState<TenantFreezeHistoryResponse['data'] | null>(null);
+
+  // Whether the tenant is currently frozen (rent accrual paused).
+  // Falls back to deriving it from the freeze periods if the flag is missing.
+  const isTenantFrozen = useMemo(() => {
+    if (!tenant) return false;
+    if (typeof tenant.isFrozen === 'boolean') return tenant.isFrozen;
+    const periods = tenant.freezePeriods || [];
+    const now = new Date();
+    return periods.some(
+      (p) => !p.endDate || new Date(p.endDate) >= now
+    );
+  }, [tenant]);
+
+  // Freeze permission: only ADMIN or MANAGER can freeze/unfreeze.
+  const canFreezeTenant = isAdmin || isManager;
+
+  // While frozen, new invoices cannot be generated for this tenant.
+  const canGenerateInvoiceForTenant = canCreateInvoices && !isTenantFrozen;
+
+  // While frozen, payments may only be recorded against the balance the
+  // tenant owed BEFORE the freeze started (arrears at freeze start).
+  // - If there is no pre-freeze balance, payment recording is blocked.
+  // - The amount entered is validated (and capped) against that balance.
+  const preFreezeBalance = useMemo(() => {
+    if (!isTenantFrozen) return 0;
+    const summaries = freezeHistory?.freezeSummaries || tenant?.freezePeriods || [];
+    // The current (open) freeze period is the most recent one
+    const active: any = summaries[0];
+    if (!active) return 0;
+    const arrearsAtStart = typeof active.arrearsAtStart === 'number'
+      ? active.arrearsAtStart
+      : 0;
+    if (arrearsAtStart > 0) return arrearsAtStart;
+    // Fallback: current arrears minus anything collected during the freeze
+    const currentArrears = freezeHistory?.currentArrears ?? 0;
+    return Math.max(0, currentArrears - (active.collectedDuringFreeze || 0));
+  }, [isTenantFrozen, freezeHistory, tenant]);
+
+  const canRecordPaymentForTenant = canCreatePayments && (!isTenantFrozen || preFreezeBalance > 0);
+
+  const effectivePaymentCap = isTenantFrozen ? preFreezeBalance : Infinity;
+
   const [invoiceForm, setInvoiceForm] = useState({
     dueDate: '',
     notes: '',
@@ -187,6 +260,25 @@ export default function TenantDetailPage() {
   });
 
   const tenantId = params.id as string;
+
+  // ==============================================
+  // TENANT FREEZE - DATA FETCHING
+  // ==============================================
+  // Fetch freeze history (incl. arrears impact) when the tenant is frozen so
+  // payment recording can be capped at the pre-freeze balance.
+  useEffect(() => {
+    const fetchFreezeHistory = async () => {
+      if (!tenantId || !canFreezeTenant) return;
+      try {
+        const response = await tenantsAPI.getFreezeHistory(tenantId);
+        setFreezeHistory(response.data);
+      } catch (error) {
+        console.error('Error fetching freeze history:', error);
+      }
+    };
+
+    fetchFreezeHistory();
+  }, [tenantId, canFreezeTenant, isTenantFrozen]);
 
   // Fetch data based on permissions
   useEffect(() => {
@@ -375,6 +467,54 @@ export default function TenantDetailPage() {
     }
     
     return '';
+  };
+
+  // ==============================================
+  // TENANT FREEZE - ACTIONS
+  // ==============================================
+  const openFreezeDialog = (action: 'freeze' | 'unfreeze') => {
+    setFreezeAction(action);
+    setFreezeStartDate('');
+    setFreezeEndDate('');
+    setFreezeReason('');
+    setUnfreezeDate(new Date().toISOString().split('T')[0]);
+    setFreezeDialogOpen(true);
+  };
+
+  const handleFreezeSubmit = async () => {
+    if (!tenant) return;
+
+    try {
+      setFreezeSubmitting(true);
+
+      if (freezeAction === 'freeze') {
+        const payload: FreezeTenantRequest = {};
+        if (freezeStartDate) payload.freezeStartDate = freezeStartDate;
+        if (freezeEndDate) payload.freezeEndDate = freezeEndDate;
+        if (freezeReason.trim()) payload.reason = freezeReason.trim();
+
+        const response = await tenantsAPI.freeze(tenantId, payload);
+        toast.success(response.message || 'Tenant frozen successfully. Rent accrual paused.');
+        setTenant(response.data.tenant);
+      } else {
+        const payload: UnfreezeTenantRequest = {};
+        if (unfreezeDate) payload.unfreezeDate = unfreezeDate;
+        if (freezeReason.trim()) payload.reason = freezeReason.trim();
+
+        const response = await tenantsAPI.unfreeze(tenantId, payload);
+        toast.success(response.message || 'Tenant unfrozen successfully. Rent accrual resumed.');
+        setTenant(response.data.tenant);
+      }
+
+      setFreezeDialogOpen(false);
+      fetchInvoices();
+      fetchOutstandingInvoices();
+    } catch (error: any) {
+      console.error('Error toggling tenant freeze:', error);
+      toast.error(error.message || 'Failed to update tenant freeze status');
+    } finally {
+      setFreezeSubmitting(false);
+    }
   };
 
   const fetchTenant = async () => {
@@ -639,6 +779,20 @@ export default function TenantDetailPage() {
       return;
     }
 
+    // Frozen tenant: payments are only allowed against the pre-freeze balance
+    if (isTenantFrozen) {
+      if (preFreezeBalance <= 0) {
+        toast.error('This tenant is currently frozen. No payments can be recorded until the tenant is unfrozen.');
+        return;
+      }
+      if (amountPaid > preFreezeBalance) {
+        toast.error(
+          `This tenant is currently frozen. Payments are limited to the pre-freeze balance of Ksh ${preFreezeBalance.toLocaleString()}.`
+        );
+        return;
+      }
+    }
+
     try {
       setCreatingPayment(true);
       
@@ -715,6 +869,14 @@ export default function TenantDetailPage() {
       return;
     }
 
+    // Frozen tenant: rent accrual is paused, so no new invoices may be generated
+    if (isTenantFrozen) {
+      toast.error(
+        'This tenant is currently frozen. Rent accrual is paused and no new invoices can be generated until the tenant is unfrozen.'
+      );
+      return;
+    }
+
     try {
       setGenerating(true);
       toast.loading(`Generating ${tenant.paymentPolicy} invoice...`);
@@ -758,6 +920,14 @@ export default function TenantDetailPage() {
 
     if (!canCreateInvoices) {
       toast.error('You do not have permission to generate invoices');
+      return;
+    }
+
+    // Frozen tenant: rent accrual is paused, so no new balance invoices
+    if (isTenantFrozen) {
+      toast.error(
+        'This tenant is currently frozen. Rent accrual is paused and no new invoices can be generated until the tenant is unfrozen.'
+      );
       return;
     }
 
@@ -950,8 +1120,8 @@ const handleDownloadPaymentReport = async () => {
   const handleDownloadBillPaymentReport = async () => {
     if (!tenant) return;
     
-    if (!canDownloadBillInvoices) {
-      toast.error('You do not have permission to download bill invoices');
+    if (!canDownloadBillReports) {
+      toast.error('You do not have permission to download bill reports');
       return;
     }
 
@@ -1133,6 +1303,11 @@ const handleDownloadPaymentReport = async () => {
   };
   
   const handleDownloadReceipt = async (paymentReportId: string, receiptNumber?: string) => {
+    if (!canDownloadPaymentReceipts) {
+      toast.error('You do not have permission to download payment receipts');
+      return;
+    }
+
     try {
       setDownloadingReceiptId(paymentReportId);
       const blob = await paymentsAPI.downloadReceipt(paymentReportId);
@@ -1253,10 +1428,18 @@ const handleDownloadPaymentReport = async () => {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
         </svg>
       ),
-      onClick: () => setShowInvoiceDialog(true),
+      onClick: () => {
+        if (isTenantFrozen) {
+          toast.error(
+            'This tenant is currently frozen. Rent accrual is paused and no new invoices can be generated until the tenant is unfrozen.'
+          );
+          return;
+        }
+        setShowInvoiceDialog(true);
+      },
       variant: 'primary',
-      permission: isAdmin || isManager || permissions.invoices.canCreate,
-      description: 'Create new invoice',
+      permission: canGenerateInvoiceForTenant,
+      description: isTenantFrozen ? 'Blocked: tenant is frozen' : 'Create new invoice',
       group: 'invoices'
     },
     {
@@ -1284,10 +1467,20 @@ const handleDownloadPaymentReport = async () => {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
         </svg>
       ),
-      onClick: () => setShowCreatePaymentDialog(true),
+      onClick: () => {
+        if (isTenantFrozen && preFreezeBalance <= 0) {
+          toast.error(
+            'This tenant is currently frozen and has no pre-freeze balance owed. No payments can be recorded until the tenant is unfrozen.'
+          );
+          return;
+        }
+        setShowCreatePaymentDialog(true);
+      },
       variant: 'success',
-      permission: isAdmin || isManager || permissions.payments.canCreate,
-      description: 'Record new payment',
+      permission: canRecordPaymentForTenant,
+      description: isTenantFrozen
+        ? `Frozen: payments limited to pre-freeze balance (Ksh ${preFreezeBalance.toLocaleString()})`
+        : 'Record new payment',
       group: 'payments'
     },
     {
@@ -2057,6 +2250,103 @@ const handleDownloadPaymentReport = async () => {
             canDelete={isAdmin || isManager}
           />
         </motion.div>
+
+        {/* ============================================= */}
+        {/* FREEZE / UNFREEZE SECTION - Admin/Manager only */}
+        {/* ============================================= */}
+        {canFreezeTenant && (
+          <motion.div variants={itemVariants} className="col-span-1 lg:col-span-2">
+            <div
+              className={`rounded-2xl p-6 shadow-lg border ${
+                isTenantFrozen ? 'bg-red-50 border-red-300' : 'bg-white border-gray-200'
+              }`}
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                      isTenantFrozen ? 'bg-red-100' : 'bg-blue-100'
+                    }`}
+                  >
+                    <svg
+                      className={`w-6 h-6 ${isTenantFrozen ? 'text-red-700' : 'text-blue-700'}`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 3v18M4.2 7.5l15.6 9M19.8 7.5l-15.6 9"
+                      />
+                    </svg>
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold text-heading-color flex items-center gap-2">
+                      Tenant Freeze Control
+                      {isTenantFrozen && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-600 text-white">
+                          FROZEN — RENT ACCRUAL PAUSED
+                        </span>
+                      )}
+                    </h2>
+                    <p className="text-sm text-gray-600 mt-0.5">
+                      {isTenantFrozen
+                        ? preFreezeBalance > 0
+                          ? `This tenant is frozen. Only the pre-freeze balance of Ksh ${preFreezeBalance.toLocaleString()} can be collected; no new invoices can be generated.`
+                          : 'This tenant is frozen. Rent accrual is paused; no invoices or payments can be processed until unfrozen.'
+                        : 'Freezing a tenant stops rent accrual from the effective date. Invoices cannot be generated while frozen, and payments are limited to the balance owed before the freeze.'}
+                    </p>
+                    {isTenantFrozen && freezeHistory?.freezeSummaries && freezeHistory.freezeSummaries.length > 0 && (
+                      (() => {
+                        const activeSummary: FreezeSummary | undefined = freezeHistory.freezeSummaries[0];
+                        if (!activeSummary) return null;
+                        return (
+                          <p className="text-xs text-gray-500 mt-1">
+                            Current freeze started{' '}
+                            {new Date(activeSummary.startDate).toLocaleDateString('en-GB')}
+                            {activeSummary.endDate
+                              ? ` · ends ${new Date(activeSummary.endDate).toLocaleDateString('en-GB')}`
+                              : ' · open-ended'}
+                            {activeSummary.arrearsAtStart > 0
+                              ? ` · arrears at freeze start: Ksh ${activeSummary.arrearsAtStart.toLocaleString()}`
+                              : ' · no arrears at freeze start'}
+                            {activeSummary.collectedDuringFreeze > 0
+                              ? ` · collected during freeze: Ksh ${activeSummary.collectedDuringFreeze.toLocaleString()}`
+                              : ''}
+                          </p>
+                        );
+                      })()
+                    )}
+                  </div>
+                </div>
+                <Button
+                  variant={isTenantFrozen ? 'primary' : 'danger'}
+                  onClick={() => openFreezeDialog(isTenantFrozen ? 'unfreeze' : 'freeze')}
+                  disabled={freezeSubmitting}
+                  className="shrink-0"
+                >
+                  {isTenantFrozen ? (
+                    <>
+                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      Unfreeze Tenant
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v18M4.2 7.5l15.6 9M19.8 7.5l-15.6 9" />
+                      </svg>
+                      Freeze Tenant
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </motion.div>
+        )}
       </div>
 
       {/* Generate Invoice Dialog */}
@@ -2068,7 +2358,23 @@ const handleDownloadPaymentReport = async () => {
               Generate a new invoice for {tenant.fullName}
             </DialogDescription>
           </DialogHeader>
-          
+
+          {isTenantFrozen && (
+            <div className="mt-2 p-3 bg-red-50 rounded-lg border border-red-200">
+              <div className="flex items-start gap-2">
+                <svg className="w-4 h-4 text-red-600 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <div className="flex-1">
+                  <p className="text-xs font-semibold text-red-800">Tenant Frozen</p>
+                  <p className="text-xs text-red-700 mt-1">
+                    Rent accrual is paused for this tenant. New invoices cannot be generated until the tenant is unfrozen.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {tenant.paymentSummary?.nextPayment && (
             <div className="mt-2 p-3 bg-amber-50 rounded-lg border border-amber-200">
               <div className="flex items-start gap-2">
@@ -2136,7 +2442,7 @@ const handleDownloadPaymentReport = async () => {
             </Button>
             <Button
               onClick={handleGenerateInvoice}
-              disabled={generating || !invoiceForm.dueDate}
+              disabled={generating || !invoiceForm.dueDate || isTenantFrozen}
               className="bg-primary hover:bg-primary/90"
             >
               {generating ? (
@@ -2866,6 +3172,14 @@ const handleDownloadPaymentReport = async () => {
                   <Label htmlFor="amountPaid" className="text-sm font-semibold text-gray-800">
                     Amount Paid <span className="text-red-500">*</span>
                   </Label>
+                  {isTenantFrozen && (
+                    <div className="p-2 bg-red-50 border border-red-200 rounded text-xs text-red-800">
+                      <span className="font-semibold">❄️ Tenant Frozen:</span> Rent accrual is paused. Payments are limited to the balance owed before the freeze
+                      {preFreezeBalance > 0 && (
+                        <> — maximum <span className="font-bold">Ksh {preFreezeBalance.toLocaleString()}</span></>
+                      )}
+                    </div>
+                  )}
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 font-semibold">Ksh</span>
                     <Input
@@ -2955,7 +3269,14 @@ const handleDownloadPaymentReport = async () => {
             </Button>
             <Button
               onClick={handleCreatePayment}
-              disabled={creatingPayment || !paymentForm.paymentPeriod || !paymentForm.amountPaid}
+              disabled={
+                creatingPayment ||
+                !paymentForm.paymentPeriod ||
+                !paymentForm.amountPaid ||
+                (isTenantFrozen &&
+                  (preFreezeBalance <= 0 ||
+                    parseFloat(paymentForm.amountPaid || '0') > preFreezeBalance))
+              }
               className="bg-blue-600 hover:bg-blue-700 min-w-24"
             >
               {creatingPayment ? (
@@ -3078,7 +3399,7 @@ const handleDownloadPaymentReport = async () => {
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                 <span className="text-sm sm:text-base">All payment reports for {tenant.fullName}</span>
                 <div className="flex items-center gap-2 w-full sm:w-auto">
-                  {(isAdmin || isManager || permissions.payments.canView) && (
+                  {(isAdmin || isManager || permissions.payments.canDownloadReport) && (
                     <Button
                       onClick={handleDownloadPaymentReport}
                       disabled={generatingPDF || paymentReports.length === 0}
@@ -3104,7 +3425,7 @@ const handleDownloadPaymentReport = async () => {
                     </Button>
                   )}
 
-                  {(isAdmin || isManager || permissions.payments.canView) && paymentReports.length > 0 && (
+                  {(isAdmin || isManager || permissions.payments.canDownloadReport) && paymentReports.length > 0 && (
                     <WhatsAppSendButton
                       tenantId={tenant.id}
                       documentType="All Payment Reports"
@@ -3334,7 +3655,7 @@ const handleDownloadPaymentReport = async () => {
               <div className="flex items-center justify-between flex-wrap gap-3">
                 <span>All bill invoices for {tenant.fullName}</span>
                 <div className="flex gap-2 flex-wrap">
-  {(isAdmin || isManager || permissions.billInvoices.canView) && (
+  {(isAdmin || isManager || permissions.payments.canDownloadBillReport) && (
     <div className="flex items-center gap-2 p-1.5 rounded-lg border border-gray-200 bg-gray-50">
       <Button
         onClick={handleDownloadBillPaymentReport}
@@ -3833,6 +4154,151 @@ const handleDownloadPaymentReport = async () => {
               </div>
             )}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Freeze / Unfreeze Dialog */}
+      <Dialog open={freezeDialogOpen} onOpenChange={setFreezeDialogOpen}>
+        {/* 1. Added max-h-[90vh], flex, flex-col, and overflow-hidden to constrain height and enable inner scrolling */}
+        <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col overflow-hidden">
+          
+          {/* 2. Added shrink-0 to prevent the header from being squished */}
+          <div className="shrink-0">
+            <DialogHeader>
+              <DialogTitle className="text-2xl font-bold text-heading-color">
+                {freezeAction === 'freeze' ? 'Freeze Tenant' : 'Unfreeze Tenant'}
+              </DialogTitle>
+              <DialogDescription className="text-gray-700">
+                {freezeAction === 'freeze'
+                  ? `Stop rent accrual for ${tenant.fullName} from the effective date. While frozen, no new invoices can be generated and payments are limited to the pre-freeze balance.`
+                  : `Resume rent accrual for ${tenant.fullName} from the effective date.`}
+              </DialogDescription>
+            </DialogHeader>
+          </div>
+
+          {/* 3. Added flex-1 and overflow-y-auto to make ONLY this section scrollable. Added pr-2 so the scrollbar doesn't overlap text. */}
+          <div className="space-y-6 py-4 flex-1 overflow-y-auto pr-2">
+            {freezeAction === 'freeze' ? (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="freezeStartDate" className="text-sm font-semibold text-gray-800">
+                    Freeze Start Date <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    id="freezeStartDate"
+                    type="date"
+                    value={freezeStartDate || new Date().toISOString().split('T')[0]}
+                    onChange={(e) => setFreezeStartDate(e.target.value)}
+                    className="w-full text-gray-800"
+                  />
+                  <p className="text-xs text-gray-500">
+                    Rent stops accruing from this date. Defaults to today if left empty.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="freezeEndDate" className="text-sm font-semibold text-gray-800">
+                    Freeze End Date (Optional)
+                  </Label>
+                  <Input
+                    id="freezeEndDate"
+                    type="date"
+                    value={freezeEndDate}
+                    onChange={(e) => setFreezeEndDate(e.target.value)}
+                    className="w-full text-gray-800"
+                  />
+                  <p className="text-xs text-gray-500">
+                    Leave empty for an open-ended freeze. You can unfreeze manually at any time.
+                  </p>
+                </div>
+              </>
+            ) : (
+              <div className="space-y-2">
+                <Label htmlFor="unfreezeDate" className="text-sm font-semibold text-gray-800">
+                  Unfreeze Effective Date
+                </Label>
+                <Input
+                  id="unfreezeDate"
+                  type="date"
+                  value={unfreezeDate}
+                  onChange={(e) => setUnfreezeDate(e.target.value)}
+                  className="w-full text-gray-800"
+                />
+                <p className="text-xs text-gray-500">
+                  Rent accrual resumes from this date.
+                </p>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor="freezeReason" className="text-sm font-semibold text-gray-800">
+                Reason (Optional)
+              </Label>
+              <Textarea
+                id="freezeReason"
+                placeholder={
+                  freezeAction === 'freeze'
+                    ? 'e.g., Tenant traveling abroad, pending lease renewal, dispute under review...'
+                    : 'e.g., Tenant returned, payment plan agreed...'
+                }
+                value={freezeReason}
+                onChange={(e) => setFreezeReason(e.target.value)}
+                className="min-h-20 text-gray-800"
+              />
+            </div>
+
+            {freezeAction === 'freeze' && (
+              <div className="p-3 bg-amber-50 rounded-lg border border-amber-200">
+                <div className="flex items-start gap-2">
+                  <svg className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                  <div className="flex-1">
+                    <p className="text-xs font-semibold text-amber-800">What happens when frozen</p>
+                    <ul className="text-xs text-amber-700 mt-1 list-disc list-inside space-y-0.5">
+                      <li>Rent stops accruing from the freeze start date</li>
+                      <li>No new invoices can be generated for this tenant</li>
+                      <li>Payments can only be recorded against the balance owed before the freeze</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 4. Added shrink-0, border-t, and pt-4 to keep the footer fixed at the bottom with a subtle separator */}
+          <DialogFooter className="shrink-0 border-t pt-4 mt-auto">
+            <Button
+              variant="outline"
+              onClick={() => setFreezeDialogOpen(false)}
+              disabled={freezeSubmitting}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleFreezeSubmit}
+              disabled={
+                freezeSubmitting ||
+                (freezeAction === 'freeze' &&
+                  freezeStartDate !== '' &&
+                  freezeEndDate !== '' &&
+                  freezeEndDate <= freezeStartDate)
+              }
+              className={freezeAction === 'freeze' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}
+            >
+              {freezeSubmitting ? (
+                <>
+                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Processing...
+                </>
+              ) : (
+                freezeAction === 'freeze' ? 'Freeze Tenant' : 'Unfreeze Tenant'
+              )}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </motion.div>

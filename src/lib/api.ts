@@ -115,6 +115,11 @@ import {
   RestoreTenantResponse,
   TenantLeftReason,
   TenantStatsResponse,
+  FreezeTenantRequest,
+  FreezeTenantResponse,
+  TenantFreezeHistoryResponse,
+  UnfreezeTenantRequest,
+  UnfreezeTenantResponse,
 } from '@/types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ;
@@ -849,6 +854,36 @@ export const tenantsAPI = {
   deleteAttachment: async (attachmentId: string): Promise<DeleteAttachmentResponse> => {
     try {
       const response = await api.delete(`/tenants/attachments/${attachmentId}`);
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+    // =============================================
+  // FREEZE / UNFREEZE OPERATIONS (NEW)
+  // =============================================
+  freeze: async (id: string, data: FreezeTenantRequest): Promise<FreezeTenantResponse> => {
+    try {
+      const response = await api.patch(`/tenants/${id}/freeze`, data);
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  unfreeze: async (id: string, data: UnfreezeTenantRequest): Promise<UnfreezeTenantResponse> => {
+    try {
+      const response = await api.patch(`/tenants/${id}/unfreeze`, data);
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  getFreezeHistory: async (id: string): Promise<TenantFreezeHistoryResponse> => {
+    try {
+      const response = await api.get(`/tenants/${id}/freeze-history`);
       return response.data;
     } catch (error) {
       return handleApiError(error);
