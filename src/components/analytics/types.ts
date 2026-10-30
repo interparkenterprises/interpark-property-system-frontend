@@ -1,4 +1,5 @@
 import type {
+  AnalyticsApiFailure,
   AnalyticsMeta,
   AnalyticsOverview,
   CollectionTrendPoint,
@@ -12,6 +13,12 @@ import type {
 } from '@/types/analytics'
 
 export type AnalyticsMode = 'overview' | 'rent' | 'occupancy'
+
+export type OverviewPanelKey = 'collections' | 'receivables' | 'occupancy' | 'tenants' | 'properties'
+
+export type OverviewPanelAccess = Record<OverviewPanelKey, boolean>
+export type OverviewPanelLoading = Record<OverviewPanelKey, boolean>
+export type OverviewPanelErrors = Partial<Record<OverviewPanelKey, AnalyticsApiFailure>>
 
 export interface AnalyticsDashboardData {
   overview?: AnalyticsOverview

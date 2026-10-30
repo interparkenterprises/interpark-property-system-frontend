@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 import { useAuth } from '@/context/AuthContext'
 import AppHeader from './AppHeader'
 import AppSidebar from './AppSidebar'
+import { BreadcrumbProvider } from './BreadcrumbContext'
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
@@ -68,25 +69,27 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="flex h-dvh min-h-0 min-w-0 overflow-hidden bg-background text-foreground">
-      <AppSidebar
-        collapsed={collapsed}
-        mobileOpen={mobileOpen}
-        onDesktopToggle={toggleDesktopSidebar}
-        onMobileClose={() => setMobileOpen(false)}
-      />
-
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <AppHeader
-          onMobileOpen={() => setMobileOpen(true)}
-          userName={user?.name}
+    <BreadcrumbProvider>
+      <div className="flex h-dvh min-h-0 min-w-0 overflow-hidden bg-background text-foreground">
+        <AppSidebar
+          collapsed={collapsed}
+          mobileOpen={mobileOpen}
+          onDesktopToggle={toggleDesktopSidebar}
+          onMobileClose={() => setMobileOpen(false)}
         />
-        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto bg-background">
-          <div className="mx-auto w-full max-w-400 min-w-0 px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
-            {children}
-          </div>
-        </main>
+
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <AppHeader
+            onMobileOpen={() => setMobileOpen(true)}
+            userName={user?.name}
+          />
+          <main className="min-h-0 min-w-0 flex-1 overflow-y-auto bg-background">
+            <div className="mx-auto w-full max-w-400 min-w-0 px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
+              {children}
+            </div>
+          </main>
+        </div>
       </div>
-    </div>
+    </BreadcrumbProvider>
   )
 }

@@ -456,27 +456,38 @@ export const propertiesAPI = {
       return handleApiError(error);
     }
   },
-  getPropertyImage: async (id: string): Promise<Blob> => {
+  getPropertyImage: async (id: string): Promise<Blob | null> => {
     try {
       const response = await api.get(`/properties/${id}/image`, {
         responseType: 'blob',
       });
       return response.data;
-    } catch (error: any) {
+    } catch (error: unknown) {
+      if (!axios.isAxiosError(error)) {
+        throw new Error('An unexpected error occurred');
+      }
+
+      if (error.response?.status === 404 || error.response?.status === 204) {
+        return null;
+      }
+
       // Special handling for blob error responses
       if (error.response && error.response.data instanceof Blob) {
+        let message = 'Failed to fetch property image';
         try {
           const errorText = await error.response.data.text();
           const errorData = JSON.parse(errorText);
-          throw new Error(errorData.message || 'Failed to fetch property image');
+          message = errorData.message || message;
         } catch {
-          throw new Error('Failed to fetch property image');
+          // Keep the fallback when the blob is not a JSON error response.
         }
+        throw new Error(message);
       }
       
       // For non-blob errors
       if (error.response) {
-        throw new Error(error.response.data.message || 'API request failed');
+        const responseData = error.response.data as { message?: string };
+        throw new Error(responseData.message || 'API request failed');
       } else if (error.request) {
         throw new Error('No response from server. Please check your connection.');
       } else {

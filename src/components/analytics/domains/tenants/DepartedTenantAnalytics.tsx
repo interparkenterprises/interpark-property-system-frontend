@@ -22,17 +22,18 @@ import {
   AnalyticsUnauthorized,
 } from '@/components/analytics/AnalyticsStates';
 import {
-  DataQualityNotices, exactMoneyTitle, formatCompactMoney, formatPercent, Freshness,
+  DataQualityNotices, exactMoneyTitle, formatCompactMoney, Freshness,
 } from '@/components/analytics/AnalyticsCore';
 import { ChartPanel } from '@/components/analytics/charts/ChartPanel';
 import {
   ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent, type ChartConfig,
 } from '@/components/ui/chart';
-import { StatCard } from '@/components/ui/stat-card';
+import { RankedComparison } from '@/components/ui/ranked-comparison';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useDepartedTenantAnalytics } from '@/components/analytics/hooks/useDepartedTenantAnalytics';
+import { CompositionBar, PrimaryMetric, SummaryCard } from '../SummaryPanelPrimitives';
 
 /* ------------------------------------------------------------------ */
 /*  Formatters                                                         */
@@ -60,6 +61,34 @@ const formatTenure = (days: number | null | undefined): string => {
   if (days < 365) return `${Math.floor(days / 30)}mo ${days % 30}d`;
   return `${Math.floor(days / 365)}y ${Math.round((days % 365) / 30)}mo`;
 };
+
+function DepartedTenantSummary({ data }: { data: TenantChurnAnalytics }) {
+  const { summary } = data;
+  const sharesPopulation = summary.totalTenantsEver === summary.activeTenants + summary.churnedTenants;
+  return (
+    <section className="grid gap-6 xl:grid-cols-2" aria-label="Departed tenant summary">
+      <SummaryCard title="Tenant departures" description="Departures in the selected period with the backend-provided churn context.">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <PrimaryMetric label="Departed tenants" value={summary.churnedTenants} kind="count" />
+          <PrimaryMetric label="Backend churn rate" value={summary.churnRate} kind="percent" />
+        </div>
+        {sharesPopulation && summary.totalTenantsEver > 0 && <div className="mt-5"><CompositionBar label="Active tenants now and departed tenant records" segments={[{ label: 'Active tenants now', value: summary.activeTenants, className: 'bg-primary' }, { label: 'Departed tenants', value: summary.churnedTenants, className: 'bg-[var(--chart-4)]' }]} /></div>}
+        <dl className="mt-4 grid grid-cols-2 gap-3">
+          <div><dt className="text-xs text-muted-foreground">Active tenants now</dt><dd className="mt-1 text-lg font-semibold tabular-nums">{summary.activeTenants.toLocaleString()}</dd></div>
+          <div><dt className="text-xs text-muted-foreground">Total tenants ever</dt><dd className="mt-1 text-lg font-semibold tabular-nums">{summary.totalTenantsEver.toLocaleString()}</dd></div>
+        </dl>
+      </SummaryCard>
+      <SummaryCard title="Departure-related rental exposure" description="Recorded rent and tenure associated with tenants who departed in the selected period.">
+        <PrimaryMetric label="Rent associated with departed tenants" value={summary.rentLostToChurn} />
+        <div className="mt-4 rounded-lg border border-border/70 p-4">
+          <p className="text-xs text-muted-foreground">Average tenure</p>
+          <p className="mt-1 text-xl font-semibold tabular-nums text-foreground">{summary.averageTenureDays == null ? 'Not available' : `${summary.averageTenureDays.toLocaleString()} days`}</p>
+          {summary.averageTenureDays === 0 && <p className="mt-2 text-xs font-medium text-warning">Review data quality: the backend reported an average tenure of zero days.</p>}
+        </div>
+      </SummaryCard>
+    </section>
+  );
+}
 
 const trendLabel = (period: string): string => {
   const m = /^(\d{4})-(\d{2})$/.exec(period);
@@ -176,18 +205,19 @@ function LeftReasonDonut({ data }: { data: Record<string, number> }) {
 function PropertyChurnBars({ data }: { data: DomainPropertyPoint[] }) {
   const entries = useMemo(() => [...data].sort((a, b) => b.count - a.count), [data]);
   if (!entries.length) return <AnalyticsEmpty title="No property-level churn data" />;
-  const config = { count: { label: 'Departed tenants', color: 'var(--chart-4)' } } satisfies ChartConfig;
 
   return (
-    <ChartContainer config={config} className="h-full w-full aspect-auto">
-      <BarChart accessibilityLayer data={entries} layout="vertical" margin={{ left: 12, right: 12 }}>
-        <CartesianGrid horizontal={false} />
-        <XAxis type="number" allowDecimals={false} tickLine={false} axisLine={false} />
-        <YAxis type="category" dataKey="propertyName" width={120} tickLine={false} axisLine={false} />
-        <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
-        <Bar dataKey="count" fill="var(--color-count)" radius={[0, 5, 5, 0]} maxBarSize={18} />
-      </BarChart>
-    </ChartContainer>
+    <RankedComparison
+      items={entries.map(item => ({
+        id: item.propertyId,
+        label: item.propertyName,
+        values: { count: { value: item.count, display: item.count.toLocaleString('en-KE') } },
+      }))}
+      columns={[{ key: 'count', label: 'Departures', emphasized: true }]}
+      bars={[{ key: 'count', color: 'var(--chart-4)' }]}
+      labelHeading="Property"
+      emptyMessage="No property-level churn data is available."
+    />
   );
 }
 
@@ -613,49 +643,7 @@ export default function DepartedTenantsPage() {
             <>
               {analytics.meta?.dataQuality && <DataQualityNotices values={[analytics.meta.dataQuality]} />}
 
-              {/* Summary KPIs */}
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                <StatCard
-                  label="Departed tenants"
-                  value={data.summary.churnedTenants.toLocaleString()}
-                  description="Left in selected period"
-                  tone="warning"
-                />
-                <StatCard
-                  label="Churn rate"
-                  value={formatPercent(data.summary.churnRate)}
-                  description="Departed ÷ total ever"
-                  tone="warning"
-                />
-                <StatCard
-                  label="Average tenure"
-                  value={
-                    data.summary.averageTenureDays != null
-                      ? `${data.summary.averageTenureDays} days`
-                      : 'Not available'
-                  }
-                  description="Mean tenure of departed tenants"
-                  tone="info"
-                />
-                <StatCard
-                  label="Rent lost to churn"
-                  value={<span title={exactMoneyTitle(data.summary.rentLostToChurn)}>{formatCompactMoney(data.summary.rentLostToChurn)}</span>}
-                  description="Sum of departed tenants' rent"
-                  tone="warning"
-                />
-                <StatCard
-                  label="Active tenants now"
-                  value={data.summary.activeTenants.toLocaleString()}
-                  description="Currently occupied"
-                  tone="success"
-                />
-                <StatCard
-                  label="Total tenants ever"
-                  value={data.summary.totalTenantsEver.toLocaleString()}
-                  description="Active + departed"
-                  tone="info"
-                />
-              </div>
+              <DepartedTenantSummary data={data} />
 
               {/* Charts */}
               <div className="grid gap-6 xl:grid-cols-5">

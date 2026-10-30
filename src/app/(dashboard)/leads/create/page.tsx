@@ -60,7 +60,7 @@ export default function CreateLeadPage() {
   }
 
   return (
-    <div className="space-y-6 pb-4">
+    <div className="max-w-4xl space-y-6 pb-4">
       <PageHeader
         title="Create Lead"
         description="Add a new lead and associate them with a property when applicable."

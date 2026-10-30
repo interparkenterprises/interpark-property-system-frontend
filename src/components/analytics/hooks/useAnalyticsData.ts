@@ -10,7 +10,8 @@ import type {
   AnalyticsFilters,
   TenantsSummary,
 } from '@/types/analytics'
-import type { AnalyticsDashboardData, AnalyticsMode } from '../types'
+import type { AnalyticsDashboardData, AnalyticsMode, OverviewPanelAccess, OverviewPanelErrors, OverviewPanelLoading } from '../types'
+import { useSharedAnalyticsFilters } from './useSharedAnalyticsFilters'
 
 const dateString = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
@@ -27,8 +28,7 @@ const initialFilters = (): AnalyticsFilters => {
 
 export function useAnalyticsData(mode: AnalyticsMode) {
   const auth = useAuth()
-  const [draftFilters, setDraftFilters] = useState<AnalyticsFilters>(initialFilters)
-  const [filters, setFilters] = useState<AnalyticsFilters>(initialFilters)
+  const { draftFilters, filters, setDraftFilters, applyFilters } = useSharedAnalyticsFilters(initialFilters)
   const [properties, setProperties] = useState<Property[]>([])
   const [data, setData] = useState<AnalyticsDashboardData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -38,11 +38,28 @@ export function useAnalyticsData(mode: AnalyticsMode) {
   const canArrears = auth.isAdmin || auth.isManager || auth.hasPermission('VIEW_ARREARS')
   const canUnits = auth.isAdmin || auth.isManager || auth.hasPermission('VIEW_UNITS')
   const canTenants = auth.isAdmin || auth.isManager || auth.hasPermission('VIEW_TENANTS')
+  const financialAccess = canPayments && canArrears
+  const occupancyAccess = canUnits && canTenants
+  const overviewAccess = useMemo<OverviewPanelAccess>(() => ({
+    collections: financialAccess,
+    receivables: financialAccess,
+    occupancy: occupancyAccess,
+    tenants: canTenants,
+    properties: financialAccess,
+  }), [canTenants, financialAccess, occupancyAccess])
+  const [overviewErrors, setOverviewErrors] = useState<OverviewPanelErrors>({})
+  const [overviewLoading, setOverviewLoading] = useState<OverviewPanelLoading>({
+    collections: mode === 'overview' && overviewAccess.collections,
+    receivables: mode === 'overview' && overviewAccess.receivables,
+    occupancy: mode === 'overview' && overviewAccess.occupancy,
+    tenants: mode === 'overview' && overviewAccess.tenants,
+    properties: mode === 'overview' && overviewAccess.properties,
+  })
   const authorized = mode === 'rent'
     ? canPayments && canArrears
     : mode === 'occupancy'
       ? canUnits && canTenants
-      : canPayments && canArrears && canUnits && canTenants
+      : Object.values(overviewAccess).some(Boolean)
 
   useEffect(() => {
     if (!authorized) return
@@ -69,31 +86,84 @@ export function useAnalyticsData(mode: AnalyticsMode) {
         ])
         setData({ occupancy: occupancy.data, tenants: tenants.data, meta: [occupancy.meta, tenants.meta] })
       } else if (mode === 'overview') {
-        const [overview, collections, receivablesTrend, status, revenue, cohortCash] = await Promise.all([
-          analyticsAPI.getOverview(filters),
-          analyticsAPI.getCollectionsTrend(filters),
-          analyticsAPI.getReceivablesTrend(filters),
-          analyticsAPI.getStatusDistribution(filters),
-          analyticsAPI.getRevenueByProperty(filters),
-          analyticsAPI.getCohortVsCash(filters),
-        ])
-        setData({
-          overview: overview.data,
-          collections: collections.data.series,
-          receivablesTrend: receivablesTrend.data.series,
-          status: status.data,
-          revenue: revenue.data.properties,
-          cohortCash: cohortCash.data,
-          meta: [overview.meta, collections.meta, receivablesTrend.meta, status.meta, revenue.meta, cohortCash.meta],
-        })
+        setOverviewLoading({ ...overviewAccess })
+        setOverviewErrors({})
+        setData({ meta: [] })
+
+        const failure = (result: PromiseSettledResult<unknown> | undefined) =>
+          result?.status === 'rejected' ? toAnalyticsApiFailure(result.reason) : undefined
+        const mergePanelData = (patch: Partial<AnalyticsDashboardData>, meta = [] as AnalyticsDashboardData['meta']) => {
+          setData(current => ({ ...(current || { meta: [] }), ...patch, meta: [...(current?.meta || []), ...meta] }))
+        }
+        const finishPanel = (panel: keyof OverviewPanelLoading, panelError?: AnalyticsApiFailure) => {
+          if (panelError) setOverviewErrors(current => ({ ...current, [panel]: panelError }))
+          setOverviewLoading(current => ({ ...current, [panel]: false }))
+        }
+        const requests: Promise<void>[] = []
+
+        if (financialAccess) {
+          const rentRequest = analyticsAPI.getRentInvoiceAnalytics(filters)
+          const trendRequest = analyticsAPI.getReceivablesTrend(filters)
+          const statusRequest = analyticsAPI.getStatusDistribution(filters)
+
+          requests.push(Promise.allSettled([rentRequest, trendRequest]).then(([rent, trend]) => {
+            const patch: Partial<AnalyticsDashboardData> = {}
+            const meta: AnalyticsDashboardData['meta'] = []
+            if (rent.status === 'fulfilled') {
+              patch.receivables = rent.value.data.summary
+              meta.push(rent.value.meta)
+            }
+            if (trend.status === 'fulfilled') {
+              patch.receivablesTrend = trend.value.data.series
+              meta.push(trend.value.meta)
+            }
+            mergePanelData(patch, meta)
+            finishPanel('collections', failure(rent) || failure(trend))
+          }))
+
+          requests.push(Promise.allSettled([rentRequest, statusRequest]).then(([rent, status]) => {
+            const patch: Partial<AnalyticsDashboardData> = {}
+            const meta: AnalyticsDashboardData['meta'] = []
+            if (rent.status === 'fulfilled') patch.receivables = rent.value.data.summary
+            if (status.status === 'fulfilled') {
+              patch.status = status.value.data
+              meta.push(status.value.meta)
+            }
+            mergePanelData(patch, meta)
+            finishPanel('receivables', failure(rent) || failure(status))
+          }))
+
+          requests.push(Promise.allSettled([analyticsAPI.getRevenueByProperty(filters)]).then(([revenue]) => {
+            if (revenue.status === 'fulfilled') mergePanelData({ revenue: revenue.value.data.properties }, [revenue.value.meta])
+            finishPanel('properties', failure(revenue))
+          }))
+        }
+
+        if (occupancyAccess) {
+          requests.push(Promise.allSettled([analyticsAPI.getOccupancySummary(filters)]).then(([occupancyResult]) => {
+            if (occupancyResult.status === 'fulfilled') mergePanelData({ occupancy: occupancyResult.value.data }, [occupancyResult.value.meta])
+            finishPanel('occupancy', failure(occupancyResult))
+          }))
+        }
+
+        if (canTenants) {
+          requests.push(Promise.allSettled([analyticsAPI.getTenantsSummary(filters)]).then(([tenantsResult]) => {
+            if (tenantsResult.status === 'fulfilled') mergePanelData({ tenants: tenantsResult.value.data }, [tenantsResult.value.meta])
+            finishPanel('tenants', failure(tenantsResult))
+          }))
+        }
+
+        await Promise.all(requests)
       } else {
-        const [rent, collections, receivablesTrend, status, revenue, cohortCash] = await Promise.all([
+        const [rent, collections, receivablesTrend, status, revenue, cohortCash, occupancyResult, tenantsResult] = await Promise.all([
           analyticsAPI.getRentInvoiceAnalytics(filters),
           analyticsAPI.getCollectionsTrend(filters),
           analyticsAPI.getReceivablesTrend(filters),
           analyticsAPI.getStatusDistribution(filters),
           analyticsAPI.getRevenueByProperty(filters),
           analyticsAPI.getCohortVsCash(filters),
+          occupancyAccess ? analyticsAPI.getOccupancySummary(filters).catch(() => null) : Promise.resolve(null),
+          canTenants ? analyticsAPI.getTenantsSummary(filters).catch(() => null) : Promise.resolve(null),
         ])
         setData({
           receivables: rent.data.summary,
@@ -102,16 +172,21 @@ export function useAnalyticsData(mode: AnalyticsMode) {
           status: rent.data.statusDistribution || status.data,
           revenue: revenue.data.properties,
           cohortCash: cohortCash.data,
-          meta: [rent.meta, collections.meta, receivablesTrend.meta, status.meta, revenue.meta, cohortCash.meta],
+          occupancy: occupancyResult?.data,
+          tenants: tenantsResult?.data,
+          meta: [rent.meta, collections.meta, receivablesTrend.meta, status.meta, revenue.meta, cohortCash.meta, occupancyResult?.meta, tenantsResult?.meta].filter(Boolean) as AnalyticsDashboardData['meta'],
         })
       }
     } catch (requestError) {
       setData(null)
       setError(toAnalyticsApiFailure(requestError))
+      if (mode === 'overview') {
+        setOverviewLoading({ collections: false, receivables: false, occupancy: false, tenants: false, properties: false })
+      }
     } finally {
       setLoading(false)
     }
-  }, [authorized, filters, mode])
+  }, [authorized, canTenants, filters, financialAccess, mode, occupancyAccess, overviewAccess])
 
   useEffect(() => {
     const request = window.setTimeout(() => { void load() }, 0)
@@ -135,11 +210,6 @@ export function useAnalyticsData(mode: AnalyticsMode) {
     }
   }, [data])
 
-  const applyFilters = () => setFilters({
-    ...draftFilters,
-    asOf: draftFilters.dateTo ?? dateString(new Date()),
-  })
-
   return {
     authorized,
     data,
@@ -148,6 +218,9 @@ export function useAnalyticsData(mode: AnalyticsMode) {
     filters,
     loading,
     occupancy,
+    overviewAccess,
+    overviewErrors,
+    overviewLoading,
     properties,
     summary,
     tenants,

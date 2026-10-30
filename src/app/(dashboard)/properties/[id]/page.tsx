@@ -1,10 +1,9 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { Building2 } from 'lucide-react'
 import type { Property } from '@/types'
-import { PermissionCode } from '@/types'
 import { propertiesAPI } from '@/lib/api'
 import { useGlobalPermissions } from '@/app/providers/PermissionsProvider'
 import { Button } from '@/components/ui/button'
@@ -16,42 +15,37 @@ import { PropertyWorkspaceHeader } from '@/components/properties/workspace/Prope
 import { PropertyWorkspaceTabs, type PropertyWorkspaceTab } from '@/components/properties/workspace/PropertyWorkspaceTabs'
 import { PropertyImageDialog } from '@/components/properties/workspace/dialogs/PropertyImageDialog'
 import { PropertyActivationsTab } from '@/components/properties/workspace/tabs/PropertyActivationsTab'
+import { useBreadcrumbAction, useBreadcrumbOverride, useBreadcrumbTrail } from '@/components/layout/BreadcrumbContext'
 import { PropertyManagersDorTab } from '@/components/properties/workspace/tabs/PropertyManagersDorTab'
 import { PropertyOverviewTab } from '@/components/properties/workspace/tabs/PropertyOverviewTab'
 import { PropertyServiceProvidersTab } from '@/components/properties/workspace/tabs/PropertyServiceProvidersTab'
 import { PropertyTenantsTab } from '@/components/properties/workspace/tabs/PropertyTenantsTab'
 import { PropertyUnitsTab } from '@/components/properties/workspace/tabs/PropertyUnitsTab'
+import { canAccessPropertyFinancialWorkspace, propertyTenantDetailsPermissions } from '@/components/properties/financial/access'
 
-const tenantDetailsPermissions = [
-  PermissionCode.VIEW_TENANT_FINANCIALS,
-  PermissionCode.VIEW_INVOICES,
-  PermissionCode.VIEW_PAYMENT_REPORTS,
-  PermissionCode.VIEW_BILL_INVOICES,
-  PermissionCode.VIEW_DEMAND_LETTERS,
-  PermissionCode.VIEW_OVERDUE_INVOICES,
-  PermissionCode.RECORD_PAYMENTS,
-  PermissionCode.CREATE_INVOICES,
-  PermissionCode.CREATE_BILL_INVOICE,
-  PermissionCode.DOWNLOAD_INVOICES,
-  PermissionCode.CREATE_DEMAND_LETTER,
-  PermissionCode.SEND_DEMAND_LETTERS,
-  PermissionCode.AUTO_GENERATE_DEMAND_LETTER,
-  PermissionCode.DOWNLOAD_DEMAND_LETTER,
-]
+const propertyWorkspaceTabLabels: Partial<Record<PropertyWorkspaceTab, string>> = {
+  units: 'Units',
+  tenants: 'Tenants',
+  providers: 'Service Providers',
+  reports: 'Managers DOR',
+  activations: 'Activation Forms',
+}
 
 export default function PropertyDetailPage() {
   const params = useParams()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const propertyId = params.id as string
   const { isAdmin, isManager, canViewProperty, canAccessModule, canViewServiceProviders, canViewActivations, hasPermission } = useGlobalPermissions()
 
   const [property, setProperty] = useState<Property | null>(null)
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState(false)
-  const [activeTab, setActiveTab] = useState<PropertyWorkspaceTab>('overview')
   const [propertyImageUrl, setPropertyImageUrl] = useState<string | null>(null)
   const [imageLoading, setImageLoading] = useState(false)
   const [imageDialogOpen, setImageDialogOpen] = useState(false)
+  useBreadcrumbOverride(`/properties/${propertyId}`, loading ? 'Loading…' : property?.name ?? 'Property details')
+  useBreadcrumbAction(editing ? 'Edit' : null)
 
   const canViewUnits = canAccessModule('units')
   const canManageTenants = canAccessModule('tenants')
@@ -59,11 +53,14 @@ export default function PropertyDetailPage() {
   const canViewReports = canAccessModule('reports')
   const canViewActivationsTab = canViewActivations
   const canAccessTenantDetailsPage = useMemo(
-    () => isAdmin || isManager || tenantDetailsPermissions.some((permission) => hasPermission(permission)),
+    () => isAdmin || isManager || propertyTenantDetailsPermissions.some((permission) => hasPermission(permission)),
     [hasPermission, isAdmin, isManager],
   )
   const canViewTenantTab = canManageTenants || canAccessTenantDetailsPage
-  const canViewFinancialDetails = isAdmin || isManager || hasPermission(PermissionCode.VIEW_TENANT_FINANCIALS)
+  const canViewFinancialDetails = canAccessPropertyFinancialWorkspace(isAdmin, isManager, hasPermission)
+
+  const requestedTab = searchParams.get('tab') as PropertyWorkspaceTab | null
+  const activeTab: PropertyWorkspaceTab = requestedTab && requestedTab !== 'financial' ? requestedTab : 'overview'
 
   const refreshProperty = useCallback(async () => {
     try {
@@ -80,6 +77,13 @@ export default function PropertyDetailPage() {
     setImageLoading(true)
     try {
       const imageBlob = await propertiesAPI.getPropertyImage(propertyId)
+      if (!imageBlob) {
+        setPropertyImageUrl((currentUrl) => {
+          if (currentUrl) URL.revokeObjectURL(currentUrl)
+          return null
+        })
+        return
+      }
       const nextUrl = URL.createObjectURL(imageBlob)
       setPropertyImageUrl((currentUrl) => {
         if (currentUrl) URL.revokeObjectURL(currentUrl)
@@ -108,7 +112,8 @@ export default function PropertyDetailPage() {
         console.error('Error fetching property:', propertyResult.reason)
         setProperty(null)
       }
-      if (imageResult.status === 'fulfilled') setPropertyImageUrl(URL.createObjectURL(imageResult.value))
+      if (imageResult.status === 'fulfilled' && imageResult.value) setPropertyImageUrl(URL.createObjectURL(imageResult.value))
+      else if (imageResult.status === 'fulfilled') setPropertyImageUrl(null)
       else {
         console.error('Error fetching property image:', imageResult.reason)
         setPropertyImageUrl(null)
@@ -134,6 +139,7 @@ export default function PropertyDetailPage() {
     || (activeTab === 'reports' && canViewReports)
     || (activeTab === 'activations' && canViewActivationsTab)
   const visibleActiveTab: PropertyWorkspaceTab = activeTabIsVisible ? activeTab : 'overview'
+  useBreadcrumbTrail(propertyWorkspaceTabLabels[visibleActiveTab] ?? null)
 
   const handlePropertyUpdate = async () => {
     setEditing(false)
@@ -148,6 +154,15 @@ export default function PropertyDetailPage() {
     } catch (error) {
       console.error('Error deleting property:', error)
     }
+  }
+
+  const handleWorkspaceTabChange = (tab: PropertyWorkspaceTab) => {
+    if (tab === 'financial') {
+      router.push(`/properties/${propertyId}/details`)
+      return
+    }
+
+    router.replace(tab === 'overview' ? `/properties/${propertyId}` : `/properties/${propertyId}?tab=${tab}`, { scroll: false })
   }
 
   if (loading) return <PropertyWorkspaceLoading />
@@ -170,7 +185,8 @@ export default function PropertyDetailPage() {
       <PropertyWorkspaceHeader property={property} imageUrl={propertyImageUrl} imageLoading={imageLoading} onImageOpen={() => setImageDialogOpen(true)} onEdit={() => setEditing(true)} onDelete={handlePropertyDelete} />
       <PropertyWorkspaceTabs
         value={visibleActiveTab}
-        onValueChange={setActiveTab}
+        onValueChange={handleWorkspaceTabChange}
+        canViewFinancial={canViewFinancialDetails}
         canViewUnits={canViewUnits}
         canViewTenants={canViewTenantTab}
         canViewProviders={canViewProviders}
@@ -178,13 +194,13 @@ export default function PropertyDetailPage() {
         canViewActivations={canViewActivationsTab}
       >
         <TabsContent value="overview" className="pt-4">
-          {visibleActiveTab === 'overview' && <PropertyOverviewTab property={property} canViewTenants={canViewTenantTab} canViewProviders={canViewProviders} canViewFinancialDetails={canViewFinancialDetails} />}
+          {visibleActiveTab === 'overview' && <PropertyOverviewTab property={property} canViewTenants={canViewTenantTab} canViewProviders={canViewProviders} />}
         </TabsContent>
         {canViewUnits && <TabsContent value="units" className="pt-4">{visibleActiveTab === 'units' && <PropertyUnitsTab propertyId={propertyId} units={property.units ?? []} onPropertyChanged={refreshProperty} />}</TabsContent>}
         {canViewTenantTab && <TabsContent value="tenants" className="pt-4">{visibleActiveTab === 'tenants' && <PropertyTenantsTab propertyId={propertyId} canManageTenants={canManageTenants} onPropertyChanged={refreshProperty} />}</TabsContent>}
         {canViewProviders && <TabsContent value="providers" className="pt-4">{visibleActiveTab === 'providers' && <PropertyServiceProvidersTab propertyId={propertyId} serviceProviders={property.serviceProviders ?? []} onPropertyChanged={refreshProperty} />}</TabsContent>}
-        {canViewReports && <TabsContent value="reports" className="pt-4">{visibleActiveTab === 'reports' && <PropertyManagersDorTab propertyId={propertyId} />}</TabsContent>}
-        {canViewActivationsTab && <TabsContent value="activations" className="pt-4">{visibleActiveTab === 'activations' && <PropertyActivationsTab propertyId={propertyId} />}</TabsContent>}
+        {canViewReports && <TabsContent value="reports" className="pt-4">{visibleActiveTab === 'reports' && <PropertyManagersDorTab propertyId={propertyId} propertyName={property.name} />}</TabsContent>}
+        {canViewActivationsTab && <TabsContent value="activations" className="pt-4">{visibleActiveTab === 'activations' && <PropertyActivationsTab propertyId={propertyId} propertyName={property.name} />}</TabsContent>}
       </PropertyWorkspaceTabs>
     </div>
   )

@@ -13,9 +13,9 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { SectionHeader } from '@/components/ui/section-header'
 import { Skeleton } from '@/components/ui/skeleton'
 
-interface PropertyManagersDorTabProps { propertyId: string }
+interface PropertyManagersDorTabProps { propertyId: string; propertyName: string }
 
-export function PropertyManagersDorTab({ propertyId }: PropertyManagersDorTabProps) {
+export function PropertyManagersDorTab({ propertyId, propertyName }: PropertyManagersDorTabProps) {
   const [dailyReports, setDailyReports] = useState<DailyReport[]>([])
   const [reportsLoading, setReportsLoading] = useState(true)
   const [showReportForm, setShowReportForm] = useState(false)
@@ -78,10 +78,7 @@ export function PropertyManagersDorTab({ propertyId }: PropertyManagersDorTabPro
   if (showReportForm) {
     return (
       <PermissionGuard module="reports" action={editingReport ? 'edit' : 'create'}>
-        <Card>
-          <CardHeader className="border-b border-border"><SectionHeader title={editingReport ? 'Edit Daily Report' : 'Create Daily Report'} actions={<Button variant="outline" onClick={closeForm}>Cancel</Button>} /></CardHeader>
-          <CardContent className="pt-5"><DailyReportForm propertyId={propertyId} report={editingReport} onSuccess={handleSuccess} onCancel={closeForm} /></CardContent>
-        </Card>
+        <DailyReportForm propertyId={propertyId} propertyName={propertyName} report={editingReport} onSuccess={handleSuccess} onCancel={closeForm} />
       </PermissionGuard>
     )
   }

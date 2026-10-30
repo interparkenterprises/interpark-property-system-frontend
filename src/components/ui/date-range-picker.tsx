@@ -21,6 +21,8 @@ export interface DateRangePickerProps {
 }
 
 const WEEKDAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
+
 function parts(value: string) {
   const [year, month, day] = value.split('-').map(Number)
   return { year, month, day }
@@ -28,6 +30,21 @@ function parts(value: string) {
 
 function dateString(year: number, month: number, day: number) {
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+}
+
+function validDateString(value: string) {
+  if (!ISO_DATE_PATTERN.test(value)) return false
+  const { year, month, day } = parts(value)
+  const date = new Date(Date.UTC(year, month - 1, day))
+  return Number.isFinite(date.getTime())
+    && date.getUTCFullYear() === year
+    && date.getUTCMonth() + 1 === month
+    && date.getUTCDate() === day
+}
+
+function normalizedDate(value: string, fallback: string) {
+  const calendarPart = value.trim().slice(0, 10)
+  return validDateString(calendarPart) ? calendarPart : fallback
 }
 
 function utcDate(value: string) {
@@ -120,14 +137,19 @@ function clampRange(value: DateRangeValue, min?: string, max?: string) {
 }
 
 export function DateRangePicker({ value, onChange, disabled, min, max, className, 'aria-label': ariaLabel = 'Select reporting date range' }: DateRangePickerProps) {
+  const today = todayInNairobi()
+  const suppliedFrom = normalizedDate(value.from, '')
+  const suppliedTo = normalizedDate(value.to, '')
+  const effectiveFrom = suppliedFrom || suppliedTo || today
+  const effectiveTo = suppliedTo || suppliedFrom || today
+  const hasValue = Boolean(suppliedFrom || suppliedTo)
   const [open, setOpen] = React.useState(false)
   const [phase, setPhase] = React.useState<'start' | 'end'>('start')
   const [draftStart, setDraftStart] = React.useState<string | null>(null)
   const [hoverDate, setHoverDate] = React.useState<string | null>(null)
-  const [viewMonth, setViewMonth] = React.useState(monthStart(value.from))
+  const [viewMonth, setViewMonth] = React.useState(monthStart(effectiveFrom))
   const rootRef = React.useRef<HTMLDivElement>(null)
   const triggerRef = React.useRef<HTMLButtonElement>(null)
-  const today = todayInNairobi()
 
   React.useEffect(() => {
     if (!open) return
@@ -150,8 +172,8 @@ export function DateRangePicker({ value, onChange, disabled, min, max, className
 
   React.useEffect(() => {
     if (!open) return
-    requestAnimationFrame(() => rootRef.current?.querySelector<HTMLButtonElement>(`[data-date="${value.from}"]`)?.focus())
-  }, [open, value.from])
+    requestAnimationFrame(() => rootRef.current?.querySelector<HTMLButtonElement>(`[data-date="${effectiveFrom}"]`)?.focus())
+  }, [effectiveFrom, open])
 
   const firstOffset = mondayIndex(viewMonth)
   const totalDays = daysInMonth(viewMonth)
@@ -202,7 +224,7 @@ export function DateRangePicker({ value, onChange, disabled, min, max, className
       setPhase('start')
       setDraftStart(null)
       setHoverDate(null)
-      setViewMonth(monthStart(value.from))
+      setViewMonth(monthStart(effectiveFrom))
     }
     setOpen(current => !current)
   }
@@ -211,12 +233,14 @@ export function DateRangePicker({ value, onChange, disabled, min, max, className
     <div ref={rootRef} className={cn('relative', className)}>
       <Button ref={triggerRef} type="button" variant="outline" disabled={disabled} aria-label={ariaLabel} aria-haspopup="dialog" aria-expanded={open} className="w-64 justify-start px-3" onClick={toggleOpen}>
         <CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-        <span className="truncate tabular-nums">{displayDate(value.from)} – {displayDate(value.to)}</span>
+        <span className="truncate tabular-nums">
+          {hasValue ? `${displayDate(effectiveFrom)} – ${displayDate(effectiveTo)}` : 'Select date range'}
+        </span>
       </Button>
 
       {open && (
         <div role="dialog" aria-label="Choose reporting date range" className="fixed inset-x-4 top-20 z-50 max-h-[calc(100dvh-6rem)] overflow-y-auto rounded-lg border border-border bg-card p-3 text-card-foreground shadow-lg sm:absolute sm:inset-auto sm:right-0 sm:top-[calc(100%+0.5rem)] sm:w-[41.5rem] sm:max-w-[calc(100vw-2rem)]">
-          <p className="sr-only" aria-live="polite">{phase === 'start' ? 'Select the start date' : `Start date ${displayDate(draftStart ?? value.from)} selected. Select the end date.`}</p>
+          <p className="sr-only" aria-live="polite">{phase === 'start' ? 'Select the start date' : `Start date ${displayDate(draftStart ?? effectiveFrom)} selected. Select the end date.`}</p>
           <div className="grid gap-4 sm:grid-cols-[9rem_minmax(0,1fr)]">
             <div className="grid grid-cols-2 gap-1 border-b border-border pb-3 sm:grid-cols-1 sm:border-b-0 sm:border-r sm:pb-0 sm:pr-3">
               {presetRanges(today).map(preset => (
@@ -239,10 +263,10 @@ export function DateRangePicker({ value, onChange, disabled, min, max, className
                 {cells.map((date, index) => {
                   if (!date) return <div key={`empty-${index}`} aria-hidden="true" />
                   const unavailable = Boolean((min && date < min) || (max && date > max))
-                  const committedStart = phase === 'start' && date === value.from
-                  const committedEnd = phase === 'start' && date === value.to
+                  const committedStart = phase === 'start' && hasValue && date === effectiveFrom
+                  const committedEnd = phase === 'start' && hasValue && date === effectiveTo
                   const sameCommittedDate = committedStart && committedEnd
-                  const inCommittedRange = phase === 'start' && date > value.from && date < value.to
+                  const inCommittedRange = phase === 'start' && hasValue && date > effectiveFrom && date < effectiveTo
                   const isDraftStart = phase === 'end' && date === draftStart
                   const isHoverEnd = phase === 'end' && date === hoverDate && date !== draftStart
                   const inPreviewRange = Boolean(previewFrom && previewTo && date > previewFrom && date < previewTo)
@@ -275,7 +299,7 @@ export function DateRangePicker({ value, onChange, disabled, min, max, className
                 })}
               </div>
               <div className="mt-3 border-t border-border pt-3 text-xs text-muted-foreground">
-                {phase === 'start' ? 'Choose a start date.' : `Start: ${displayDate(draftStart ?? value.from)}. Choose an end date.`}
+                {phase === 'start' ? 'Choose a start date.' : `Start: ${displayDate(draftStart ?? effectiveFrom)}. Choose an end date.`}
               </div>
             </div>
           </div>

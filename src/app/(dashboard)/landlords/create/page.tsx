@@ -37,7 +37,7 @@ export default function CreateLandlordPage() {
   }
 
   return (
-    <div className="space-y-6 pb-4">
+    <div className="max-w-4xl space-y-6 pb-4">
       <PageHeader
         title="Create Landlord"
         description="Add a new landlord to the property management system."

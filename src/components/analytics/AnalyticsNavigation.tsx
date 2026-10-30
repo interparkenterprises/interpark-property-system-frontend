@@ -1,6 +1,6 @@
 'use client';
 
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { PageHeader } from '@/components/ui/page-header';
@@ -69,6 +69,7 @@ const getFirstAccessibleRoute = (userPermissions: string[], userRole?: string): 
 export function AnalyticsNavigation() {
   const pathname = usePathname().replace(/\/$/, '') || '/';
   const router = useRouter();
+  const searchParams = useSearchParams();
   const auth = useAuth();
 
   const userPermissions = auth?.permissions || [];
@@ -88,7 +89,10 @@ export function AnalyticsNavigation() {
 
   return (
     <nav aria-label="Analytics sections" className="min-w-0">
-      <Tabs value={pathname} onValueChange={router.push}>
+      <Tabs value={pathname} onValueChange={href => {
+        const search = searchParams.toString();
+        router.push(search ? `${href}?${search}` : href);
+      }}>
         <TabsList className="max-w-full">
           {visibleRoutes.map(tab => <TabsTrigger key={tab.href} value={tab.href}>{tab.label}</TabsTrigger>)}
         </TabsList>

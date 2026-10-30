@@ -55,11 +55,15 @@ export default function LeadForm({ lead, onSuccess, onCancel }: LeadFormProps) {
   const draftKey = getDraftKey(lead?.id)
   const [formData, setFormData] = useState<LeadFormData>(() => getInitialFormData(lead))
   const [properties, setProperties] = useState<Property[]>([])
+  const [propertiesLoading, setPropertiesLoading] = useState(true)
+  const [propertyError, setPropertyError] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [hasDraft, setHasDraft] = useState(false)
 
   const fetchProperties = useCallback(async () => {
+    setPropertiesLoading(true)
+    setPropertyError('')
     try {
       let data = await propertiesAPI.getAll()
 
@@ -71,6 +75,9 @@ export default function LeadForm({ lead, onSuccess, onCancel }: LeadFormProps) {
       setProperties(data)
     } catch (fetchError) {
       console.error('Error fetching properties:', fetchError)
+      setPropertyError('Properties could not be loaded. You can still save the lead without a property.')
+    } finally {
+      setPropertiesLoading(false)
     }
   }, [getAccessiblePropertyIds, isManagedUser])
 
@@ -263,13 +270,13 @@ export default function LeadForm({ lead, onSuccess, onCancel }: LeadFormProps) {
             value={formData.natureOfLead}
             onChange={handleChange}
           />
-          <FormField label="Property" htmlFor="lead-property" description={propertyDescription}>
+          <FormField label="Property" htmlFor="lead-property" description={propertyDescription} error={propertyError || undefined}>
             <Select
               value={formData.propertyId || NO_PROPERTY_VALUE}
               onValueChange={(value) => updateField('propertyId', value === NO_PROPERTY_VALUE ? '' : value)}
             >
-              <SelectTrigger id="lead-property">
-                <SelectValue placeholder="Select property (optional)" />
+              <SelectTrigger id="lead-property" disabled={propertiesLoading}>
+                <SelectValue placeholder={propertiesLoading ? 'Loading properties...' : 'Select property (optional)'} />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value={NO_PROPERTY_VALUE}>No property selected</SelectItem>

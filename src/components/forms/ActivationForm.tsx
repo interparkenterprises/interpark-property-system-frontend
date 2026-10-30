@@ -1,1178 +1,241 @@
-'use client';
-import { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
+'use client'
+
+import { useEffect, useMemo, useState } from 'react'
+import { Banknote, Building2, CalendarDays, ChevronLeft, ChevronRight, CreditCard, FileCheck2, Percent, UserRound } from 'lucide-react'
+import type { ActivationRequest, CreateActivationRequest, UpdateActivationRequest } from '@/types'
+import { activationsAPI } from '@/lib/api'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
-  ActivationRequest,
-  CreateActivationRequest,
-  UpdateActivationRequest,
-  ActivationType,
-  VATType,
-} from '@/types';
-import { activationsAPI } from '@/lib/api';
-import { Button } from '@/components/ui/button';
+  ActivationDetailsSection,
+  CompanyInformationSection,
+  FinancialDetailsSection,
+  ManagerInformationSection,
+  PaymentDetailsSection,
+  VatInformationSection,
+} from './activation/ActivationFormSections'
+import type { ActivationChangeHandler, ActivationFormData, ActivationSectionId } from './activation/types'
 
 interface ActivationFormProps {
-  propertyId: string;
-  activation?: ActivationRequest | null;
-  onSuccess: () => void;
-  onCancel: () => void;
+  propertyId: string
+  propertyName?: string
+  activation?: ActivationRequest | null
+  onSuccess: () => void
+  onCancel: () => void
 }
 
-/**
- * Calculate number of days between two dates.
- * Same day = 0, next day = 1, etc. (matches backend "numberOfDays")
- */
-const calculateDaysBetween = (
-  startDate: string,
-  endDate: string
-): number | null => {
-  if (!startDate || !endDate) return null;
+const requiredFields: Array<keyof ActivationFormData> = ['companyName', 'postalAddress', 'telephone', 'contactPerson', 'designation', 'email', 'mobileNo', 'startDate', 'setupTime', 'endDate', 'tearDownTime', 'activationType']
+const fieldSections: Partial<Record<keyof ActivationFormData, ActivationSectionId>> = {
+  companyName: 'company', postalAddress: 'company', telephone: 'company', contactPerson: 'company', alternativeContact: 'company', designation: 'company', email: 'company', mobileNo: 'company',
+  activationType: 'activation', startDate: 'activation', setupTime: 'activation', endDate: 'activation', tearDownTime: 'activation', description: 'activation', expectedVisitors: 'activation', soundSystem: 'activation',
+  licenseFeePerDay: 'financial', numberOfDays: 'financial', proposedBudget: 'financial',
+  vatType: 'vat', vat: 'vat',
+  bankName: 'payment', bankBranch: 'payment', accountName: 'payment', accountNumber: 'payment', swiftCode: 'payment', paybillNumber: 'payment', mpesaAccount: 'payment',
+  managerName: 'manager', managerDesignation: 'manager',
+}
 
-  const start = new Date(startDate);
-  const end = new Date(endDate);
+export default function ActivationForm({ propertyId, propertyName, activation, onSuccess, onCancel }: ActivationFormProps) {
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [activeSection, setActiveSection] = useState<ActivationSectionId>('company')
+  const [manualOverrides, setManualOverrides] = useState({ numberOfDays: false, proposedBudget: false })
+  const [formData, setFormData] = useState<ActivationFormData>(() => createInitialData(activation))
+  const showManagerInformation = !activation || activation.status === 'DRAFT'
 
-  // Reset time components for date-only comparison
-  const startDateOnly = new Date(
-    start.getFullYear(),
-    start.getMonth(),
-    start.getDate()
-  );
-  const endDateOnly = new Date(
-    end.getFullYear(),
-    end.getMonth(),
-    end.getDate()
-  );
-
-  if (endDateOnly < startDateOnly) return null;
-
-  const diffTime = endDateOnly.getTime() - startDateOnly.getTime();
-  const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
-
-  return diffDays; // 0 for same day, 1 for next day, etc.
-};
-
-/**
- * Calculate billing days (matches backend controller logic):
- *   0 days (same day) = 1 billing day
- *   otherwise = numberOfDays + 1 (inclusive billing)
- */
-const calculateBillingDays = (numberOfDays: number | null): number => {
-  if (numberOfDays === null || numberOfDays === undefined) return 0;
-  if (numberOfDays === 0) return 1;
-  return numberOfDays + 1;
-};
-
-export default function ActivationForm({
-  propertyId,
-  activation,
-  onSuccess,
-  onCancel,
-}: ActivationFormProps) {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  // Track manual overrides so auto-calc doesn't fight the user
-  const [manualOverrides, setManualOverrides] = useState({
-    numberOfDays: false,
-    proposedBudget: false,
-  });
-
-  // Form state with all fields from backend model
-  const [formData, setFormData] = useState({
-    // Part 1 - Client Information
-    companyName: '',
-    postalAddress: '',
-    telephone: '',
-    contactPerson: '',
-    alternativeContact: '',
-    designation: '',
-    email: '',
-    mobileNo: '',
-
-    // Part 2 - Description of Activation/Exhibition
-    activationType: 'OFFICE_SPACE' as ActivationType,
-    startDate: '',
-    setupTime: '9:00 AM',
-    endDate: '',
-    tearDownTime: '5:00 PM',
-    description: '',
-    expectedVisitors: '',
-    soundSystem: false,
-
-    // Part 3 - Cost of Activation/Exhibition
-    licenseFeePerDay: '',
-    numberOfDays: '',
-    proposedBudget: '',
-
-    // VAT Information
-    vatType: 'INCLUSIVE' as VATType,
-    vat: '16',
-
-    // Payment Details
-    bankName: '',
-    bankBranch: '',
-    accountName: '',
-    accountNumber: '',
-    swiftCode: '',
-    paybillNumber: '',
-    mpesaAccount: '',
-
-    // Manager Information (for submission)
-    managerName: '',
-    managerDesignation: '',
-  });
-
-  // VAT calculation state
-  const [vatDetails, setVatDetails] = useState({
-    baseAmount: 0,
-    vatAmount: 0,
-    totalAmount: 0,
-  });
-
-  // =========================================================
-  // AUTO-CALC #1: numberOfDays from startDate + endDate
-  // =========================================================
-  useEffect(() => {
-    if (manualOverrides.numberOfDays) return;
-    if (!formData.startDate || !formData.endDate) return;
-
-    const days = calculateDaysBetween(formData.startDate, formData.endDate);
-    if (days === null) return;
-
-    const newValue = days.toString();
-    setFormData((prev) => {
-      if (prev.numberOfDays === newValue) return prev;
-      return { ...prev, numberOfDays: newValue };
-    });
-  }, [formData.startDate, formData.endDate, manualOverrides.numberOfDays]);
-
-  // =========================================================
-  // AUTO-CALC #2: proposedBudget from licenseFeePerDay + numberOfDays
-  // =========================================================
-  useEffect(() => {
-    if (manualOverrides.proposedBudget) return;
-
-    const feePerDay = parseFloat(formData.licenseFeePerDay);
-    if (!feePerDay || feePerDay <= 0) return;
-
-    const numberOfDays =
-      formData.numberOfDays === '' ? null : parseInt(formData.numberOfDays);
-
-    const billingDays = calculateBillingDays(numberOfDays);
-    if (billingDays <= 0) return;
-
-    const calculatedBudget = feePerDay * billingDays;
-    const newValue = calculatedBudget.toFixed(2);
-
-    setFormData((prev) => {
-      if (prev.proposedBudget === newValue) return prev;
-      return { ...prev, proposedBudget: newValue };
-    });
-  }, [
-    formData.licenseFeePerDay,
-    formData.numberOfDays,
-    manualOverrides.proposedBudget,
-  ]);
-
-  // =========================================================
-  // VAT calculation (existing)
-  // =========================================================
-  const calculateVATDetails = () => {
-    const baseAmount =
-      parseFloat(formData.proposedBudget) ||
-      parseFloat(formData.licenseFeePerDay) ||
-      0;
-    const vatRate = parseFloat(formData.vat) || 0;
-    const vatType = formData.vatType;
-
-    if (!baseAmount || !vatRate || vatType === 'NOT_APPLICABLE') {
-      return {
-        baseAmount: baseAmount || 0,
-        vatAmount: 0,
-        totalAmount: baseAmount || 0,
-      };
-    }
-
-    if (vatType === 'INCLUSIVE') {
-      const vatAmount = (baseAmount * vatRate) / (100 + vatRate);
-      const netAmount = baseAmount - vatAmount;
-      return {
-        baseAmount: netAmount,
-        vatAmount,
-        totalAmount: baseAmount,
-      };
-    } else if (vatType === 'EXCLUSIVE') {
-      const vatAmount = (baseAmount * vatRate) / 100;
-      return {
-        baseAmount,
-        vatAmount,
-        totalAmount: baseAmount + vatAmount,
-      };
-    }
-
-    return {
-      baseAmount: baseAmount || 0,
-      vatAmount: 0,
-      totalAmount: baseAmount || 0,
-    };
-  };
+  const sections = useMemo(() => {
+    const values: Array<{ id: ActivationSectionId; title: string; icon: React.ComponentType<{ className?: string }> }> = [
+      { id: 'company', title: 'Company Information', icon: Building2 },
+      { id: 'activation', title: 'Activation Details', icon: CalendarDays },
+      { id: 'financial', title: 'Financial Details', icon: Banknote },
+      { id: 'vat', title: 'VAT Information', icon: Percent },
+      { id: 'payment', title: 'Payment Details', icon: CreditCard },
+    ]
+    if (showManagerInformation) values.push({ id: 'manager', title: 'Manager Information', icon: UserRound })
+    return values
+  }, [showManagerInformation])
 
   useEffect(() => {
-    const details = calculateVATDetails();
-    setVatDetails(details);
-  }, [
-    formData.proposedBudget,
-    formData.licenseFeePerDay,
-    formData.vat,
-    formData.vatType,
-  ]);
+    if (manualOverrides.numberOfDays || !formData.startDate || !formData.endDate) return
+    const days = calculateDaysBetween(formData.startDate, formData.endDate)
+    if (days === null) return
+    const timer = window.setTimeout(() => setFormData((current) => current.numberOfDays === String(days) ? current : { ...current, numberOfDays: String(days) }), 0)
+    return () => window.clearTimeout(timer)
+  }, [formData.endDate, formData.startDate, manualOverrides.numberOfDays])
 
-  // =========================================================
-  // Load activation data if editing
-  // =========================================================
   useEffect(() => {
-    if (activation) {
-      setFormData({
-        // Part 1 - Client Information
-        companyName: activation.companyName || '',
-        postalAddress: activation.postalAddress || '',
-        telephone: activation.telephone || '',
-        contactPerson: activation.contactPerson || '',
-        alternativeContact: activation.alternativeContact || '',
-        designation: activation.designation || '',
-        email: activation.email || '',
-        mobileNo: activation.mobileNo || '',
+    if (manualOverrides.proposedBudget) return
+    const feePerDay = Number.parseFloat(formData.licenseFeePerDay)
+    const days = formData.numberOfDays === '' ? null : Number.parseInt(formData.numberOfDays)
+    const billingDays = calculateBillingDays(days)
+    if (!feePerDay || feePerDay <= 0 || billingDays <= 0) return
+    const budget = (feePerDay * billingDays).toFixed(2)
+    const timer = window.setTimeout(() => setFormData((current) => current.proposedBudget === budget ? current : { ...current, proposedBudget: budget }), 0)
+    return () => window.clearTimeout(timer)
+  }, [formData.licenseFeePerDay, formData.numberOfDays, manualOverrides.proposedBudget])
 
-        // Part 2 - Description of Activation/Exhibition
-        activationType: activation.activationType || 'OFFICE_SPACE',
-        startDate: activation.startDate
-          ? activation.startDate.split('T')[0]
-          : '',
-        setupTime: activation.setupTime || '9:00 AM',
-        endDate: activation.endDate ? activation.endDate.split('T')[0] : '',
-        tearDownTime: activation.tearDownTime || '5:00 PM',
-        description: activation.description || '',
-        expectedVisitors: activation.expectedVisitors?.toString() || '',
-        soundSystem: activation.soundSystem || false,
+  const vatDetails = useMemo(() => calculateVatDetails(formData), [formData])
 
-        // Part 3 - Cost of Activation/Exhibition
-        licenseFeePerDay: activation.licenseFeePerDay?.toString() || '',
-        numberOfDays: activation.numberOfDays?.toString() || '',
-        proposedBudget: activation.proposedBudget?.toString() || '',
+  const handleChange: ActivationChangeHandler = (event) => {
+    const { name, value, type } = event.target
+    if (name === 'numberOfDays' || name === 'proposedBudget') setManualOverrides((current) => ({ ...current, [name]: true }))
+    setFormData((current) => ({ ...current, [name]: type === 'checkbox' ? (event.target as HTMLInputElement).checked : value }))
+  }
 
-        // VAT Information
-        vatType: activation.vatType || 'INCLUSIVE',
-        vat: activation.vat?.toString() || '16',
+  const resetOverride = (field: 'numberOfDays' | 'proposedBudget') => setManualOverrides((current) => ({ ...current, [field]: false }))
+  const revealField = (field: keyof ActivationFormData, section = fieldSections[field]) => {
+    if (section) setActiveSection(section)
+    window.setTimeout(() => document.querySelector<HTMLElement>(`[name="${field}"]`)?.focus(), 0)
+  }
 
-        // Payment Details
-        bankName: activation.bankName || '',
-        bankBranch: activation.bankBranch || '',
-        accountName: activation.accountName || '',
-        accountNumber: activation.accountNumber || '',
-        swiftCode: activation.swiftCode || '',
-        paybillNumber: activation.paybillNumber || '',
-        mpesaAccount: activation.mpesaAccount || '',
-
-        // Manager Information
-        managerName: activation.managerName || '',
-        managerDesignation: activation.managerDesignation || '',
-      });
-
-      // Reset manual overrides when loading a different activation
-      setManualOverrides({ numberOfDays: false, proposedBudget: false });
-    } else {
-      // Reset overrides when creating a new activation
-      setManualOverrides({ numberOfDays: false, proposedBudget: false });
-    }
-  }, [activation]);
-
-  // =========================================================
-  // Input handlers
-  // =========================================================
-  const handleChange = (
-    e: React.ChangeEvent<
-      HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
-    >
-  ) => {
-    const { name, value, type } = e.target;
-
-    // Mark as manually overridden if user edits auto-calculated fields
-    if (name === 'numberOfDays' || name === 'proposedBudget') {
-      setManualOverrides((prev) => ({ ...prev, [name]: true }));
-    }
-
-    if (type === 'checkbox') {
-      setFormData((prev) => ({
-        ...prev,
-        [name]: (e.target as HTMLInputElement).checked,
-      }));
-    } else {
-      setFormData((prev) => ({
-        ...prev,
-        [name]: value,
-      }));
-    }
-  };
-
-  // Reset an override so auto-calc resumes for that field
-  const resetOverride = (field: 'numberOfDays' | 'proposedBudget') => {
-    setManualOverrides((prev) => ({ ...prev, [field]: false }));
-  };
-
-  // =========================================================
-  // Submit
-  // =========================================================
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    setLoading(true);
-
-    const requiredFields = [
-      'companyName', 'postalAddress', 'telephone', 'contactPerson',
-      'designation', 'email', 'mobileNo', 'startDate', 'setupTime',
-      'endDate', 'tearDownTime', 'activationType',
-    ];
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setError(null)
+    setLoading(true)
 
     const missingFields = requiredFields.filter((field) => {
-      const value = formData[field as keyof typeof formData];
-      return !value || (typeof value === 'string' && value.trim() === '');
-    });
-
+      const value = formData[field]
+      return !value || (typeof value === 'string' && value.trim() === '')
+    })
     if (missingFields.length > 0) {
-      setError(
-        `Missing required fields: ${missingFields
-          .map((field) => field.replace(/([A-Z])/g, ' $1').toLowerCase())
-          .join(', ')}`
-      );
-      setLoading(false);
-      return;
+      setError(`Missing required fields: ${missingFields.map(formatFieldName).join(', ')}`)
+      revealField(missingFields[0])
+      setLoading(false)
+      return
     }
 
-    // Validate dates
-    const startDate = new Date(formData.startDate);
-    const endDate = new Date(formData.endDate);
-
-    const startDateOnly = new Date(
-      startDate.getFullYear(),
-      startDate.getMonth(),
-      startDate.getDate()
-    );
-    const endDateOnly = new Date(
-      endDate.getFullYear(),
-      endDate.getMonth(),
-      endDate.getDate()
-    );
-
-    if (startDateOnly > endDateOnly) {
-      setError('End date must be on or after start date');
-      setLoading(false);
-      return;
+    const invalidControl = event.currentTarget.querySelector<HTMLElement>(':invalid')
+    if (invalidControl) {
+      const field = invalidControl.getAttribute('name') as keyof ActivationFormData | null
+      setError(`Please enter a valid ${field ? formatFieldName(field) : 'value'}.`)
+      if (field) revealField(field)
+      setLoading(false)
+      return
     }
 
-    // Validate VAT percentage
-    const vatValue = parseFloat(formData.vat);
-    if (isNaN(vatValue) || vatValue < 0 || vatValue > 100) {
-      setError('VAT percentage must be between 0 and 100');
-      setLoading(false);
-      return;
+    if (calculateDaysBetween(formData.startDate, formData.endDate) === null) {
+      setError('End date must be on or after start date')
+      revealField('endDate', 'activation')
+      setLoading(false)
+      return
+    }
+
+    const vatValue = Number.parseFloat(formData.vat)
+    if (Number.isNaN(vatValue) || vatValue < 0 || vatValue > 100) {
+      setError('VAT percentage must be between 0 and 100')
+      revealField('vat', 'vat')
+      setLoading(false)
+      return
     }
 
     try {
-      const data: CreateActivationRequest | UpdateActivationRequest = {
-        // Part 1 - Client Information
-        companyName: formData.companyName.trim(),
-        postalAddress: formData.postalAddress.trim(),
-        telephone: formData.telephone.trim(),
-        contactPerson: formData.contactPerson.trim(),
-        alternativeContact: formData.alternativeContact.trim() || undefined,
-        designation: formData.designation.trim(),
-        email: formData.email.trim(),
-        mobileNo: formData.mobileNo.trim(),
-
-        // Part 2 - Description of Activation/Exhibition
-        activationType: formData.activationType,
-        startDate: formData.startDate,
-        setupTime: formData.setupTime.trim(),
-        endDate: formData.endDate,
-        tearDownTime: formData.tearDownTime.trim(),
-        description: formData.description.trim() || undefined,
-        expectedVisitors: formData.expectedVisitors
-          ? parseInt(formData.expectedVisitors)
-          : undefined,
-        soundSystem: formData.soundSystem,
-
-        // Part 3 - Cost of Activation/Exhibition
-        licenseFeePerDay: formData.licenseFeePerDay
-          ? parseFloat(formData.licenseFeePerDay)
-          : undefined,
-        numberOfDays:
-          formData.numberOfDays !== ''
-            ? parseInt(formData.numberOfDays)
-            : undefined,
-        proposedBudget: formData.proposedBudget
-          ? parseFloat(formData.proposedBudget)
-          : undefined,
-
-        // VAT Information
-        vatType: formData.vatType,
-        vat: vatValue,
-
-        // Payment Details
-        bankName: formData.bankName.trim() || undefined,
-        bankBranch: formData.bankBranch.trim() || undefined,
-        accountName: formData.accountName.trim() || undefined,
-        accountNumber: formData.accountNumber.trim() || undefined,
-        swiftCode: formData.swiftCode.trim() || undefined,
-        paybillNumber: formData.paybillNumber.trim() || undefined,
-        mpesaAccount: formData.mpesaAccount.trim() || undefined,
-
-        // Manager Information
-        managerName: formData.managerName.trim() || undefined,
-        managerDesignation: formData.managerDesignation.trim() || undefined,
-      };
-
-      if (activation) {
-        await activationsAPI.update(activation.id, data);
-      } else {
-        await activationsAPI.create({
-          ...data,
-          propertyId,
-        } as CreateActivationRequest);
-      }
-
-      onSuccess();
-    } catch (err: any) {
-      setError(err.message || 'Failed to save activation request');
-      console.error('Error saving activation:', err);
+      const data = createPayload(formData, vatValue)
+      if (activation) await activationsAPI.update(activation.id, data)
+      else await activationsAPI.create({ ...data, propertyId } as CreateActivationRequest)
+      onSuccess()
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Failed to save activation request')
+      console.error('Error saving activation:', requestError)
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
-  const triggerVATCalculation = () => {
-    const details = calculateVATDetails();
-    setVatDetails(details);
-  };
+  const activeIndex = sections.findIndex((section) => section.id === activeSection)
+  const previousSection = activeIndex > 0 ? sections[activeIndex - 1] : null
+  const nextSection = activeIndex < sections.length - 1 ? sections[activeIndex + 1] : null
 
-  // =========================================================
-  // Render
-  // =========================================================
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
-      {error && (
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-red-900/30 border border-red-700 text-red-300 px-4 py-3 rounded-lg"
-        >
-          {error}
-        </motion.div>
-      )}
+    <form onSubmit={handleSubmit} className="min-w-0" noValidate>
+      <Card>
+        <CardHeader className="border-b border-border">
+          <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground"><FileCheck2 className="size-4" aria-hidden="true" />Activation Forms</div>
+          <CardTitle className="mt-2">{activation ? 'Edit Activation Request' : 'Create Activation Request'}</CardTitle>
+          <CardDescription>{propertyName || activation?.property?.name || 'Current property'} · Complete the request across {sections.length} sections.</CardDescription>
+        </CardHeader>
 
-      {/* Part 1 - Client Information */}
-      <div className="bg-gray-800 rounded-xl p-6 border border-gray-700 shadow-lg space-y-4">
-        <h3 className="text-lg font-bold text-white flex items-center gap-2">
-          <svg className="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-          </svg>
-          Company Information
-        </h3>
+        {error && <div className="px-4 pt-4 sm:px-5"><Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert></div>}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="md:col-span-2">
-            <label className="block text-sm font-semibold text-gray-300 mb-2">
-              Company Name <span className="text-red-400">*</span>
-            </label>
-            <input
-              type="text"
-              name="companyName"
-              value={formData.companyName}
-              onChange={handleChange}
-              required
-              className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
-              placeholder="Enter company name"
-            />
-          </div>
+        <CardContent className="p-4 sm:p-5">
+          <Tabs orientation="vertical" value={activeSection} onValueChange={(value) => setActiveSection(value as ActivationSectionId)} className="flex-col gap-4 md:flex-row md:gap-6">
+            <TabsList aria-label="Activation request sections" className="max-h-52 w-full overflow-y-auto md:max-h-none md:w-60 md:overflow-visible">
+              {sections.map(({ id, title, icon: Icon }) => <TabsTrigger key={id} value={id} className="min-h-9 justify-start gap-2 px-3"><Icon className="size-4" aria-hidden="true" />{title}</TabsTrigger>)}
+            </TabsList>
 
-          <div className="md:col-span-2">
-            <label className="block text-sm font-semibold text-gray-300 mb-2">
-              Postal Address <span className="text-red-400">*</span>
-            </label>
-            <textarea
-              name="postalAddress"
-              value={formData.postalAddress}
-              onChange={handleChange}
-              required
-              rows={2}
-              className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
-              placeholder="Enter company postal address"
-            />
-          </div>
+            <div className="min-w-0 flex-1">
+              <TabsContent value="company"><CompanyInformationSection data={formData} onChange={handleChange} /></TabsContent>
+              <TabsContent value="activation"><ActivationDetailsSection data={formData} onChange={handleChange} onSoundSystemChange={(checked) => setFormData((current) => ({ ...current, soundSystem: checked }))} /></TabsContent>
+              <TabsContent value="financial"><FinancialDetailsSection data={formData} onChange={handleChange} overrides={manualOverrides} onResetOverride={resetOverride} /></TabsContent>
+              <TabsContent value="vat"><VatInformationSection data={formData} onChange={handleChange} details={vatDetails} /></TabsContent>
+              <TabsContent value="payment"><PaymentDetailsSection data={formData} onChange={handleChange} /></TabsContent>
+              {showManagerInformation && <TabsContent value="manager"><ManagerInformationSection data={formData} onChange={handleChange} /></TabsContent>}
 
-          <div>
-            <label className="block text-sm font-semibold text-gray-300 mb-2">
-              Telephone <span className="text-red-400">*</span>
-            </label>
-            <input
-              type="tel"
-              name="telephone"
-              value={formData.telephone}
-              onChange={handleChange}
-              required
-              className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
-              placeholder="Company telephone number"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold text-gray-300 mb-2">
-              Alternative Contact
-            </label>
-            <input
-              type="tel"
-              name="alternativeContact"
-              value={formData.alternativeContact}
-              onChange={handleChange}
-              className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
-              placeholder="Alternative contact number"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold text-gray-300 mb-2">
-              Contact Person <span className="text-red-400">*</span>
-            </label>
-            <input
-              type="text"
-              name="contactPerson"
-              value={formData.contactPerson}
-              onChange={handleChange}
-              required
-              className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
-              placeholder="Enter contact person name"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold text-gray-300 mb-2">
-              Designation <span className="text-red-400">*</span>
-            </label>
-            <input
-              type="text"
-              name="designation"
-              value={formData.designation}
-              onChange={handleChange}
-              required
-              className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
-              placeholder="e.g., Marketing Manager"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold text-gray-300 mb-2">
-              Email Address <span className="text-red-400">*</span>
-            </label>
-            <input
-              type="email"
-              name="email"
-              value={formData.email}
-              onChange={handleChange}
-              required
-              className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
-              placeholder="email@example.com"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold text-gray-300 mb-2">
-              Mobile Number <span className="text-red-400">*</span>
-            </label>
-            <input
-              type="tel"
-              name="mobileNo"
-              value={formData.mobileNo}
-              onChange={handleChange}
-              required
-              className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
-              placeholder="+254 XXX XXX XXX"
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Part 2 - Description of Activation/Exhibition */}
-      <div className="bg-gray-800 rounded-xl p-6 border border-gray-700 shadow-lg space-y-4">
-        <h3 className="text-lg font-bold text-white flex items-center gap-2">
-          <svg className="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-          </svg>
-          Activation Details
-        </h3>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-semibold text-gray-300 mb-2">
-              Activation Type <span className="text-red-400">*</span>
-            </label>
-            <input
-              type="text"
-              name="activationType"
-              value={formData.activationType}
-              onChange={handleChange}
-              required
-              className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
-              placeholder="e.g., Product Launch, Exhibition, Pop-up Store, etc."
-              list="activation-types-suggestions"
-            />
-
-            <datalist id="activation-types-suggestions">
-              <option value="OFFICE_SPACE">Office Space</option>
-              <option value="RETAIL_SPACE">Retail Space</option>
-              <option value="WAREHOUSE">Warehouse</option>
-              <option value="EVENT_SPACE">Event Space</option>
-              <option value="POP_UP_STORE">Pop-up Store</option>
-              <option value="SHOWROOM">Showroom</option>
-              <option value="PRODUCT_LAUNCH">Product Launch</option>
-              <option value="PROMOTIONAL_EVENT">Promotional Event</option>
-              <option value="EXHIBITION">Exhibition</option>
-              <option value="MARKETING_CAMPAIGN">Marketing Campaign</option>
-              <option value="BRAND_ACTIVATION">Brand Activation</option>
-              <option value="TRADE_SHOW">Trade Show</option>
-              <option value="ROADSHOW">Roadshow</option>
-              <option value="SAMPLE_DISTRIBUTION">Sample Distribution</option>
-              <option value="MEDIA_EVENT">Media Event</option>
-              <option value="CORPORATE_EVENT">Corporate Event</option>
-              <option value="FITNESS_CLASS">Fitness Class</option>
-              <option value="WORKSHOP">Workshop</option>
-              <option value="SEMINAR">Seminar</option>
-              <option value="CONFERENCE">Conference</option>
-              <option value="OTHER">Other</option>
-            </datalist>
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold text-gray-300 mb-2">
-              Start Date <span className="text-red-400">*</span>
-            </label>
-            <input
-              type="date"
-              name="startDate"
-              value={formData.startDate}
-              onChange={handleChange}
-              required
-              className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold text-gray-300 mb-2">
-              Setup Time <span className="text-red-400">*</span>
-            </label>
-            <input
-              type="text"
-              name="setupTime"
-              value={formData.setupTime}
-              onChange={handleChange}
-              required
-              className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
-              placeholder="e.g., 9:00 AM"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold text-gray-300 mb-2">
-              End Date <span className="text-red-400">*</span>
-            </label>
-            <input
-              type="date"
-              name="endDate"
-              value={formData.endDate}
-              onChange={handleChange}
-              required
-              className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold text-gray-300 mb-2">
-              Tear Down Time <span className="text-red-400">*</span>
-            </label>
-            <input
-              type="text"
-              name="tearDownTime"
-              value={formData.tearDownTime}
-              onChange={handleChange}
-              required
-              className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
-              placeholder="e.g., 5:00 PM"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold text-gray-300 mb-2">
-              Expected Visitors
-            </label>
-            <input
-              type="number"
-              name="expectedVisitors"
-              value={formData.expectedVisitors}
-              onChange={handleChange}
-              min="0"
-              className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
-              placeholder="Estimated number of visitors"
-            />
-          </div>
-
-          <div className="md:col-span-2">
-            <label className="block text-sm font-semibold text-gray-300 mb-2">
-              Description
-            </label>
-            <textarea
-              name="description"
-              value={formData.description}
-              onChange={handleChange}
-              rows={3}
-              className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
-              placeholder="Describe the activation/exhibition"
-            />
-          </div>
-
-          <div className="flex items-center gap-3">
-            <input
-              type="checkbox"
-              name="soundSystem"
-              checked={formData.soundSystem}
-              onChange={handleChange}
-              className="w-5 h-5 text-blue-500 border-gray-600 rounded focus:ring-2 focus:ring-blue-500 focus:ring-offset-gray-800 transition-all cursor-pointer bg-gray-700"
-            />
-            <label className="text-sm font-medium text-gray-300">
-              Sound System Required
-            </label>
-          </div>
-        </div>
-      </div>
-
-      {/* Part 3 - Cost of Activation/Exhibition */}
-      <div className="bg-gray-800 rounded-xl p-6 border border-gray-700 shadow-lg space-y-4">
-        <h3 className="text-lg font-bold text-white flex items-center gap-2">
-          <svg className="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          Financial Details
-        </h3>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-sm font-semibold text-gray-300 mb-2">
-              License Fee per Day (KES)
-            </label>
-            <input
-              type="number"
-              name="licenseFeePerDay"
-              value={formData.licenseFeePerDay}
-              onChange={handleChange}
-              onBlur={triggerVATCalculation}
-              min="0"
-              step="0.01"
-              className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
-              placeholder="0.00"
-            />
-          </div>
-
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="block text-sm font-semibold text-gray-300">
-                Number of Days
-              </label>
-              {manualOverrides.numberOfDays && (
-                <button
-                  type="button"
-                  onClick={() => resetOverride('numberOfDays')}
-                  className="text-xs text-blue-400 hover:text-blue-300 underline"
-                >
-                  Auto-calculate
-                </button>
-              )}
-            </div>
-            <input
-              type="number"
-              name="numberOfDays"
-              value={formData.numberOfDays}
-              onChange={handleChange}
-              min="0"
-              className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400 ${
-                manualOverrides.numberOfDays
-                  ? 'border-yellow-600'
-                  : 'border-gray-600'
-              }`}
-              placeholder="0"
-            />
-            <p className="text-sm text-gray-400 mt-1">
-              {manualOverrides.numberOfDays
-                ? 'Manually overridden — click "Auto-calculate" to resume auto-fill from dates.'
-                : 'Auto-calculated from start & end dates. Enter 0 for single-day activations.'}
-            </p>
-          </div>
-
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="block text-sm font-semibold text-gray-300">
-                Proposed Budget (KES)
-              </label>
-              {manualOverrides.proposedBudget && (
-                <button
-                  type="button"
-                  onClick={() => resetOverride('proposedBudget')}
-                  className="text-xs text-blue-400 hover:text-blue-300 underline"
-                >
-                  Auto-calculate
-                </button>
-              )}
-            </div>
-            <input
-              type="number"
-              name="proposedBudget"
-              value={formData.proposedBudget}
-              onChange={handleChange}
-              onBlur={triggerVATCalculation}
-              min="0"
-              step="0.01"
-              className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400 ${
-                manualOverrides.proposedBudget
-                  ? 'border-yellow-600'
-                  : 'border-gray-600'
-              }`}
-              placeholder="0.00"
-            />
-            <p className="text-sm text-gray-400 mt-1">
-              {manualOverrides.proposedBudget
-                ? 'Manually overridden — click "Auto-calculate" to resume auto-fill from fee × days.'
-                : 'Auto-calculated from license fee × billing days.'}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* VAT Information Section */}
-      <div className="bg-gray-800 rounded-xl p-6 border border-gray-700 shadow-lg space-y-4">
-        <h3 className="text-lg font-bold text-white flex items-center gap-2">
-          <svg className="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-          </svg>
-          VAT Information
-        </h3>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-semibold text-gray-300 mb-2">
-              VAT Type <span className="text-red-400">*</span>
-            </label>
-            <select
-              name="vatType"
-              value={formData.vatType}
-              onChange={handleChange}
-              required
-              className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white"
-            >
-              <option value="INCLUSIVE">VAT Inclusive</option>
-              <option value="EXCLUSIVE">VAT Exclusive</option>
-              <option value="NOT_APPLICABLE">VAT NOT APPLICABLE</option>
-            </select>
-            <p className="text-sm text-gray-400 mt-1">
-              {formData.vatType === 'INCLUSIVE'
-                ? 'VAT is already included in the prices'
-                : formData.vatType === 'EXCLUSIVE'
-                ? 'VAT will be added to the prices'
-                : 'No VAT will be applied'}
-            </p>
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold text-gray-300 mb-2">
-              VAT Percentage (%) <span className="text-red-400">*</span>
-            </label>
-            <input
-              type="number"
-              name="vat"
-              value={formData.vat}
-              onChange={handleChange}
-              required
-              min="0"
-              max="100"
-              step="0.1"
-              className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
-              placeholder="e.g., 16"
-            />
-            <p className="text-sm text-gray-400 mt-1">
-              Standard VAT rate in Kenya is 16%
-            </p>
-          </div>
-        </div>
-
-        {/* VAT Calculation Display */}
-        {(formData.proposedBudget || formData.licenseFeePerDay) && (
-          <div className="mt-6 p-4 bg-gray-900/50 border border-gray-700 rounded-lg">
-            <h4 className="text-md font-semibold text-white mb-3">VAT Calculation</h4>
-            <div className="space-y-2">
-              <div className="flex justify-between items-center">
-                <span className="text-gray-300">Base Amount:</span>
-                <span className="font-medium text-white">
-                  KES{' '}
-                  {vatDetails.baseAmount.toLocaleString('en-KE', {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}
-                </span>
-              </div>
-
-              <div className="flex justify-between items-center">
-                <span className="text-gray-300">
-                  VAT ({formData.vat}%){' '}
-                  {formData.vatType === 'INCLUSIVE' ? '(Included)' : '(Exclusive)'}:
-                </span>
-                <span className="font-medium text-white">
-                  KES{' '}
-                  {vatDetails.vatAmount.toLocaleString('en-KE', {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}
-                </span>
-              </div>
-
-              <div className="pt-2 border-t border-gray-700">
-                <div className="flex justify-between items-center">
-                  <span className="text-gray-300 font-semibold">Total Amount:</span>
-                  <span className="font-bold text-lg text-white">
-                    KES{' '}
-                    {vatDetails.totalAmount.toLocaleString('en-KE', {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
-                  </span>
-                </div>
+              <div className="mt-4 flex items-center justify-between gap-3">
+                <Button type="button" variant="outline" disabled={!previousSection} onClick={() => previousSection && setActiveSection(previousSection.id)}><ChevronLeft className="size-4" />Previous</Button>
+                <span className="text-xs text-muted-foreground">Section {activeIndex + 1} of {sections.length}</span>
+                <Button type="button" variant="outline" disabled={!nextSection} onClick={() => nextSection && setActiveSection(nextSection.id)}>Next<ChevronRight className="size-4" /></Button>
               </div>
             </div>
+          </Tabs>
+        </CardContent>
 
-            {formData.vatType === 'INCLUSIVE' && vatDetails.vatAmount > 0 && (
-              <p className="text-sm text-gray-400 mt-2">
-                Note: KES {vatDetails.vatAmount.toFixed(2)} VAT is already included in the total amount
-              </p>
-            )}
-            {formData.vatType === 'EXCLUSIVE' && vatDetails.vatAmount > 0 && (
-              <p className="text-sm text-gray-400 mt-2">
-                Note: KES {vatDetails.vatAmount.toFixed(2)} VAT will be added to the base amount
-              </p>
-            )}
-            {formData.vatType === 'NOT_APPLICABLE' && (
-              <p className="text-sm text-gray-400 mt-2">
-                Note: No VAT will be applied to this activation
-              </p>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Payment Details */}
-      <div className="bg-gray-800 rounded-xl p-6 border border-gray-700 shadow-lg space-y-4">
-        <h3 className="text-lg font-bold text-white flex items-center gap-2">
-          <svg className="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-          </svg>
-          Payment Details
-        </h3>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-semibold text-gray-300 mb-2">
-              Bank Name
-            </label>
-            <input
-              type="text"
-              name="bankName"
-              value={formData.bankName}
-              onChange={handleChange}
-              className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
-              placeholder="e.g., Standard Chartered"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold text-gray-300 mb-2">
-              Bank Branch
-            </label>
-            <input
-              type="text"
-              name="bankBranch"
-              value={formData.bankBranch}
-              onChange={handleChange}
-              className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
-              placeholder="e.g., Westlands"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold text-gray-300 mb-2">
-              Account Name
-            </label>
-            <input
-              type="text"
-              name="accountName"
-              value={formData.accountName}
-              onChange={handleChange}
-              className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
-              placeholder="Account holder name"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold text-gray-300 mb-2">
-              Account Number
-            </label>
-            <input
-              type="text"
-              name="accountNumber"
-              value={formData.accountNumber}
-              onChange={handleChange}
-              className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
-              placeholder="Bank account number"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold text-gray-300 mb-2">
-              SWIFT Code
-            </label>
-            <input
-              type="text"
-              name="swiftCode"
-              value={formData.swiftCode}
-              onChange={handleChange}
-              className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
-              placeholder="e.g., SCBLKENX"
-            />
-          </div>
+        <div className="flex flex-col-reverse gap-2 border-t border-border bg-muted/20 px-4 py-4 sm:flex-row sm:justify-end sm:px-5">
+          <Button type="button" variant="outline" onClick={onCancel} disabled={loading}>Cancel</Button>
+          <Button type="submit" loading={loading}>{activation ? 'Update Activation Request' : 'Create Activation Request'}</Button>
         </div>
-
-        <div className="pt-4 border-t border-gray-700">
-          <h4 className="text-md font-semibold text-white mb-4">M-Pesa Payment Details</h4>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-semibold text-gray-300 mb-2">
-                Paybill Number
-              </label>
-              <input
-                type="text"
-                name="paybillNumber"
-                value={formData.paybillNumber}
-                onChange={handleChange}
-                className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
-                placeholder="e.g., 123456"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-semibold text-gray-300 mb-2">
-                Account Number
-              </label>
-              <input
-                type="text"
-                name="mpesaAccount"
-                value={formData.mpesaAccount}
-                onChange={handleChange}
-                className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
-                placeholder="M-Pesa account number"
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Manager Information Section (for submission) */}
-      {(!activation || activation.status === 'DRAFT') && (
-        <div className="bg-gray-800 rounded-xl p-6 border border-gray-700 shadow-lg space-y-4">
-          <h3 className="text-lg font-bold text-white flex items-center gap-2">
-            <svg className="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-            </svg>
-            Manager Information (for submission)
-          </h3>
-          <p className="text-sm text-gray-400 mb-4">
-            This information will be used for the manager's signature when submitting the request.
-          </p>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-semibold text-gray-300 mb-2">
-                Manager's Name
-              </label>
-              <input
-                type="text"
-                name="managerName"
-                value={formData.managerName}
-                onChange={handleChange}
-                className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
-                placeholder="Manager's full name"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-semibold text-gray-300 mb-2">
-                Manager's Designation
-              </label>
-              <input
-                type="text"
-                name="managerDesignation"
-                value={formData.managerDesignation}
-                onChange={handleChange}
-                className="w-full px-4 py-3 border border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-900 text-white placeholder-gray-400"
-                placeholder="e.g., Property Manager"
-              />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Form Actions */}
-      <div className="flex justify-end gap-4 pt-6 border-t border-gray-700">
-        <Button
-          type="button"
-          onClick={onCancel}
-          variant="secondary"
-          disabled={loading}
-          className="px-6 py-2.5 bg-gray-700 text-white border-gray-600 hover:bg-gray-600"
-        >
-          Cancel
-        </Button>
-        <Button
-          type="submit"
-          disabled={loading}
-          className="px-8 py-2.5 bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {loading ? (
-            <span className="flex items-center gap-2">
-              <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                  fill="none"
-                />
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                />
-              </svg>
-              {activation ? 'Updating...' : 'Creating...'}
-            </span>
-          ) : (
-            <span>{activation ? 'Update Activation Request' : 'Create Activation Request'}</span>
-          )}
-        </Button>
-      </div>
+      </Card>
     </form>
-  );
+  )
 }
+
+function createInitialData(activation?: ActivationRequest | null): ActivationFormData {
+  return {
+    companyName: activation?.companyName || '', postalAddress: activation?.postalAddress || '', telephone: activation?.telephone || '', contactPerson: activation?.contactPerson || '', alternativeContact: activation?.alternativeContact || '', designation: activation?.designation || '', email: activation?.email || '', mobileNo: activation?.mobileNo || '',
+    activationType: activation?.activationType || 'OFFICE_SPACE', startDate: activation?.startDate?.split('T')[0] || '', setupTime: activation?.setupTime || '9:00 AM', endDate: activation?.endDate?.split('T')[0] || '', tearDownTime: activation?.tearDownTime || '5:00 PM', description: activation?.description || '', expectedVisitors: activation?.expectedVisitors?.toString() || '', soundSystem: activation?.soundSystem || false,
+    licenseFeePerDay: activation?.licenseFeePerDay?.toString() || '', numberOfDays: activation?.numberOfDays?.toString() || '', proposedBudget: activation?.proposedBudget?.toString() || '',
+    vatType: activation?.vatType || 'INCLUSIVE', vat: activation?.vat?.toString() || '16',
+    bankName: activation?.bankName || '', bankBranch: activation?.bankBranch || '', accountName: activation?.accountName || '', accountNumber: activation?.accountNumber || '', swiftCode: activation?.swiftCode || '', paybillNumber: activation?.paybillNumber || '', mpesaAccount: activation?.mpesaAccount || '',
+    managerName: activation?.managerName || '', managerDesignation: activation?.managerDesignation || '',
+  }
+}
+
+function createPayload(formData: ActivationFormData, vatValue: number): UpdateActivationRequest {
+  return {
+    companyName: formData.companyName.trim(), postalAddress: formData.postalAddress.trim(), telephone: formData.telephone.trim(), contactPerson: formData.contactPerson.trim(), alternativeContact: formData.alternativeContact.trim() || undefined, designation: formData.designation.trim(), email: formData.email.trim(), mobileNo: formData.mobileNo.trim(),
+    activationType: formData.activationType, startDate: formData.startDate, setupTime: formData.setupTime.trim(), endDate: formData.endDate, tearDownTime: formData.tearDownTime.trim(), description: formData.description.trim() || undefined, expectedVisitors: formData.expectedVisitors ? Number.parseInt(formData.expectedVisitors) : undefined, soundSystem: formData.soundSystem,
+    licenseFeePerDay: formData.licenseFeePerDay ? Number.parseFloat(formData.licenseFeePerDay) : undefined, numberOfDays: formData.numberOfDays !== '' ? Number.parseInt(formData.numberOfDays) : undefined, proposedBudget: formData.proposedBudget ? Number.parseFloat(formData.proposedBudget) : undefined,
+    vatType: formData.vatType, vat: vatValue,
+    bankName: formData.bankName.trim() || undefined, bankBranch: formData.bankBranch.trim() || undefined, accountName: formData.accountName.trim() || undefined, accountNumber: formData.accountNumber.trim() || undefined, swiftCode: formData.swiftCode.trim() || undefined, paybillNumber: formData.paybillNumber.trim() || undefined, mpesaAccount: formData.mpesaAccount.trim() || undefined,
+    managerName: formData.managerName.trim() || undefined, managerDesignation: formData.managerDesignation.trim() || undefined,
+  }
+}
+
+function calculateDaysBetween(startDate: string, endDate: string): number | null {
+  if (!startDate || !endDate) return null
+  const start = new Date(startDate)
+  const end = new Date(endDate)
+  const startDateOnly = new Date(start.getFullYear(), start.getMonth(), start.getDate())
+  const endDateOnly = new Date(end.getFullYear(), end.getMonth(), end.getDate())
+  if (endDateOnly < startDateOnly) return null
+  return Math.round((endDateOnly.getTime() - startDateOnly.getTime()) / (1000 * 60 * 60 * 24))
+}
+
+function calculateBillingDays(numberOfDays: number | null): number {
+  if (numberOfDays === null || numberOfDays === undefined) return 0
+  return numberOfDays === 0 ? 1 : numberOfDays + 1
+}
+
+function calculateVatDetails(formData: ActivationFormData) {
+  const amount = Number.parseFloat(formData.proposedBudget) || Number.parseFloat(formData.licenseFeePerDay) || 0
+  const rate = Number.parseFloat(formData.vat) || 0
+  if (!amount || !rate || formData.vatType === 'NOT_APPLICABLE') return { baseAmount: amount, vatAmount: 0, totalAmount: amount }
+  if (formData.vatType === 'INCLUSIVE') {
+    const vatAmount = (amount * rate) / (100 + rate)
+    return { baseAmount: amount - vatAmount, vatAmount, totalAmount: amount }
+  }
+  const vatAmount = (amount * rate) / 100
+  return { baseAmount: amount, vatAmount, totalAmount: amount + vatAmount }
+}
+
+function formatFieldName(field: keyof ActivationFormData) { return field.replace(/([A-Z])/g, ' $1').toLowerCase() }

@@ -1,9 +1,8 @@
 'use client';
-import { WhatsAppSendButton } from '@/components/tenant/WhatsAppSendButton';
-import { useEffect, useState, useCallback, useMemo, JSX } from 'react';
+import { useEffect, useState, useMemo, JSX } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { motion, Variants } from 'framer-motion';
-import { Tenant, Invoice, InvoiceStatus, PaymentReport, PaymentPreview, CreatePaymentReportResponse, PaymentStatus, BillInvoice, PaymentPolicy, DemandLetter, DemandLetterStatus, CreatePaymentReportRequest } from '@/types';
+import { Tenant, Invoice, InvoiceStatus, PaymentReport, PaymentPreview, CreatePaymentReportResponse, PaymentStatus, BillInvoice, PaymentPolicy, DemandLetter, CreatePaymentReportRequest } from '@/types';
 import { tenantsAPI, invoicesAPI, paymentsAPI, billInvoicesAPI, demandLettersAPI } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Dialog,  DialogContent,  DialogDescription,  DialogFooter,  DialogHeader,  DialogTitle,} from '@/components/ui/dialog';
@@ -13,12 +12,18 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/Switch';
 import { toast } from 'sonner';
 import { useWhatsApp } from '@/hooks/useWhatsApp';
-import { generatePaymentReportPDF, generateBillInvoiceReportPDF, generateComprehensiveReportPDF } from '@/lib/pdfGenerator';
-import { formatDateToOrdinal, getDaysRemaining } from '@/lib/dateUtils';
-import { PermissionGuard } from '@/components/auth/PermissionGuard';
+import { generateBillInvoiceReportPDF, generateComprehensiveReportPDF } from '@/lib/pdfGenerator';
+import { formatDateToOrdinal } from '@/lib/dateUtils';
 import { useGlobalPermissions } from '@/app/providers/PermissionsProvider';
 import { PermissionCode } from '@/types';
 import { AttachmentSection } from '@/components/tenant/AttachmentSection';
+import { useBreadcrumbOverride, useBreadcrumbRouteTrail } from '@/components/layout/BreadcrumbContext';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { DetailItem, DetailList } from '@/components/ui/detail-list';
+import { PageHeader } from '@/components/ui/page-header';
+import { formatExactKes } from '@/lib/numberFormat';
+import { ChevronRight } from 'lucide-react';
 
 export default function TenantDetailPage() {
   const params = useParams();
@@ -30,7 +35,6 @@ export default function TenantDetailPage() {
     isAdmin, 
     isManager,
     hasPermission,
-    canAccessModule,
   } = useGlobalPermissions();
   
   // ==============================================
@@ -78,21 +82,16 @@ export default function TenantDetailPage() {
     hasPermission(PermissionCode.DOWNLOAD_INVOICES);
     
   const canCreateInvoices = isAdmin || isManager || hasPermission(PermissionCode.CREATE_INVOICES);
-  const canDeleteInvoices = isAdmin || isManager || hasPermission(PermissionCode.DELETE_INVOICES);
-  const canDownloadInvoices = isAdmin || isManager || hasPermission(PermissionCode.DOWNLOAD_INVOICES);
   
   const canViewPayments = isAdmin || isManager ||
     hasPermission(PermissionCode.VIEW_PAYMENT_REPORTS) ||
     hasPermission(PermissionCode.RECORD_PAYMENTS);
     
   const canCreatePayments = isAdmin || isManager || hasPermission(PermissionCode.RECORD_PAYMENTS);
-  const canDeletePayments = isAdmin || isManager || hasPermission(PermissionCode.DELETE_PAYMENT_RECORDS);
   const canDownloadPaymentReports = isAdmin || isManager || hasPermission(PermissionCode.VIEW_PAYMENT_REPORTS);
   
   const canViewBillInvoices = isAdmin || isManager || hasPermission(PermissionCode.VIEW_BILL_INVOICES);
-  const canDeleteBillInvoices = isAdmin || isManager || hasPermission(PermissionCode.DELETE_BILL_INVOICE);
   const canDownloadBillInvoices = isAdmin || isManager || hasPermission(PermissionCode.DOWNLOAD_BILL_INVOICE);
-  const canCreateBillInvoices = isAdmin || isManager || hasPermission(PermissionCode.CREATE_BILL_INVOICE);
   
   const canViewDemandLetters = isAdmin || isManager ||
     hasPermission(PermissionCode.VIEW_DEMAND_LETTERS) ||
@@ -108,13 +107,6 @@ export default function TenantDetailPage() {
   
   const canViewComprehensiveReport = isAdmin || isManager;
   
-  // Also check module-level permissions from the centralized system
-  const canAccessTenantsModule = canAccessModule('tenants');
-  const canAccessInvoicesModule = canAccessModule('invoices');
-  const canAccessPaymentsModule = canAccessModule('payments');
-  const canAccessBillInvoicesModule = canAccessModule('billInvoices');
-  const canAccessDemandLettersModule = canAccessModule('demandLetters');
-  
   // State declarations
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -122,47 +114,33 @@ export default function TenantDetailPage() {
   const [billInvoices, setBillInvoices] = useState<BillInvoice[]>([]);
   const [demandLetters, setDemandLetters] = useState<DemandLetter[]>([]);
   const [loading, setLoading] = useState(true);
-  const [invoicesLoading, setInvoicesLoading] = useState(false);
-  const [paymentReportsLoading, setPaymentReportsLoading] = useState(false);
-  const [billInvoicesLoading, setBillInvoicesLoading] = useState(false);
-  const [demandLettersLoading, setDemandLettersLoading] = useState(false);
+  const [, setInvoicesLoading] = useState(false);
+  const [, setPaymentReportsLoading] = useState(false);
+  const [, setBillInvoicesLoading] = useState(false);
+  const [, setDemandLettersLoading] = useState(false);
   const [showInvoiceDialog, setShowInvoiceDialog] = useState(false);
-  const [showInvoicesList, setShowInvoicesList] = useState(false);
-  const [showPaymentReportsDialog, setShowPaymentReportsDialog] = useState(false);
   const [showCreatePaymentDialog, setShowCreatePaymentDialog] = useState(false);
-  const [showBillInvoicesDialog, setShowBillInvoicesDialog] = useState(false);
-  const [showPartialPaymentInvoiceDialog, setShowPartialPaymentInvoiceDialog] = useState(false);
   const [showDemandLetterDialog, setShowDemandLetterDialog] = useState(false);
-  const [showDemandLettersListDialog, setShowDemandLettersListDialog] = useState(false);
-  const [selectedPartialPayment, setSelectedPartialPayment] = useState<PaymentReport | null>(null);
   const [generatingPDF, setGeneratingPDF] = useState(false);
   const [generatingBillPDF, setGeneratingBillPDF] = useState(false);
   const [generatingComprehensivePDF, setGeneratingComprehensivePDF] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [creatingPayment, setCreatingPayment] = useState(false);
-  const [generatingPartialInvoice, setGeneratingPartialInvoice] = useState(false);
   const [createMissingInvoices, setCreateMissingInvoices] = useState<boolean>(true);
   const [autoGenerateBalanceInvoice, setAutoGenerateBalanceInvoice] = useState<boolean>(true);
   const [updateExistingInvoices, setUpdateExistingInvoices] = useState<boolean>(true);
   const [generatingDemandLetter, setGeneratingDemandLetter] = useState(false);
   const [outstandingInvoices, setOutstandingInvoices] = useState<Invoice[]>([]);
-  const [outstandingBillInvoices, setOutstandingBillInvoices] = useState<BillInvoice[]>([]);
+  const [outstandingBillInvoices] = useState<BillInvoice[]>([]);
   const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<string[]>([]);
   const [selectedBillInvoiceIds, setSelectedBillInvoiceIds] = useState<string[]>([]);
   const [loadingOutstanding, setLoadingOutstanding] = useState(false);
   const [showInvoiceSelection, setShowInvoiceSelection] = useState(true);
-  const [overdueInvoices, setOverdueInvoices] = useState<Invoice[]>([]);
-  const [showOverdueInvoicesDialog, setShowOverdueInvoicesDialog] = useState(false);
-  const [deletingInvoiceId, setDeletingInvoiceId] = useState<string | null>(null);
-  const [deletingBillInvoiceId, setDeletingBillInvoiceId] = useState<string | null>(null);
   const [paymentPreview, setPaymentPreview] = useState<PaymentPreview | null>(null);
   const [allocatedInvoices, setAllocatedInvoices] = useState<CreatePaymentReportResponse['invoices']>([]);
   const [overpaymentDetails, setOverpaymentDetails] = useState<CreatePaymentReportResponse['overpayment'] | null>(null);
   const [showPaymentAllocation, setShowPaymentAllocation] = useState(false);
-  const [calculatingPreview, setCalculatingPreview] = useState(false);
-  const [receiptsMap, setReceiptsMap] = useState<Map<string, PaymentReport>>(new Map());
-  const [downloadingReceiptId, setDownloadingReceiptId] = useState<string | null>(null);
-  const [deletingPaymentReportId, setDeletingPaymentReportId] = useState<string | null>(null);
+  const [, setCalculatingPreview] = useState(false);
 
   const [invoiceForm, setInvoiceForm] = useState({
     dueDate: '',
@@ -177,37 +155,18 @@ export default function TenantDetailPage() {
     status: 'PAID' as PaymentStatus,
   });
 
-  const [partialInvoiceForm, setPartialInvoiceForm] = useState({
-    dueDate: '',
-    notes: '',
-  });
   const [demandLetterForm, setDemandLetterForm] = useState({
     demandPeriod: '',
     notes: '',
   });
 
   const tenantId = params.id as string;
-
-  // Fetch data based on permissions
-  useEffect(() => {
-    fetchTenant();
-    if (canViewInvoices) {
-      fetchInvoices();
-    }
-    if (canViewBillInvoices) {
-      fetchBillInvoices();
-    }
-    if (canViewPayments) {
-      fetchPaymentReports();
-      fetchPaymentReportsWithReceipts();
-    }
-    if (canViewDemandLetters) {
-      fetchDemandLetters();
-    }
-    if (canViewPayments) {
-      fetchOutstandingInvoices();
-    }
-  }, [tenantId]);
+  const tenantWorkspaceHref = tenant?.unit?.propertyId ? `/properties/${tenant.unit.propertyId}?tab=tenants` : '/properties';
+  useBreadcrumbOverride(`/properties/${tenantId}`, loading ? 'Loading…' : tenant?.unit?.property?.name ?? 'Property details', tenant?.unit?.propertyId ? `/properties/${tenant.unit.propertyId}` : '/properties');
+  useBreadcrumbRouteTrail([
+    { label: 'Tenants', href: tenantWorkspaceHref },
+    { label: loading ? 'Loading…' : tenant?.fullName ?? 'Tenant details' },
+  ], `/properties/${tenantId}`, tenantWorkspaceHref);
 
   // Fetch payment preview when amount changes
   useEffect(() => {
@@ -232,73 +191,7 @@ export default function TenantDetailPage() {
     return () => clearTimeout(timeoutId);
   }, [paymentForm.amountPaid, tenantId]);
 
-  useEffect(() => {
-    if (showInvoiceDialog && tenant?.paymentSummary?.nextPayment?.dueDate) {
-      const dueDate = new Date(tenant.paymentSummary.nextPayment.dueDate);
-      const formattedDueDate = dueDate.toISOString().split('T')[0];
-      setInvoiceForm(prev => ({
-        ...prev,
-        dueDate: formattedDueDate
-      }));
-    }
-  }, [showInvoiceDialog, tenant?.paymentSummary?.nextPayment?.dueDate]);
-
-  // Initialize payment period when dialog opens based on tenant's start date
-  useEffect(() => {
-    if (showCreatePaymentDialog && tenant && !paymentForm.paymentPeriod) {
-      const currentPeriod = getCurrentPeriod(tenant.rentStart || '', tenant.paymentPolicy);
-      if (currentPeriod) {
-        setPaymentForm(prev => ({
-          ...prev,
-          paymentPeriod: currentPeriod
-        }));
-      }
-    }
-  }, [showCreatePaymentDialog, tenant]);
-
   // Helper functions for payment period handling based on tenant's start date
-  const getCurrentQuarter = (tenantStartDate?: string) => {
-    const now = new Date();
-    const startDate = tenantStartDate ? new Date(tenantStartDate) : now;
-    
-    // Calculate months from start date
-    const monthsDiff = (now.getFullYear() - startDate.getFullYear()) * 12 + 
-                      (now.getMonth() - startDate.getMonth());
-    
-    // Determine which quarter we're in based on months since start
-    const quarterIndex = Math.floor(monthsDiff / 3);
-    return {
-      quarter: `Q${quarterIndex + 1}`,
-      startMonth: startDate.getMonth(),
-      startYear: startDate.getFullYear(),
-      quarterIndex: quarterIndex
-    };
-  };
-
-  const getQuarterMonths = (quarter: string, startDate?: Date) => {
-    const baseDate = startDate || new Date();
-    const quarterNum = parseInt(quarter.replace('Q', ''));
-    const startMonth = baseDate.getMonth();
-    const year = baseDate.getFullYear();
-    
-    // Calculate the actual start month for this quarter
-    const quarterStartMonth = (startMonth + (quarterNum - 1) * 3) % 12;
-    const quarterEndMonth = (startMonth + quarterNum * 3 - 1) % 12;
-    
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    
-    // Calculate year offset
-    const yearOffset = Math.floor((startMonth + (quarterNum - 1) * 3) / 12);
-    
-    return {
-      startMonth: monthNames[quarterStartMonth],
-      endMonth: monthNames[quarterEndMonth],
-      startYear: year + yearOffset,
-      endYear: year + Math.floor((startMonth + quarterNum * 3 - 1) / 12),
-      display: `${monthNames[quarterStartMonth]} - ${monthNames[quarterEndMonth]}`
-    };
-  };
-
   const getQuarterPeriods = (tenantStartDate: string, numQuarters: number = 8) => {
     const startDate = new Date(tenantStartDate);
     const periods = [];
@@ -367,7 +260,6 @@ export default function TenantDetailPage() {
       const year = startDate.getFullYear() + yearOffset;
       return `${year}-Q${quarterIndex + 1}`;
     } else if (paymentPolicy === 'ANNUAL') {
-      const yearsDiff = now.getFullYear() - startDate.getFullYear();
       // Check if we're past the anniversary date this year
       const currentYearAnniversary = new Date(now.getFullYear(), startDate.getMonth(), startDate.getDate());
       const yearOffset = now >= currentYearAnniversary ? 0 : 1;
@@ -460,40 +352,12 @@ export default function TenantDetailPage() {
     }
   };
   
-  const fetchOverdueInvoices = async () => {
-    try {
-      const response = await demandLettersAPI.getOverdueInvoices(tenantId);
-      return response?.invoices || [];
-    } catch (error) {
-      console.error('Error fetching overdue invoices:', error);
-      toast.error('Failed to load overdue invoices');
-      return [];
-    }
-  };
-
-  const handleViewOverdueInvoices = async () => {
+  const handleViewOverdueInvoices = () => {
     if (!canViewOverdueInvoices) {
       toast.error('You do not have permission to view overdue invoices');
       return;
     }
-    
-    try {
-      setLoadingOutstanding(true);
-      const overdue = await fetchOverdueInvoices();
-      setOverdueInvoices(overdue);
-      
-      if (overdue.length === 0) {
-        toast.info('No overdue invoices found for this tenant');
-      } else {
-        setShowOverdueInvoicesDialog(true);
-        toast.success(`Found ${overdue.length} overdue invoice(s)`);
-      }
-    } catch (error) {
-      console.error('Error fetching overdue invoices:', error);
-      toast.error('Failed to load overdue invoices');
-    } finally {
-      setLoadingOutstanding(false);
-    }
+    router.push(`/properties/${tenantId}/tenant-details/overdue-invoices`);
   };
 
   const fetchOutstandingInvoices = async () => {
@@ -510,6 +374,24 @@ export default function TenantDetailPage() {
       setLoadingOutstanding(false);
     }
   };
+
+  // Fetch the tenant workspace data after the request helpers are available.
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void fetchTenant();
+      if (canViewInvoices) void fetchInvoices();
+      if (canViewBillInvoices) void fetchBillInvoices();
+      if (canViewPayments) {
+        void fetchPaymentReports();
+        void fetchOutstandingInvoices();
+      }
+      if (canViewDemandLetters) void fetchDemandLetters();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+    // The permission booleans and tenant id are the intended reload boundary.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantId, canViewInvoices, canViewBillInvoices, canViewPayments, canViewDemandLetters]);
 
   const calculatePaymentAmounts = () => {
     if (paymentPreview) {
@@ -689,11 +571,10 @@ export default function TenantDetailPage() {
       fetchPaymentReports();
       fetchInvoices();
       fetchOutstandingInvoices();
-      fetchPaymentReportsWithReceipts();
       
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error creating payment report:', error);
-      toast.error(error.message || 'Failed to create payment report');
+      toast.error(error instanceof Error ? error.message : 'Failed to create payment report');
     } finally {
       setCreatingPayment(false);
     }
@@ -740,105 +621,6 @@ export default function TenantDetailPage() {
     }
   };
 
-  const handleGeneratePartialPaymentInvoice = async () => {
-    if (!selectedPartialPayment) {
-      toast.error('No payment selected');
-      return;
-    }
-
-    if (!partialInvoiceForm.dueDate) {
-      toast.error('Please select a due date');
-      return;
-    }
-
-    if (!tenant) {
-      toast.error('Tenant information not available');
-      return;
-    }
-
-    if (!canCreateInvoices) {
-      toast.error('You do not have permission to generate invoices');
-      return;
-    }
-
-    try {
-      setGeneratingPartialInvoice(true);
-      toast.loading(`Generating ${tenant.paymentPolicy} balance invoice...`);
-      
-      await invoicesAPI.generateFromPartialPayment({
-        paymentReportId: selectedPartialPayment.id,
-        dueDate: partialInvoiceForm.dueDate,
-        notes: partialInvoiceForm.notes || `Balance invoice for ${selectedPartialPayment.paymentPeriod} (${tenant.paymentPolicy})`,
-      });
-      
-      toast.dismiss();
-      toast.success(`${tenant.paymentPolicy} balance invoice generated successfully!`);
-      setShowPartialPaymentInvoiceDialog(false);
-      setPartialInvoiceForm({ dueDate: '', notes: '' });
-      setSelectedPartialPayment(null);
-      fetchInvoices();
-      fetchPaymentReports();
-      fetchOutstandingInvoices();
-    } catch (error: any) {
-      console.error('Error generating partial payment invoice:', error);
-      toast.dismiss();
-      toast.error(error.message || 'Failed to generate balance invoice');
-    } finally {
-      setGeneratingPartialInvoice(false);
-    }
-  };
-
-  const handleDeletePaymentReport = async (paymentReportId: string, paymentPeriod: string) => {
-    if (!canDeletePayments) {
-      toast.error('You do not have permission to delete payment reports');
-      return;
-    }
-
-    if (!confirm(`Are you sure you want to delete payment report for ${paymentPeriod}?\n\nThis will:\n• Delete the payment record\n• Delete associated receipt\n• Unlink or delete related invoices\n• Delete associated income record\n\nThis action cannot be undone!`)) {
-      return;
-    }
-
-    try {
-      setDeletingPaymentReportId(paymentReportId);
-      
-      const result = await paymentsAPI.deletePaymentReport(paymentReportId, {
-        deleteLinkedInvoices: true,
-        deleteBillInvoices: false,
-        deleteIncome: true,
-        force: false
-      });
-      
-      toast.success(`Payment report for ${paymentPeriod} deleted successfully!`);
-      
-      let details = [];
-      if (result.data.deletedReceipt) details.push('receipt deleted');
-      if (result.data.deletedInvoices.length > 0) details.push(`${result.data.deletedInvoices.length} invoice(s) deleted`);
-      if (result.data.deletedIncome) details.push('income record deleted');
-      if (result.data.unlinkCount > 0) details.push(`${result.data.unlinkCount} records unlinked`);
-      
-      if (details.length > 0) {
-        toast.info(`Cleanup: ${details.join(', ')}`);
-      }
-      
-      fetchPaymentReports();
-      fetchInvoices();
-      fetchOutstandingInvoices();
-      
-    } catch (error: any) {
-      console.error('Error deleting payment report:', error);
-      
-      if (error.message?.includes('90 days')) {
-        toast.error(error.message);
-      } else if (error.message?.includes('foreign key')) {
-        toast.error('Cannot delete: Related records exist. Try unlinking first.');
-      } else {
-        toast.error(error.message || 'Failed to delete payment report');
-      }
-    } finally {
-      setDeletingPaymentReportId(null);
-    }
-  };
-  
   const handleGenerateDemandLetter = async () => {
     if (!tenant) {
       toast.error('Tenant information not available');
@@ -865,56 +647,12 @@ export default function TenantDetailPage() {
       if (demandLetter.documentUrl) {
         await demandLettersAPI.downloadPDF(demandLetter.id);
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error generating demand letter:', error);
       toast.dismiss();
-      toast.error(error.message || 'Failed to generate demand letter');
+      toast.error(error instanceof Error ? error.message : 'Failed to generate demand letter');
     } finally {
       setGeneratingDemandLetter(false);
-    }
-  };
-
-const handleDownloadDemandLetter = async (demandLetterId: string) => {
-  try {
-    const blob = await demandLettersAPI.downloadPDF(demandLetterId);
-    const url = window.URL.createObjectURL(blob);
-    window.open(url, '_blank');
-    window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
-    toast.success('Demand letter download started');
-  } catch (error) {
-    console.error('Error downloading demand letter:', error);
-    toast.error('Failed to download demand letter');
-  }
-};
-  const openPartialPaymentInvoiceDialog = (payment: PaymentReport) => {
-    setSelectedPartialPayment(payment);
-    setPartialInvoiceForm({
-      dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      notes: `Balance invoice for ${payment.paymentPeriod}`,
-    });
-    setShowPartialPaymentInvoiceDialog(true);
-  };
-
-  const handleDownloadInvoice = async (invoiceId: string, invoiceNumber: string) => {
-    if (!canDownloadInvoices) {
-      toast.error('You do not have permission to download invoices');
-      return;
-    }
-
-    try {
-      const blob = await invoicesAPI.downloadInvoice(invoiceId);
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${invoiceNumber}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-      toast.success('Invoice downloaded successfully');
-    } catch (error) {
-      console.error('Error downloading invoice:', error);
-      toast.error('Failed to download invoice');
     }
   };
 
@@ -1019,36 +757,6 @@ const handleDownloadPaymentReport = async () => {
     }
   };
 
-  const getPaymentStatusColor = (status: string) => {
-    switch (status) {
-      case 'PAID':
-        return 'bg-green-100 text-green-800 border-green-200';
-      case 'PARTIAL':
-        return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-      default:
-        return 'bg-gray-100 text-gray-800 border-gray-200';
-    }
-  };
-
-  const getDemandLetterStatusColor = (status: DemandLetterStatus) => {
-    switch (status) {
-      case 'DRAFT':
-        return 'bg-gray-100 text-gray-800 border-gray-200';
-      case 'GENERATED':
-        return 'bg-blue-100 text-blue-800 border-blue-200';
-      case 'SENT':
-        return 'bg-purple-100 text-purple-800 border-purple-200';
-      case 'ACKNOWLEDGED':
-        return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-      case 'SETTLED':
-        return 'bg-green-100 text-green-800 border-green-200';
-      case 'ESCALATED':
-        return 'bg-red-100 text-red-800 border-red-200';
-      default:
-        return 'bg-gray-100 text-gray-800 border-gray-200';
-    }
-  };
-
   const getPaymentPolicyColor = (policy: PaymentPolicy) => {
     switch (policy) {
       case 'MONTHLY':
@@ -1062,118 +770,12 @@ const handleDownloadPaymentReport = async () => {
     }
   };
 
-  const fetchPaymentReportsWithReceipts = async () => {
-    try {
-      const reports = await paymentsAPI.getPaymentsByTenant(tenantId);
-      if (Array.isArray(reports)) {
-        const newReceiptsMap = new Map<string, PaymentReport>();
-        
-        reports.forEach(report => {
-          if (report.receiptUrl || report.receiptNumber) {
-            report.invoices?.forEach(invoice => {
-              newReceiptsMap.set(invoice.id, report);
-            });
-          }
-        });
-        
-        setReceiptsMap(newReceiptsMap);
-      }
-    } catch (error) {
-      console.error('Error fetching payment reports with receipts:', error);
-    }
-  };
-
-  const handleDeleteInvoice = async (invoiceId: string, invoiceNumber: string) => {
-    if (!canDeleteInvoices) {
-      toast.error('You do not have permission to delete invoices');
-      return;
-    }
-
-    if (!confirm(`Are you sure you want to delete invoice ${invoiceNumber}? This action cannot be undone.`)) {
-      return;
-    }
-
-    try {
-      setDeletingInvoiceId(invoiceId);
-      await invoicesAPI.deleteInvoice(invoiceId);
-      toast.success(`Invoice ${invoiceNumber} deleted successfully!`);
-      
-      setInvoices(prevInvoices => prevInvoices.filter(invoice => invoice.id !== invoiceId));
-      fetchOutstandingInvoices();
-    } catch (error) {
-      console.error('Error deleting invoice:', error);
-      toast.error('Failed to delete invoice');
-    } finally {
-      setDeletingInvoiceId(null);
-    }
-  };
-
-  const handleDeleteBillInvoice = async (billInvoiceId: string, invoiceNumber: string) => {
-    if (!canDeleteBillInvoices) {
-      toast.error('You do not have permission to delete bill invoices');
-      return;
-    }
-
-    if (!confirm(`Are you sure you want to delete bill invoice ${invoiceNumber}? This action cannot be undone.`)) {
-      return;
-    }
-
-    try {
-      setDeletingBillInvoiceId(billInvoiceId);
-      await billInvoicesAPI.deleteBillInvoice(billInvoiceId);
-      toast.success(`Bill invoice ${invoiceNumber} deleted successfully!`);
-      
-      setBillInvoices(prevInvoices => prevInvoices.filter(invoice => invoice.id !== billInvoiceId));
-    } catch (error) {
-      console.error('Error deleting bill invoice:', error);
-      toast.error('Failed to delete bill invoice');
-    } finally {
-      setDeletingBillInvoiceId(null);
-    }
-  };
-  
-  const handleDownloadReceipt = async (paymentReportId: string, receiptNumber?: string) => {
-    try {
-      setDownloadingReceiptId(paymentReportId);
-      const blob = await paymentsAPI.downloadReceipt(paymentReportId);
-      
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${receiptNumber || 'receipt'}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-      
-      toast.success('Receipt downloaded successfully');
-    } catch (error) {
-      console.error('Error downloading receipt:', error);
-      toast.error('Failed to download receipt');
-    } finally {
-      setDownloadingReceiptId(null);
-    }
-  };
-
   const containerVariants: Variants = {
     hidden: { opacity: 0 },
     visible: {
       opacity: 1,
       transition: {
         staggerChildren: 0.1,
-      },
-    },
-  };
-
-  const itemVariants: Variants = {
-    hidden: { opacity: 0, y: 20 },
-    visible: {
-      opacity: 1,
-      y: 0,
-      transition: {
-        type: 'spring' as const,
-        stiffness: 100,
-        damping: 12,
       },
     },
   };
@@ -1218,13 +820,13 @@ const handleDownloadPaymentReport = async () => {
           </svg>
         </div>
         <h2 className="text-2xl font-bold text-heading-color mb-2">Tenant Not Found</h2>
-        <p className="text-gray-800 mb-6">The tenant you're looking for doesn't exist.</p>
-        <Button onClick={() => router.back()}>Go Back</Button>
+        <p className="text-gray-800 mb-6">The tenant you are looking for does not exist.</p>
+        <Button onClick={() => router.push(tenantWorkspaceHref)}>Go Back</Button>
       </motion.div>
     );
   }
 
-  const { rent, serviceCharge, vat, totalDue, monthlyEquivalent } = calculatePaymentAmounts();
+  const { totalDue } = calculatePaymentAmounts();
   const partialPaymentsCount = paymentReports.filter(p => p.status === 'PARTIAL' && p.arrears > 0).length;
 
   // ==============================================
@@ -1253,7 +855,15 @@ const handleDownloadPaymentReport = async () => {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
         </svg>
       ),
-      onClick: () => setShowInvoiceDialog(true),
+      onClick: () => {
+        if (tenant.paymentSummary?.nextPayment?.dueDate) {
+          setInvoiceForm(previous => ({
+            ...previous,
+            dueDate: new Date(tenant.paymentSummary!.nextPayment.dueDate).toISOString().split('T')[0],
+          }));
+        }
+        setShowInvoiceDialog(true);
+      },
       variant: 'primary',
       permission: isAdmin || isManager || permissions.invoices.canCreate,
       description: 'Create new invoice',
@@ -1267,7 +877,7 @@ const handleDownloadPaymentReport = async () => {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
         </svg>
       ),
-      onClick: () => setShowInvoicesList(true),
+      onClick: () => router.push(`/properties/${tenantId}/tenant-details/invoices`),
       variant: 'outline',
       permission: isAdmin || isManager || permissions.invoices.canView,
       badge: invoices.length,
@@ -1284,7 +894,13 @@ const handleDownloadPaymentReport = async () => {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
         </svg>
       ),
-      onClick: () => setShowCreatePaymentDialog(true),
+      onClick: () => {
+        if (!paymentForm.paymentPeriod) {
+          const currentPeriod = getCurrentPeriod(tenant.rentStart || '', tenant.paymentPolicy);
+          if (currentPeriod) setPaymentForm(previous => ({ ...previous, paymentPeriod: currentPeriod }));
+        }
+        setShowCreatePaymentDialog(true);
+      },
       variant: 'success',
       permission: isAdmin || isManager || permissions.payments.canCreate,
       description: 'Record new payment',
@@ -1298,7 +914,7 @@ const handleDownloadPaymentReport = async () => {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
         </svg>
       ),
-      onClick: () => setShowPaymentReportsDialog(true),
+      onClick: () => router.push(`/properties/${tenantId}/tenant-details/payment-reports`),
       variant: 'info',
       permission: isAdmin || isManager || permissions.payments.canView,
       badge: paymentReports.length,
@@ -1317,7 +933,7 @@ const handleDownloadPaymentReport = async () => {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
         </svg>
       ),
-      onClick: () => setShowBillInvoicesDialog(true),
+      onClick: () => router.push(`/properties/${tenantId}/tenant-details/bill-invoices`),
       variant: 'warning',
       permission: isAdmin || isManager || permissions.billInvoices.canView,
       badge: billInvoices.length,
@@ -1362,7 +978,7 @@ const handleDownloadPaymentReport = async () => {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
         </svg>
       ),
-      onClick: () => setShowDemandLettersListDialog(true),
+      onClick: () => router.push(`/properties/${tenantId}/tenant-details/demand-letters`),
       variant: 'outline',
       permission: isAdmin || isManager || permissions.demandLetters.canView,
       badge: demandLetters.length,
@@ -1370,10 +986,35 @@ const handleDownloadPaymentReport = async () => {
       description: `View all ${demandLetters.length} demand letters`,
       group: 'demand'
     },
+    {
+      id: 'overdue-invoices',
+      label: 'Overdue Invoices',
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v4m0 4h.01M10.29 3.86l-8.82 15.27A1 1 0 002.34 20h19.32a1 1 0 00.87-1.5L13.71 3.86a1 1 0 00-1.42 0z" />
+        </svg>
+      ),
+      onClick: handleViewOverdueInvoices,
+      variant: 'outline',
+      permission: canViewOverdueInvoices,
+      description: 'Review overdue rent invoices',
+      group: 'demand'
+    },
   ];
 
   // Filter buttons based on permissions
   const visibleButtons = actionButtons.filter(btn => btn.permission);
+  const financialRecordIds = new Set([
+    'view-invoices',
+    'payment-reports',
+    'bill-invoices',
+    'my-bills',
+    'view-demand-letters',
+    'overdue-invoices',
+  ]);
+  const quickActionIds = new Set(['generate-invoice', 'record-payment', 'demand-letter']);
+  const financialRecords = visibleButtons.filter(button => financialRecordIds.has(button.id));
+  const quickActions = visibleButtons.filter(button => quickActionIds.has(button.id));
 
   return (
     <motion.div
@@ -1382,1006 +1023,265 @@ const handleDownloadPaymentReport = async () => {
       variants={containerVariants}
       className="space-y-8 p-6 md:p-8"
     >
-      {/* Back Button */}
-      <motion.div variants={itemVariants}>
-        <Button
-          onClick={() => router.back()}
-          className="group px-6 py-3 bg-gray-100 text-black hover:bg-gray-200 transition-all duration-300 shadow-sm hover:shadow-md rounded-lg"
-        >
-          <motion.span className="flex items-center gap-2" whileHover={{ x: -2 }}>
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-            </svg>
-            Back
-          </motion.span>
-        </Button>
-      </motion.div>
-
-      {/* Header Section */}
-      <motion.div
-        variants={itemVariants}
-        className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6 pb-6 border-b-2 border-gray-100"
-      >
-        <div className="flex items-center gap-4">
-          <motion.div
-            whileHover={{ scale: 1.05, rotate: 5 }}
-            className="w-16 h-16 bg-linear-to-br from-purple-100 to-purple-200 rounded-xl flex items-center justify-center shrink-0"
-          >
-            <svg className="w-8 h-8 text-purple-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-            </svg>
-          </motion.div>
-          <div>
-            <h1 className="text-3xl md:text-4xl font-bold text-heading-color">{tenant.fullName}</h1>
-            <div className="flex items-center gap-3 mt-2">
-              <p className="text-gray-900 flex items-center gap-2">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-                </svg>
-                ID: {tenant.id}
-              </p>
-              <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getPaymentPolicyColor(tenant.paymentPolicy)}`}>
-                {tenant.paymentPolicy}
-              </span>
-            </div>
+      <PageHeader
+        title={tenant.fullName}
+        description={`${tenant.unit?.property?.name ?? 'Property'} · Unit ${tenant.unit?.unitNo ?? '—'}`}
+        leading={
+          <div className="flex size-11 items-center justify-center rounded-lg bg-primary/10 text-lg font-semibold text-primary" aria-hidden="true">
+            {tenant.fullName.charAt(0).toUpperCase()}
           </div>
-        </div>
+        }
+        actions={
+          <Button variant="outline" onClick={() => router.push(tenantWorkspaceHref)}>
+            Back to tenants
+          </Button>
+        }
+      />
 
-        {/* ============================================ */}
-        {/* IMPROVED ACTION BUTTONS SECTION */}
-        {/* ============================================ */}
-        <div className="w-full lg:w-auto">
-          {/* Desktop: Grid layout with cards */}
-          <div className="hidden lg:grid lg:grid-cols-4 gap-3">
-            {visibleButtons.slice(0, 8).map((btn) => (
-              <motion.button
-                key={btn.id}
-                whileHover={{ y: -2, scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={btn.onClick}
-                className={`
-                  group relative flex flex-col items-center justify-center p-4 rounded-xl 
-                  transition-all duration-300 border-2 shadow-sm hover:shadow-lg
-                  ${btn.variant === 'primary' && 'bg-primary border-primary hover:bg-primary/90 text-white'}
-                  ${btn.variant === 'secondary' && 'bg-gray-100 border-gray-200 hover:bg-gray-200 text-gray-800'}
-                  ${btn.variant === 'outline' && 'bg-white border-gray-300 hover:border-primary hover:bg-primary/5 text-gray-700'}
-                  ${btn.variant === 'success' && 'bg-green-600 border-green-600 hover:bg-green-700 text-white'}
-                  ${btn.variant === 'info' && 'bg-blue-600 border-blue-600 hover:bg-blue-700 text-white'}
-                  ${btn.variant === 'warning' && 'bg-amber-600 border-amber-600 hover:bg-amber-700 text-white'}
-                  ${btn.variant === 'danger' && 'bg-red-600 border-red-600 hover:bg-red-700 text-white'}
-                `}
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <Card>
+          <CardHeader className="pb-2"><CardDescription>Monthly rent</CardDescription><CardTitle className="text-xl" title={formatExactKes(tenant.rent ?? 0)}>{formatExactKes(tenant.rent ?? 0)}</CardTitle></CardHeader>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2"><CardDescription>Payment amount</CardDescription><CardTitle className="text-xl" title={formatExactKes(tenant.rentInfo?.paymentAmount ?? totalDue)}>{formatExactKes(tenant.rentInfo?.paymentAmount ?? totalDue)}</CardTitle></CardHeader>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2"><CardDescription>Security deposit</CardDescription><CardTitle className="text-xl" title={formatExactKes(tenant.deposit ?? 0)}>{formatExactKes(tenant.deposit ?? 0)}</CardTitle></CardHeader>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2"><CardDescription>Payment policy</CardDescription><CardTitle className="text-xl"><Badge variant="info">{tenant.paymentPolicy}</Badge></CardTitle></CardHeader>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Financial records</CardTitle>
+          <CardDescription>Review invoices, payments, bills and collection documents.</CardDescription>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <div className="divide-y divide-border rounded-md border border-border">
+            {financialRecords.map((record) => (
+              <button
+                type="button"
+                key={record.id}
+                onClick={record.onClick}
+                className="group flex w-full items-center gap-3 px-4 py-3 text-left transition-colors first:rounded-t-md last:rounded-b-md hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
               >
-                {/* Icon with background circle */}
-                <div className={`
-                  flex items-center justify-center w-10 h-10 rounded-full mb-2
-                  ${btn.variant === 'primary' && 'bg-white/20 text-white'}
-                  ${btn.variant === 'secondary' && 'bg-gray-200 text-gray-700'}
-                  ${btn.variant === 'outline' && 'bg-gray-100 text-gray-600 group-hover:bg-primary/10 group-hover:text-primary'}
-                  ${btn.variant === 'success' && 'bg-white/20 text-white'}
-                  ${btn.variant === 'info' && 'bg-white/20 text-white'}
-                  ${btn.variant === 'warning' && 'bg-white/20 text-white'}
-                  ${btn.variant === 'danger' && 'bg-white/20 text-white'}
-                `}>
-                  {btn.icon}
-                </div>
-                
-                {/* Label */}
-                <span className="text-sm font-semibold text-center leading-tight">
-                  {btn.label}
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground" aria-hidden="true">{record.icon}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium text-foreground">{record.label}</span>
+                  {record.description && <span className="mt-0.5 block text-xs text-muted-foreground">{record.description}</span>}
                 </span>
-                
-                {/* Badge */}
-                {btn.badge !== undefined && btn.badge > 0 && (
-                  <span className={`
-                    absolute -top-1 -right-1 flex items-center justify-center
-                    min-w-5 h-5 px-1.5 rounded-full text-xs font-bold text-white
-                    ${btn.badgeColor === 'blue' && 'bg-blue-500'}
-                    ${btn.badgeColor === 'green' && 'bg-green-500'}
-                    ${btn.badgeColor === 'purple' && 'bg-purple-500'}
-                    ${btn.badgeColor === 'orange' && 'bg-orange-500'}
-                    ${btn.badgeColor === 'red' && 'bg-red-500'}
-                    ${!btn.badgeColor && 'bg-gray-500'}
-                  `}>
-                    {btn.badge > 99 ? '99+' : btn.badge}
-                  </span>
-                )}
-                
-                {/* Description tooltip on hover */}
-                {btn.description && (
-                  <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none">
-                    <span className="text-[10px] bg-gray-900 text-white px-2 py-1 rounded whitespace-nowrap">
-                      {btn.description}
-                    </span>
-                  </div>
-                )}
-              </motion.button>
+                {record.badge !== undefined && <Badge variant="neutral">{record.badge}</Badge>}
+                <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" aria-hidden="true" />
+              </button>
             ))}
           </div>
+        </CardContent>
+      </Card>
 
-          {/* Mobile/Tablet: Horizontal scrollable row */}
-          <div className="lg:hidden relative">
-            <div className="flex overflow-x-auto gap-3 pb-2 px-1 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
-              {visibleButtons.map((btn) => (
-                <motion.button
-                  key={btn.id}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={btn.onClick}
-                  className={`
-                    group relative flex flex-col items-center justify-center p-3 rounded-xl 
-                    transition-all duration-300 border-2 shadow-sm hover:shadow-lg min-w-20 shrink-0
-                    ${btn.variant === 'primary' && 'bg-primary border-primary hover:bg-primary/90 text-white'}
-                    ${btn.variant === 'secondary' && 'bg-gray-100 border-gray-200 hover:bg-gray-200 text-gray-800'}
-                    ${btn.variant === 'outline' && 'bg-white border-gray-300 hover:border-primary hover:bg-primary/5 text-gray-700'}
-                    ${btn.variant === 'success' && 'bg-green-600 border-green-600 hover:bg-green-700 text-white'}
-                    ${btn.variant === 'info' && 'bg-blue-600 border-blue-600 hover:bg-blue-700 text-white'}
-                    ${btn.variant === 'warning' && 'bg-amber-600 border-amber-600 hover:bg-amber-700 text-white'}
-                    ${btn.variant === 'danger' && 'bg-red-600 border-red-600 hover:bg-red-700 text-white'}
-                  `}
-                >
-                  <div className="flex items-center justify-center w-8 h-8 rounded-full mb-1">
-                    {btn.icon}
-                  </div>
-                  <span className="text-xs font-semibold text-center leading-tight">
-                    {btn.label}
-                  </span>
-                  {btn.badge !== undefined && btn.badge > 0 && (
-                    <span className={`
-                      absolute -top-1 -right-1 flex items-center justify-center
-                      min-w-4 h-4 px-1 rounded-full text-[10px] font-bold text-white
-                      ${btn.badgeColor === 'blue' && 'bg-blue-500'}
-                      ${btn.badgeColor === 'green' && 'bg-green-500'}
-                      ${btn.badgeColor === 'purple' && 'bg-purple-500'}
-                      ${btn.badgeColor === 'orange' && 'bg-orange-500'}
-                      ${btn.badgeColor === 'red' && 'bg-red-500'}
-                      ${!btn.badgeColor && 'bg-gray-500'}
-                    `}>
-                      {btn.badge > 99 ? '99+' : btn.badge}
-                    </span>
-                  )}
-                </motion.button>
-              ))}
-            </div>
-            {/* Scroll indicator */}
-            {visibleButtons.length > 4 && (
-              <div className="absolute right-0 top-1/2 -translate-y-1/2 bg-linear-to-l from-white via-white/80 to-transparent w-12 h-full pointer-events-none" />
-            )}
-          </div>
+      {quickActions.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Quick actions</CardTitle>
+            <CardDescription>Create an invoice, record a payment or generate a demand letter.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            {quickActions.map((action, index) => (
+              <Button
+                key={action.id}
+                variant={index === 0 ? 'default' : 'outline'}
+                className="justify-start sm:justify-center"
+                onClick={action.onClick}
+              >
+                {action.icon}
+                {action.label}
+              </Button>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
-          {/* Category labels for better UX */}
-          <div className="hidden lg:flex lg:flex-wrap gap-1 mt-2 justify-center">
-            {['invoices', 'payments', 'bills', 'demand'].map((group) => {
-              const groupButtons = visibleButtons.filter(b => b.group === group);
-              if (groupButtons.length === 0) return null;
-              return (
-                <span key={group} className="text-[10px] text-gray-400 uppercase tracking-wider font-medium px-2">
-                  {group}
-                </span>
-              );
-            })}
-          </div>
-        </div>
-      </motion.div>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader><CardTitle>Personal information</CardTitle><CardDescription>Contact and account identifiers.</CardDescription></CardHeader>
+          <CardContent>
+            <DetailList>
+              <DetailItem label="Full name">{tenant.fullName}</DetailItem>
+              <DetailItem label="Contact">{tenant.contact || '—'}</DetailItem>
+              <DetailItem label="Email">{tenant.email || '—'}</DetailItem>
+              <DetailItem label="KRA PIN">{tenant.KRAPin || '—'}</DetailItem>
+              <DetailItem label="P.O. Box">{tenant.POBox || '—'}</DetailItem>
+              <DetailItem label="Status"><Badge variant={tenant.status === 'ACTIVE' ? 'success' : 'neutral'}>{tenant.status}</Badge></DetailItem>
+            </DetailList>
+          </CardContent>
+        </Card>
 
-      {/* Main Content Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Personal Information */}
-        <motion.div
-          variants={itemVariants}
-          whileHover={{ y: -2 }}
-          className="bg-white rounded-2xl p-8 shadow-lg border border-gray-200"
-        >
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
-              <svg className="w-6 h-6 text-purple-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-              </svg>
-            </div>
-            <h2 className="text-xl font-bold text-heading-color">Personal Information</h2>
-          </div>
-          <dl className="space-y-4">
-            <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors">
-              <svg className="w-5 h-5 text-gray-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-              </svg>
-              <div className="flex-1">
-                <dt className="text-sm font-semibold text-gray-500 mb-1">Full Name</dt>
-                <dd className="text-sm text-gray-900 font-medium">{tenant.fullName}</dd>
-              </div>
-            </div>
-            {tenant.contact && (
-              <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors">
-                <svg className="w-5 h-5 text-gray-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                </svg>
-                <div className="flex-1">
-                  <dt className="text-sm font-semibold text-gray-800 mb-1">Contact</dt>
-                  <dd className="text-sm text-gray-900 font-medium">{tenant.contact}</dd>
-                </div>
-              </div>
-            )}
-            {tenant.KRAPin && (
-              <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors">
-                <svg className="w-5 h-5 text-gray-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2" />
-                </svg>
-                <div className="flex-1">
-                  <dt className="text-sm font-semibold text-gray-800 mb-1">KRA Pin</dt>
-                  <dd className="text-sm text-gray-900 font-medium">{tenant.KRAPin}</dd>
-                </div>
-              </div>
-            )}
-            {tenant.POBox && (
-              <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors">
-                <svg className="w-5 h-5 text-gray-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-                </svg>
-                <div className="flex-1">
-                  <dt className="text-sm font-semibold text-gray-800 mb-1">P.O. Box</dt>
-                  <dd className="text-sm text-gray-900 font-medium">{tenant.POBox}</dd>
-                </div>
-              </div>
-            )}
-            {tenant.email && (
-              <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors">
-                <svg className="w-5 h-5 text-gray-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                </svg>
-                <div className="flex-1">
-                  <dt className="text-sm font-semibold text-gray-800 mb-1">Email</dt>
-                  <dd className="text-sm text-gray-900 font-medium">{tenant.email}</dd>
-                </div>
-              </div>
-            )}
-          </dl>
-        </motion.div>
+        <Card>
+          <CardHeader><CardTitle>Lease information</CardTitle><CardDescription>Lease dates, escalation and billing terms.</CardDescription></CardHeader>
+          <CardContent>
+            <DetailList>
+              <DetailItem label="Lease term">{tenant.leaseTerm || '—'}</DetailItem>
+              <DetailItem label="Term start">{tenant.termStart ? new Date(tenant.termStart).toLocaleDateString() : '—'}</DetailItem>
+              <DetailItem label="Rent start">{tenant.rentStart ? new Date(tenant.rentStart).toLocaleDateString() : '—'}</DetailItem>
+              <DetailItem label="Escalation">{tenant.escalationRate ? `${tenant.escalationRate}% ${tenant.escalationFrequency ? `· ${tenant.escalationFrequency.replace('_', ' ').toLowerCase()}` : ''}` : 'None'}</DetailItem>
+              <DetailItem label="Service charge">
+                {tenant.serviceCharge?.type === 'FIXED' && formatExactKes(tenant.serviceCharge.fixedAmount ?? 0)}
+                {tenant.serviceCharge?.type === 'PERCENTAGE' && `${tenant.serviceCharge.percentage ?? 0}%`}
+                {tenant.serviceCharge?.type === 'PER_SQ_FT' && `${formatExactKes(tenant.serviceCharge.perSqFtRate ?? 0)} per sq ft`}
+                {!tenant.serviceCharge && '—'}
+              </DetailItem>
+              <DetailItem label="VAT">{tenant.vatRate ? `${tenant.vatRate}% · ${tenant.vatType}` : tenant.vatType}</DetailItem>
+            </DetailList>
+          </CardContent>
+        </Card>
 
-        {/* Lease Information */}
-        <motion.div
-          variants={itemVariants}
-          whileHover={{ y: -2 }}
-          className="bg-white rounded-2xl p-8 shadow-lg border border-gray-200"
-        >
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-              <svg className="w-6 h-6 text-blue-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-            </div>
-            <h2 className="text-xl font-bold text-heading-color">Lease Information</h2>
-          </div>
-          <dl className="space-y-4">
-            <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors">
-              <svg className="w-5 h-5 text-gray-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-              <div className="flex-1">
-                <dt className="text-sm font-semibold text-gray-800 mb-1">Lease Term</dt>
-                <dd className="text-sm text-gray-900 font-medium">{tenant.leaseTerm}</dd>
-              </div>
-            </div>
-            {tenant.termStart && (
-              <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors">
-                <svg className="w-5 h-5 text-gray-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-                <div className="flex-1">
-                  <dt className="text-sm font-semibold text-gray-800 mb-1">Term Start Date</dt>
-                  <dd className="text-sm text-gray-900 font-medium">
-                    {new Date(tenant.termStart).toLocaleDateString('en-US', {
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric',
-                    })}
-                  </dd>
-                </div>
-              </div>
-            )}
-            {tenant.rentStart && (
-              <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors">
-                <svg className="w-5 h-5 text-gray-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <div className="flex-1">
-                  <dt className="text-sm font-semibold text-gray-800 mb-1">Rent Start Date</dt>
-                  <dd className="text-sm text-gray-900 font-medium">
-                    {new Date(tenant.rentStart).toLocaleDateString('en-US', {
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric',
-                    })}
-                  </dd>
-                </div>
-              </div>
-            )}
-            {tenant.escalationRate && (
-              <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors">
-                <svg className="w-5 h-5 text-gray-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                </svg>
-                <div className="flex-1">
-                  <dt className="text-sm font-semibold text-gray-800 mb-1">Rent Escalation</dt>
-                  <dd className="text-sm text-gray-900 font-medium">
-                    {tenant.escalationRate}% {tenant.escalationFrequency && `(${tenant.escalationFrequency.toLowerCase().replace('_', '-')})`}
-                  </dd>
-                </div>
-              </div>
-            )}
-            {tenant.serviceCharge && (
-              <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors">
-                <svg className="w-5 h-5 text-gray-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <div className="flex-1">
-                  <dt className="text-sm font-semibold text-gray-800 mb-1">Service Charge</dt>
-                  <dd className="text-sm text-gray-900 font-medium">
-                    {tenant.serviceCharge.type === 'FIXED' && `Ksh ${tenant.serviceCharge.fixedAmount?.toLocaleString()}`}
-                    {tenant.serviceCharge.type === 'PERCENTAGE' && `${tenant.serviceCharge.percentage}%`}
-                    {tenant.serviceCharge.type === 'PER_SQ_FT' && `Ksh ${tenant.serviceCharge.perSqFtRate} per sq ft`}
-                  </dd>
-                </div>
-              </div>
-            )}
-          </dl>
-        </motion.div>
+        <Card>
+          <CardHeader><CardTitle>Payment position</CardTitle><CardDescription>Current period and next expected payment.</CardDescription></CardHeader>
+          <CardContent>
+            <DetailList>
+              <DetailItem label="Status"><Badge variant={tenant.paymentSummary?.status === 'UP_TO_DATE' ? 'success' : tenant.paymentSummary?.status === 'OVERDUE' ? 'destructive' : 'warning'}>{tenant.paymentSummary?.status?.replaceAll('_', ' ') ?? 'Unavailable'}</Badge></DetailItem>
+              <DetailItem label="Next due">{tenant.paymentSummary?.nextPayment?.dueDate ? new Date(tenant.paymentSummary.nextPayment.dueDate).toLocaleDateString() : '—'}</DetailItem>
+              <DetailItem label="Next amount">{formatExactKes(tenant.paymentSummary?.nextPayment?.amount ?? totalDue)}</DetailItem>
+              <DetailItem label="Outstanding">{formatExactKes(tenant.paymentSummary?.paymentHistory?.outstandingBalance ?? 0)}</DetailItem>
+              <DetailItem label="Current period">{tenant.paymentSummary?.currentPeriod ? `${new Date(tenant.paymentSummary.currentPeriod.periodStart).toLocaleDateString()} – ${new Date(tenant.paymentSummary.currentPeriod.periodEnd).toLocaleDateString()}` : '—'}</DetailItem>
+            </DetailList>
+          </CardContent>
+        </Card>
 
-        {/* Rent Information */}
-        <motion.div
-          variants={itemVariants}
-          whileHover={{ y: -2 }}
-          className="bg-white rounded-2xl p-8 shadow-lg border border-gray-200"
-        >
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-              <svg className="w-6 h-6 text-green-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <h2 className="text-xl font-bold text-heading-color">Rent Information</h2>
-          </div>
-          <div className="space-y-6">
-            <div className="p-6 bg-linear-to-r from-green-50 to-green-100 rounded-xl border border-green-200">
-              <p className="text-sm font-semibold text-gray-800 mb-2">
-                {tenant.paymentPolicy === 'MONTHLY' && 'Monthly Rent'}
-                {tenant.paymentPolicy === 'QUARTERLY' && 'Quarterly Rent'}
-                {tenant.paymentPolicy === 'ANNUAL' && 'Annual Rent'}
-              </p>
-              <p className="text-4xl font-bold text-gray-900">
-                Ksh {tenant.rentInfo?.paymentAmount?.toLocaleString() || tenant.rent?.toLocaleString()}
-              </p>
-              <p className="text-sm text-gray-700 mt-2">
-                {tenant.paymentPolicy === 'MONTHLY' && 'Per month'}
-                {tenant.paymentPolicy === 'QUARTERLY' && 'Per quarter'}
-                {tenant.paymentPolicy === 'ANNUAL' && 'Per year'}
-              </p>
-            </div>
-
-            {tenant.paymentSummary?.nextPayment && (
-              <div className="p-4 bg-amber-50 rounded-xl border border-amber-200">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-sm font-semibold text-amber-800">Next Payment Due</span>
-                  <span className={`text-xs font-bold px-2 py-1 rounded-full ${
-                    tenant.paymentSummary.status === 'NOT_STARTED' ? 'bg-blue-100 text-blue-700' :
-                    tenant.paymentSummary.nextPayment.isOverdue 
-                      ? 'bg-red-100 text-red-700' 
-                      : 'bg-green-100 text-green-700'
-                  }`}>
-                    {tenant.paymentSummary.status === 'NOT_STARTED' ? 'NOT STARTED' :
-                    tenant.paymentSummary.nextPayment.isOverdue ? 'OVERDUE' : 'UPCOMING'}
-                  </span>
-                </div>
-                
-                <div className="mb-3">
-                  <p className="text-2xl font-bold text-gray-900">
-                    {formatDateToOrdinal(tenant.paymentSummary.nextPayment.dueDate)}
-                  </p>
-                  <p className="text-xs text-gray-600 mt-1">
-                    Payment due by end of day
-                  </p>
-                </div>
-                
-                <div className="flex items-center justify-between mb-3 pb-3 border-b border-amber-200">
-                  <span className="text-sm font-medium text-gray-700">Amount Due:</span>
-                  <span className="text-lg font-bold text-amber-700">
-                    Ksh {tenant.paymentSummary.nextPayment.amount?.toLocaleString()}
-                  </span>
-                </div>
-                
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-gray-700">Time Remaining:</span>
-                  <span className={`text-sm font-semibold ${
-                    tenant.paymentSummary.nextPayment.timeRemaining?.isOverdue 
-                      ? 'text-red-600' 
-                      : 'text-green-600'
-                  }`}>
-                    {tenant.paymentSummary.nextPayment.timeRemaining?.formatted || 
-                    (() => {
-                      const days = getDaysRemaining(tenant.paymentSummary.nextPayment.dueDate);
-                      if (days === 0) return 'Due today';
-                      if (days === 1) return '1 day remaining';
-                      if (days < 0) return `Overdue by ${Math.abs(days)} days`;
-                      return `${days} days remaining`;
-                    })()}
-                  </span>
-                </div>
-                
-                {tenant.paymentSummary.nextPayment.gracePeriodEnd && (
-                  <div className="mt-3 pt-2 text-xs text-gray-500 border-t border-amber-100">
-                    <span className="font-medium">Grace Period:</span> Until {formatDateToOrdinal(tenant.paymentSummary.nextPayment.gracePeriodEnd)}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {tenant.paymentSummary?.currentPeriod && !tenant.paymentSummary.currentPeriod.isPending && (
-              <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-semibold text-blue-800">Current Billing Period</span>
-                  <span className="text-xs font-medium text-blue-700">
-                    {Math.round(tenant.paymentSummary.currentPeriod.progressPercentage || 0)}% Complete
-                  </span>
-                </div>
-                <div className="mb-2">
-                  <p className="text-sm text-gray-700">
-                    {formatDateToOrdinal(tenant.paymentSummary.currentPeriod.periodStart)} - {formatDateToOrdinal(tenant.paymentSummary.currentPeriod.periodEnd)}
-                  </p>
-                </div>
-                <div className="w-full bg-blue-200 rounded-full h-2 mb-2">
-                  <div 
-                    className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                    style={{ width: `${Math.min(tenant.paymentSummary.currentPeriod.progressPercentage || 0, 100)}%` }}
-                  />
-                </div>
-                <p className="text-xs text-blue-700">
-                  {tenant.paymentSummary.currentPeriod.daysRemainingInPeriod} days remaining in this period
-                </p>
-              </div>
-            )}
-
-            {tenant.paymentSummary?.currentPeriod?.isPending && (
-              <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-semibold text-blue-800">First Billing Period</span>
-                  <span className="text-xs font-medium text-blue-700">Pending</span>
-                </div>
-                <div className="mb-2">
-                  <p className="text-sm text-gray-700">
-                    {formatDateToOrdinal(tenant.paymentSummary.currentPeriod.periodStart)} - {formatDateToOrdinal(tenant.paymentSummary.currentPeriod.periodEnd)}
-                  </p>
-                </div>
-                <p className="text-xs text-blue-700">
-                  Billing period will begin on {formatDateToOrdinal(tenant.paymentSummary.currentPeriod.periodStart)}
-                </p>
-              </div>
-            )}
-
-            {tenant.paymentSummary?.status && (
-              <div className={`p-3 rounded-lg ${
-                tenant.paymentSummary.status === 'UP_TO_DATE' ? 'bg-green-50 border border-green-200' :
-                tenant.paymentSummary.status === 'OVERDUE' ? 'bg-red-50 border border-red-200' :
-                tenant.paymentSummary.status === 'PARTIALLY_PAID' ? 'bg-yellow-50 border border-yellow-200' :
-                tenant.paymentSummary.status === 'NOT_STARTED' ? 'bg-blue-50 border border-blue-200' :
-                tenant.paymentSummary.status === 'UNPAID' ? 'bg-red-50 border border-red-200' :
-                tenant.paymentSummary.status === 'OVERPAID' ? 'bg-orange-50 border border-orange-200' :
-                'bg-gray-50 border border-gray-200'
-              }`}>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-gray-700">Payment Status:</span>
-                  <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                    tenant.paymentSummary.status === 'UP_TO_DATE' ? 'bg-green-100 text-green-700' :
-                    tenant.paymentSummary.status === 'OVERDUE' ? 'bg-red-100 text-red-700' :
-                    tenant.paymentSummary.status === 'PARTIALLY_PAID' ? 'bg-yellow-100 text-yellow-700' :
-                    tenant.paymentSummary.status === 'NOT_STARTED' ? 'bg-blue-100 text-blue-700' :
-                    tenant.paymentSummary.status === 'UNPAID' ? 'bg-red-100 text-red-700' :
-                    tenant.paymentSummary.status === 'OVERPAID' ? 'bg-orange-100 text-orange-700' :
-                    'bg-gray-100 text-gray-700'
-                  }`}>
-                    {tenant.paymentSummary.status === 'NOT_STARTED' ? 'NOT STARTED' : 
-                    tenant.paymentSummary.status === 'UNPAID' ? 'UNPAID' :
-                    tenant.paymentSummary.status === 'OVERPAID' ? 'OVERPAID' :
-                    tenant.paymentSummary.status.replace(/_/g, ' ')}
-                  </span>
-                </div>
-                {tenant.paymentSummary.status === 'NOT_STARTED' && tenant.paymentSummary.rentStartDate && (
-                  <p className="text-xs text-blue-700 mt-2">
-                    Rent payments will begin on {formatDateToOrdinal(tenant.paymentSummary.rentStartDate)}
-                  </p>
-                )}
-                {tenant.paymentSummary.status === 'UNPAID' && (
-                  <p className="text-xs text-red-700 mt-2">
-                    No payments have been recorded. Please make your first payment.
-                  </p>
-                )}
-                {tenant.paymentSummary.status === 'OVERPAID' && (
-                  <p className="text-xs text-orange-700 mt-2">
-                    You have a credit balance. Future payments will be adjusted automatically.
-                  </p>
-                )}
-                {tenant.paymentSummary.status === 'PARTIALLY_PAID' && (
-                  <p className="text-xs text-yellow-700 mt-2">
-                    Partial payment received. Outstanding balance: Ksh {tenant.paymentSummary.paymentHistory?.outstandingBalance?.toLocaleString()}
-                  </p>
-                )}
-                {tenant.paymentSummary.status === 'OVERDUE' && (
-                  <p className="text-xs text-red-700 mt-2">
-                    Payment is overdue. Please make payment immediately to avoid penalties.
-                  </p>
-                )}
-              </div>
-            )}
-
-            {tenant.escalationRate && tenant.escalationRate > 0 && tenant.rentSchedule && tenant.rentSchedule.length > 1 && (
-              <div className="p-3 bg-purple-50 rounded-lg border border-purple-200">
-                <div className="flex items-start gap-2">
-                  <svg className="w-4 h-4 text-purple-600 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                  </svg>
-                  <div className="flex-1">
-                    <p className="text-xs font-semibold text-purple-800">Rent Escalation Notice</p>
-                    <p className="text-xs text-purple-700 mt-1">
-                      Rent will increase by {tenant.escalationRate}% every {tenant.escalationFrequency === 'BI_ANNUALLY' ? '6 months' : 'year'}.
-                      Next increase: {formatDateToOrdinal(tenant.rentSchedule[1]?.date)} to Ksh {tenant.rentSchedule[1]?.monthlyRent?.toLocaleString()}
-                    </p>
-                    {tenant.rentSchedule.length > 2 && (
-                      <details className="mt-2">
-                        <summary className="text-xs text-purple-600 cursor-pointer hover:text-purple-800">
-                          View full escalation schedule
-                        </summary>
-                        <div className="mt-2 space-y-1 pl-2 border-l-2 border-purple-200">
-                          {tenant.rentSchedule.slice(1).map((schedule, idx) => (
-                            <div key={idx} className="text-xs text-purple-700 flex justify-between">
-                              <span>Effective {formatDateToOrdinal(schedule.date)}:</span>
-                              <span className="font-semibold">Ksh {schedule.monthlyRent.toLocaleString()}/month</span>
-                            </div>
-                          ))}
-                        </div>
-                      </details>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {tenant.deposit && (
-              <div className="p-4 bg-gray-50 rounded-xl">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-semibold text-gray-800">Security Deposit</span>
-                  <span className="text-lg font-bold text-gray-900">Ksh {tenant.deposit.toLocaleString()}</span>
-                </div>
-              </div>
-            )}
-            
-            <div className="p-4 bg-linear-to-r from-blue-50 to-purple-50 rounded-xl border border-blue-200">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold text-gray-800">Payment Policy</span>
-                <span className={`px-3 py-1 rounded-full text-sm font-bold border ${getPaymentPolicyColor(tenant.paymentPolicy)}`}>
-                  {tenant.paymentPolicy}
-                </span>
-              </div>
-              <p className="text-xs text-gray-600 mt-2">
-                All invoices will be generated based on this policy
-              </p>
-            </div>
-          </div>
-        </motion.div>
-
-        {/* Unit Information */}
         {tenant.unit && (
-          <motion.div
-            variants={itemVariants}
-            whileHover={{ y: -2 }}
-            className="bg-white rounded-2xl p-8 shadow-lg border border-gray-200"
-          >
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
-                <svg className="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-                </svg>
-              </div>
-              <h2 className="text-xl font-bold text-heading-color">Unit Information</h2>
-            </div>
-            <dl className="space-y-4">
-              {tenant.unit.unitNo && (
-                <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors">
-                  <svg className="w-5 h-5 text-gray-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-                  </svg>
-                  <div className="flex-1">
-                    <dt className="text-sm font-semibold text-gray-800 mb-1">Unit Number</dt>
-                    <dd className="text-sm text-gray-900 font-medium">{tenant.unit.unitNo}</dd>
-                  </div>
-                </div>
-              )}
-              {tenant.unit.floor && (
-                <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors">
-                  <svg className="w-5 h-5 text-gray-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                  </svg>
-                  <div className="flex-1">
-                    <dt className="text-sm font-semibold text-gray-800 mb-1">Floor</dt>
-                    <dd className="text-sm text-gray-900 font-medium">{tenant.unit.floor}</dd>
-                  </div>
-                </div>
-              )}
-              <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors">
-                <svg className="w-5 h-5 text-gray-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                </svg>
-                <div className="flex-1">
-                  <dt className="text-sm font-semibold text-gray-800 mb-1">Unit Type</dt>
-                  <dd className="text-sm text-gray-900 font-medium">{tenant.unit.unitType}</dd>
-                </div>
-              </div>
-              <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors">
-                <svg className="w-5 h-5 text-gray-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-                </svg>
-                <div className="flex-1">
-                  <dt className="text-sm font-semibold text-gray-800 mb-1">Size</dt>
-                  <dd className="text-sm text-gray-900 font-medium">{tenant.unit.sizeSqFt} sq ft</dd>
-                </div>
-              </div>
-              {tenant.unit.bedrooms && (
-                <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors">
-                  <svg className="w-5 h-5 text-gray-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-                  </svg>
-                  <div className="flex-1">
-                    <dt className="text-sm font-semibold text-gray-800 mb-1">Bedrooms</dt>
-                    <dd className="text-sm text-gray-900 font-medium">{tenant.unit.bedrooms}</dd>
-                  </div>
-                </div>
-              )}
-              {tenant.unit.bathrooms && (
-                <div className="flex items-start gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors">
-                  <svg className="w-5 h-5 text-gray-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 14v3m4-3v3m4-3v3M3 21h18M3 10h18M3 7l9-4 9 4M4 10h16v11H4V10z" />
-                  </svg>
-                  <div className="flex-1">
-                    <dt className="text-sm font-semibold text-gray-800 mb-1">Bathrooms</dt>
-                    <dd className="text-sm text-gray-900 font-medium">{tenant.unit.bathrooms}</dd>
-                  </div>
-                </div>
-              )}
-            </dl>
-          </motion.div>
+          <Card>
+            <CardHeader><CardTitle>Unit information</CardTitle><CardDescription>The unit assigned to this tenant.</CardDescription></CardHeader>
+            <CardContent>
+              <DetailList>
+                <DetailItem label="Unit number">{tenant.unit.unitNo || '—'}</DetailItem>
+                <DetailItem label="Unit type">{tenant.unit.unitType || '—'}</DetailItem>
+                <DetailItem label="Floor">{tenant.unit.floor || '—'}</DetailItem>
+                <DetailItem label="Size">{tenant.unit.sizeSqFt ? `${tenant.unit.sizeSqFt.toLocaleString()} sq ft` : '—'}</DetailItem>
+                <DetailItem label="Bedrooms">{tenant.unit.bedrooms ?? '—'}</DetailItem>
+                <DetailItem label="Bathrooms">{tenant.unit.bathrooms ?? '—'}</DetailItem>
+              </DetailList>
+            </CardContent>
+          </Card>
         )}
-        {/* ============================================= */}
-        {/* ATTACHMENTS SECTION - Full width */}
-        {/* ============================================= */}
-        <motion.div variants={itemVariants} className="col-span-1 lg:col-span-2">
-          <AttachmentSection 
-            tenantId={tenantId}
-            isAdmin={isAdmin}
-            isManager={isManager}
-            canEdit={canCreateInvoices || canCreatePayments}
-            canDelete={isAdmin || isManager}
-          />
-        </motion.div>
       </div>
+
+      {(canDownloadPaymentReports || canDownloadBillInvoices || canViewComprehensiveReport) && (
+        <Card>
+          <CardHeader><CardTitle>Reports</CardTitle><CardDescription>Download the existing tenant financial reports.</CardDescription></CardHeader>
+          <CardContent className="flex flex-wrap gap-2">
+            {canDownloadPaymentReports && <Button variant="outline" disabled={generatingPDF} onClick={handleDownloadPaymentReport}>Payment report</Button>}
+            {canDownloadBillInvoices && <Button variant="outline" disabled={generatingBillPDF} onClick={handleDownloadBillPaymentReport}>Bill payment report</Button>}
+            {canViewComprehensiveReport && <Button variant="outline" disabled={generatingComprehensivePDF} onClick={handleDownloadComprehensiveReport}>Comprehensive report</Button>}
+          </CardContent>
+        </Card>
+      )}
+
+      <AttachmentSection
+        tenantId={tenantId}
+        isAdmin={isAdmin}
+        isManager={isManager}
+        canEdit={canCreateInvoices || canCreatePayments}
+        canDelete={isAdmin || isManager}
+      />
 
       {/* Generate Invoice Dialog */}
       <Dialog open={showInvoiceDialog} onOpenChange={setShowInvoiceDialog}>
-        <DialogContent className="sm:max-w-125">
-          <DialogHeader>
-            <DialogTitle className="text-2xl font-bold text-heading-color">Generate Invoice</DialogTitle>
-            <DialogDescription className="text-gray-700">
-              Generate a new invoice for {tenant.fullName}
+        <DialogContent className="flex max-h-[90dvh] w-[calc(100vw-2rem)] max-w-4xl flex-col gap-0 overflow-hidden p-0">
+          <DialogHeader className="shrink-0 border-b border-border px-5 py-4 sm:px-6">
+            <DialogTitle>Generate Invoice</DialogTitle>
+            <DialogDescription>
+              Create a {tenant.paymentPolicy.toLowerCase()} invoice for {tenant.fullName}
+              {tenant.unit?.unitNo ? ` · Unit ${tenant.unit.unitNo}` : ''}.
             </DialogDescription>
           </DialogHeader>
-          
-          {tenant.paymentSummary?.nextPayment && (
-            <div className="mt-2 p-3 bg-amber-50 rounded-lg border border-amber-200">
-              <div className="flex items-start gap-2">
-                <svg className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <div className="flex-1">
-                  <p className="text-xs font-semibold text-amber-800">Next Payment Due Date</p>
-                  <p className="text-sm font-bold text-amber-900">
-                    {formatDateToOrdinal(tenant.paymentSummary.nextPayment.dueDate)}
-                  </p>
-                  <p className="text-xs text-amber-700 mt-1">
-                    {tenant.paymentSummary.nextPayment.timeRemaining?.formatted || 'Due soon'}
-                  </p>
+
+          <div className="flex-1 overflow-y-auto px-5 py-5 sm:px-6">
+            <div className="grid gap-5 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+              <section className="space-y-3 rounded-lg border border-border bg-muted/20 p-4" aria-labelledby="invoice-context-heading">
+                <div>
+                  <h3 id="invoice-context-heading" className="text-sm font-semibold text-foreground">Invoice context</h3>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">The invoice continues to use the tenant billing policy and existing backend calculation.</p>
                 </div>
-              </div>
-            </div>
-          )}
-          
-          <div className="mt-2 p-3 bg-blue-50 rounded-lg border border-blue-200">
-            <div className="text-sm text-blue-900 font-medium">
-              Payment Policy: <span className="font-bold">{tenant.paymentPolicy}</span>
-            </div>
-            <div className="text-xs text-blue-700 mt-1">
-              The invoice will be generated according to this policy
+                <div className="flex items-center justify-between gap-3 border-t border-border pt-3">
+                  <span className="text-sm text-muted-foreground">Payment policy</span>
+                  <Badge variant="info">{tenant.paymentPolicy}</Badge>
+                </div>
+                {tenant.paymentSummary?.nextPayment && (
+                  <div className="space-y-1 border-t border-border pt-3">
+                    <p className="text-xs font-medium text-muted-foreground">Next payment due</p>
+                    <p className="text-sm font-semibold text-foreground">{formatDateToOrdinal(tenant.paymentSummary.nextPayment.dueDate)}</p>
+                    <p className="text-xs text-muted-foreground">{tenant.paymentSummary.nextPayment.timeRemaining?.formatted || 'Due soon'}</p>
+                  </div>
+                )}
+              </section>
+
+              <section className="space-y-5" aria-labelledby="invoice-details-heading">
+                <div>
+                  <h3 id="invoice-details-heading" className="text-sm font-semibold text-foreground">Invoice details</h3>
+                  <p className="mt-1 text-xs text-muted-foreground">Confirm the due date and add any information that should appear with this invoice.</p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="dueDate">Due Date <span className="text-destructive">*</span></Label>
+                  <Input
+                    id="dueDate"
+                    type="date"
+                    value={invoiceForm.dueDate}
+                    onChange={(event) => setInvoiceForm({ ...invoiceForm, dueDate: event.target.value })}
+                    className="w-full"
+                  />
+                  <p className="text-xs text-muted-foreground">The next payment due date is used as the existing default.</p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="notes">Notes (Optional)</Label>
+                  <Textarea
+                    id="notes"
+                    placeholder={`Add any additional notes (e.g., ${tenant.paymentPolicy} rent for ${new Date(tenant.paymentSummary?.nextPayment?.dueDate || new Date()).toLocaleDateString('default', { month: 'long', year: 'numeric' })})`}
+                    value={invoiceForm.notes}
+                    onChange={(event) => setInvoiceForm({ ...invoiceForm, notes: event.target.value })}
+                    className="min-h-28"
+                  />
+                </div>
+              </section>
             </div>
           </div>
-          
-          <div className="space-y-6 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="dueDate" className="text-sm font-semibold text-gray-800">
-                Due Date <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                id="dueDate"
-                type="date"
-                value={invoiceForm.dueDate}
-                onChange={(e) => setInvoiceForm({ ...invoiceForm, dueDate: e.target.value })}
-                className="w-full text-gray-800"
-              />
-              <p className="text-xs text-gray-500">
-                Recommended: Use the next payment due date shown above
-              </p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="notes" className="text-sm font-semibold text-gray-800">
-                Notes (Optional)
-              </Label>
-              <Textarea
-                id="notes"
-                placeholder={`Add any additional notes (e.g., ${tenant.paymentPolicy} rent for ${new Date(tenant.paymentSummary?.nextPayment?.dueDate || new Date()).toLocaleDateString('default', { month: 'long', year: 'numeric' })})`}
-                value={invoiceForm.notes}
-                onChange={(e) => setInvoiceForm({ ...invoiceForm, notes: e.target.value })}
-                className="min-h-25 text-gray-800"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowInvoiceDialog(false)}
-              disabled={generating}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleGenerateInvoice}
-              disabled={generating || !invoiceForm.dueDate}
-              className="bg-primary hover:bg-primary/90"
-            >
-              {generating ? (
-                <>
-                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  Generating...
-                </>
-              ) : (
-                'Generate Invoice'
-              )}
+
+          <DialogFooter className="shrink-0 border-t border-border bg-muted/20 px-5 py-4 sm:px-6">
+            <Button variant="outline" onClick={() => setShowInvoiceDialog(false)} disabled={generating}>Cancel</Button>
+            <Button onClick={handleGenerateInvoice} disabled={generating || !invoiceForm.dueDate} loading={generating}>
+              {generating ? 'Generating…' : 'Generate Invoice'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Invoices List Dialog - With Delete button for ADMIN and MANAGER */}
-      <Dialog open={showInvoicesList} onOpenChange={setShowInvoicesList}>
-        <DialogContent className="max-w-6xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-2xl font-bold text-heading-color">Invoices</DialogTitle>
-            <DialogDescription className="text-gray-700">
-              All invoices for {tenant.fullName}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            {invoicesLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-              </div>
-            ) : invoices.length === 0 ? (
-              <div className="text-center py-12 text-gray-500">
-                <svg className="w-16 h-16 mx-auto mb-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                <p className="text-lg font-medium">No invoices found</p>
-                <p className="text-sm mt-1">Generate your first invoice to get started</p>
-              </div>
-            ) : (
-              <div className="grid gap-4">
-                {invoices.map((invoice) => (
-                  <motion.div
-                    key={invoice.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="p-6 border border-gray-200 rounded-xl hover:shadow-lg transition-shadow bg-white"
-                  >
-                    <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
-                      <div className="space-y-3 flex-1">
-                        <div className="flex items-center gap-3 flex-wrap">
-                          <h3 className="text-lg font-bold text-gray-900">{invoice.invoiceNumber}</h3>
-                          <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getStatusColor(invoice.status)}`}>
-                            {invoice.status}
-                          </span>
-                          <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getPaymentPolicyColor(invoice.paymentPolicy)}`}>
-                            {invoice.paymentPolicy}
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                          <div>
-                            <p className="text-gray-500 font-medium">Period</p>
-                            <p className="text-gray-900 font-semibold">{invoice.paymentPeriod}</p>
-                          </div>
-                          <div>
-                            <p className="text-gray-500 font-medium">Issue Date</p>
-                            <p className="text-gray-900 font-semibold">
-                              {new Date(invoice.issueDate).toLocaleDateString()}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-gray-500 font-medium">Due Date</p>
-                            <p className="text-gray-900 font-semibold">
-                              {new Date(invoice.dueDate).toLocaleDateString()}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-gray-500 font-medium">Total Due</p>
-                            <p className="text-gray-900 font-bold">Ksh {invoice.totalDue.toLocaleString()}</p>
-                          </div>
-                        </div>
-                        {invoice.amountPaid > 0 && (
-                          <div className="grid grid-cols-2 gap-4 text-sm">
-                            <div>
-                              <p className="text-gray-500 font-medium">Amount Paid</p>
-                              <p className="text-green-700 font-bold">Ksh {invoice.amountPaid.toLocaleString()}</p>
-                            </div>
-                            <div>
-                              <p className="text-gray-500 font-medium">Balance</p>
-                              <p className="text-red-700 font-bold">Ksh {invoice.balance.toLocaleString()}</p>
-                            </div>
-                          </div>
-                        )}
-                        {invoice.notes && (
-                          <div className="text-sm">
-                            <p className="text-gray-500 font-medium">Notes</p>
-                            <p className="text-gray-700">{invoice.notes}</p>
-                          </div>
-                        )}
-                      </div>
-                      
-                      <div className="flex flex-col sm:flex-row lg:flex-col gap-2 shrink-0 w-full sm:w-auto">
-                        <WhatsAppSendButton
-                          tenantId={tenantId}
-                          documentType="Invoice"
-                          documentId={invoice.id}
-                          tenantPhone={tenant.contact}
-                        />
-                        <Button
-                          onClick={() => handleDownloadInvoice(invoice.id, invoice.invoiceNumber)}
-                          variant="outline"
-                          size="sm"
-                          className="flex-1 justify-center"
-                        >
-                          <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                          </svg>
-                          Download
-                        </Button>
-                        
-                        {/* Delete Button - Only visible for ADMIN and MANAGER */}
-                        {(isAdmin || isManager) && (
-                          <Button
-                            onClick={() => handleDeleteInvoice(invoice.id, invoice.invoiceNumber)}
-                            variant="outline"
-                            size="sm"
-                            disabled={deletingInvoiceId === invoice.id}
-                            className="flex-1 justify-center border-2 border-red-500 text-red-600 hover:bg-red-50 hover:text-red-700 hover:border-red-600 font-medium transition-all duration-200"
-                          >
-                            {deletingInvoiceId === invoice.id ? (
-                              <>
-                                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-red-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                                Deleting...
-                              </>
-                            ) : (
-                              <>
-                                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                </svg>
-                                Delete
-                              </>
-                            )}
-                          </Button>
-                        )}
-                        
-                        {receiptsMap.has(invoice.id) && (
-                          <Button
-                            onClick={() => {
-                              const paymentReport = receiptsMap.get(invoice.id);
-                              if (paymentReport) {
-                                handleDownloadReceipt(paymentReport.id, paymentReport.receiptNumber || undefined);
-                              }
-                            }}
-                            variant="outline"
-                            size="sm"
-                            disabled={downloadingReceiptId === receiptsMap.get(invoice.id)?.id}
-                            className="flex-1 justify-center bg-green-50 border-green-300 text-green-700 hover:bg-green-100 hover:text-green-800 hover:border-green-400"
-                          >
-                            {downloadingReceiptId === receiptsMap.get(invoice.id)?.id ? (
-                              <>
-                                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-green-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                                Loading...
-                              </>
-                            ) : (
-                              <>
-                                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
-                                Receipt
-                              </>
-                            )}
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
-
       {/* Create Payment Dialog */}
       <Dialog open={showCreatePaymentDialog} onOpenChange={setShowCreatePaymentDialog}>
-        <DialogContent className="sm:max-w-225 max-h-[90vh] flex flex-col p-0">
-          <div className="px-6 pt-6 pb-0">
-            <DialogHeader>
-              <DialogTitle className="text-2xl font-bold text-heading-color">Record Payment</DialogTitle>
-              <DialogDescription className="text-gray-700">
-                Record a new payment for {tenant.fullName}
+        <DialogContent className="flex h-[min(90dvh,900px)] w-[calc(100vw-2rem)] max-w-6xl flex-col gap-0 overflow-hidden p-0">
+          <DialogHeader className="shrink-0 px-5 py-4 sm:px-6">
+              <DialogTitle>Record Payment</DialogTitle>
+              <DialogDescription>
+                Record a new payment for {tenant.fullName}{tenant.unit?.unitNo ? ` · Unit ${tenant.unit.unitNo}` : ''}
                 {paymentPreview?.existingCredit ? (
-                  <span className="ml-2 px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full font-semibold">
+                  <span className="ml-2 inline-flex rounded-full border border-success/20 bg-success/10 px-2 py-0.5 text-xs font-medium text-success">
                     Credit Available: Ksh {paymentPreview.existingCredit.toLocaleString()}
                   </span>
                 ) : null}
               </DialogDescription>
-            </DialogHeader>
-          </div>
+          </DialogHeader>
           
-          <div className="flex-1 overflow-y-auto px-6 py-4">
-            <div className="space-y-6">
-              {/* Payment Policy Header */}
-              <div className="p-4 bg-linear-to-r from-purple-50 to-indigo-50 rounded-xl border border-purple-200">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-sm font-semibold text-purple-800 mb-1">Payment Policy</h3>
-                    <p className="text-2xl font-bold text-purple-900">
-                      {tenant.paymentPolicy === 'MONTHLY' && 'Monthly Payment'}
-                      {tenant.paymentPolicy === 'QUARTERLY' && 'Quarterly Payment'}
-                      {tenant.paymentPolicy === 'ANNUAL' && 'Annual Payment'}
-                    </p>
-                  </div>
-                  <div className={`px-4 py-2 rounded-full text-sm font-bold border ${getPaymentPolicyColor(tenant.paymentPolicy)}`}>
-                    {tenant.paymentPolicy}
-                  </div>
-                </div>
-                <p className="text-xs text-purple-700 mt-2">
-                  {tenant.paymentPolicy === 'MONTHLY' && 'Payment due every month'}
-                  {tenant.paymentPolicy === 'QUARTERLY' && 'Payment due every 3 months'}
-                  {tenant.paymentPolicy === 'ANNUAL' && 'Payment due once per year'}
-                </p>
-                {tenant.rentStart && (
-                  <p className="text-xs text-purple-600 mt-1">
-                    Rent start date: {new Date(tenant.rentStart).toLocaleDateString()}
-                  </p>
-                )}
-              </div>
-
+          <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6">
+            <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,3fr)_minmax(20rem,2fr)] lg:items-start">
+              <div className="min-w-0 space-y-4">
               {/* Payment Preview Section */}
               {paymentPreview && (
                 <motion.div 
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="p-4 bg-linear-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-200"
+                  className="rounded-lg border border-border bg-card p-4"
                 >
-                  <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                    <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2">
+                    <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                     </svg>
                     Payment Preview ({tenant.paymentPolicy})
@@ -2389,114 +1289,114 @@ const handleDownloadPaymentReport = async () => {
                   
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
                     {/* Rent Card */}
-                    <div className="p-3 bg-white rounded-lg shadow-sm">
-                      <p className="text-gray-600 font-medium text-xs">
+                    <div className="rounded-md border border-border bg-muted/20 p-3">
+                      <p className="text-muted-foreground font-medium text-xs">
                         {tenant.paymentPolicy === 'MONTHLY' && 'Monthly Rent'}
                         {tenant.paymentPolicy === 'QUARTERLY' && 'Quarterly Rent'}
                         {tenant.paymentPolicy === 'ANNUAL' && 'Annual Rent'}
                       </p>
-                      <p className="text-gray-900 font-bold text-base">Ksh {paymentPreview.rent.amount.toLocaleString()}</p>
+                      <p className="text-foreground font-bold text-base">Ksh {paymentPreview.rent.amount.toLocaleString()}</p>
                       {paymentPreview.rent.vatType !== 'NOT_APPLICABLE' && (
                         <div className="mt-1">
-                          <p className="text-xs text-gray-500">
+                          <p className="text-xs text-muted-foreground">
                             {paymentPreview.rent.vatType} ({paymentPreview.rent.vatRate}%)
                           </p>
-                          <p className="text-xs text-gray-500">
+                          <p className="text-xs text-muted-foreground">
                             VAT: Ksh {paymentPreview.rent.vatAmount.toLocaleString()}
                           </p>
                         </div>
                       )}
                       {tenant.paymentPolicy !== 'MONTHLY' && (
-                        <p className="text-xs text-gray-500 mt-1">
+                        <p className="text-xs text-muted-foreground mt-1">
                           (Ksh {tenant.rent?.toLocaleString()}/month)
                         </p>
                       )}
                     </div>
 
                     {/* Service Charge Card */}
-                    <div className="p-3 bg-white rounded-lg shadow-sm">
-                      <p className="text-gray-600 font-medium text-xs">Service Charge</p>
+                    <div className="rounded-md border border-border bg-muted/20 p-3">
+                      <p className="text-muted-foreground font-medium text-xs">Service Charge</p>
                       {paymentPreview.serviceCharge.hasVat ? (
                         <>
-                          <p className="text-gray-900 font-bold text-base">
+                          <p className="text-foreground font-bold text-base">
                             Ksh {paymentPreview.serviceCharge.inclusiveAmount.toLocaleString()}
                           </p>
                           <div className="mt-1">
-                            <p className="text-xs text-gray-500">
+                            <p className="text-xs text-muted-foreground">
                               {paymentPreview.serviceCharge.vatType} ({paymentPreview.serviceCharge.vatRate}%)
                             </p>
-                            <p className="text-xs text-gray-500">
+                            <p className="text-xs text-muted-foreground">
                               VAT: Ksh {paymentPreview.serviceCharge.vatAmount.toLocaleString()}
                             </p>
-                            <p className="text-xs text-gray-400">
+                            <p className="text-xs text-muted-foreground">
                               Excl. VAT: Ksh {paymentPreview.serviceCharge.exclusiveAmount.toLocaleString()}
                             </p>
                           </div>
                         </>
                       ) : (
-                        <p className="text-gray-900 font-bold text-base">
+                        <p className="text-foreground font-bold text-base">
                           Ksh {paymentPreview.serviceCharge.amount.toLocaleString()}
                         </p>
                       )}
                       {paymentPreview.serviceCharge.type === 'PERCENTAGE' && (
-                        <p className="text-xs text-gray-500 mt-1">
+                        <p className="text-xs text-muted-foreground mt-1">
                           {paymentPreview.serviceCharge.percentage}% of rent
                         </p>
                       )}
                       {paymentPreview.serviceCharge.type === 'FIXED' && (
-                        <p className="text-xs text-gray-500 mt-1">Fixed amount</p>
+                        <p className="text-xs text-muted-foreground mt-1">Fixed amount</p>
                       )}
                       {paymentPreview.serviceCharge.type === 'PER_SQ_FT' && (
-                        <p className="text-xs text-gray-500 mt-1">Per sq ft</p>
+                        <p className="text-xs text-muted-foreground mt-1">Per sq ft</p>
                       )}
                     </div>
 
                     {/* VAT Breakdown Card */}
-                    <div className="p-3 bg-white rounded-lg shadow-sm">
-                      <p className="text-gray-600 font-medium text-xs">VAT Breakdown</p>
+                    <div className="rounded-md border border-border bg-muted/20 p-3">
+                      <p className="text-muted-foreground font-medium text-xs">VAT Breakdown</p>
                       <div className="space-y-1 mt-1">
                         {paymentPreview.vat.rent.hasVat && (
                           <div className="flex justify-between text-xs">
-                            <span className="text-gray-500">Rent VAT:</span>
-                            <span className="font-semibold text-gray-700">
+                            <span className="text-muted-foreground">Rent VAT:</span>
+                            <span className="font-semibold text-foreground">
                               Ksh {paymentPreview.vat.rent.amount.toLocaleString()}
                             </span>
                           </div>
                         )}
                         {paymentPreview.vat.serviceCharge.hasVat && (
                           <div className="flex justify-between text-xs">
-                            <span className="text-gray-500">SC VAT:</span>
-                            <span className="font-semibold text-gray-700">
+                            <span className="text-muted-foreground">SC VAT:</span>
+                            <span className="font-semibold text-foreground">
                               Ksh {paymentPreview.vat.serviceCharge.amount.toLocaleString()}
                             </span>
                           </div>
                         )}
                         <div className="flex justify-between text-xs font-bold border-t pt-1 mt-1">
-                          <span className="text-gray-600">Total VAT:</span>
-                          <span className="text-blue-700">Ksh {paymentPreview.vat.total.toLocaleString()}</span>
+                          <span className="text-muted-foreground">Total VAT:</span>
+                          <span className="text-primary">Ksh {paymentPreview.vat.total.toLocaleString()}</span>
                         </div>
                       </div>
                     </div>
 
                     {/* Total Due Card */}
-                    <div className="p-3 bg-indigo-100 rounded-lg shadow-sm border-2 border-indigo-300">
-                      <p className="text-indigo-800 font-medium text-xs">
+                    <div className="rounded-md border border-primary/20 bg-primary/10 p-3">
+                      <p className="text-primary font-medium text-xs">
                         Total {tenant.paymentPolicy === 'MONTHLY' ? 'Monthly' : tenant.paymentPolicy === 'QUARTERLY' ? 'Quarterly' : 'Annual'} Due
                       </p>
-                      <p className="text-indigo-900 font-bold text-lg">Ksh {paymentPreview.totalDue.toLocaleString()}</p>
+                      <p className="text-primary font-bold text-lg">Ksh {paymentPreview.totalDue.toLocaleString()}</p>
                     </div>
                   </div>
 
                   {/* Credit Information */}
                   {paymentPreview.existingCredit > 0 && (
                     <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <div className="p-2 bg-green-100 rounded-lg border border-green-300">
-                        <p className="text-xs text-green-800 font-medium">Credit Available</p>
-                        <p className="text-green-900 font-bold">Ksh {paymentPreview.existingCredit.toLocaleString()}</p>
+                      <div className="rounded-md border border-success/20 bg-success/10 p-2">
+                        <p className="text-xs font-medium text-success">Credit Available</p>
+                        <p className="font-bold text-success">Ksh {paymentPreview.existingCredit.toLocaleString()}</p>
                       </div>
-                      <div className="p-2 bg-green-50 rounded-lg border border-green-200">
-                        <p className="text-xs text-green-800 font-medium">Net Due After Credit</p>
-                        <p className="text-green-900 font-bold">Ksh {paymentPreview.netDueAfterCredit.toLocaleString()}</p>
+                      <div className="rounded-md border border-success/20 bg-success/10 p-2">
+                        <p className="text-xs font-medium text-success">Net Due After Credit</p>
+                        <p className="font-bold text-success">Ksh {paymentPreview.netDueAfterCredit.toLocaleString()}</p>
                       </div>
                     </div>
                   )}
@@ -2504,9 +1404,9 @@ const handleDownloadPaymentReport = async () => {
               )}
 
               {/* Outstanding Invoices Section */}
-              <div className="p-4 bg-orange-50 rounded-xl border border-orange-200">
+              <div className="rounded-lg border border-border bg-card p-4">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold text-gray-800">Outstanding Invoices</h3>
+                  <h3 className="text-sm font-semibold text-foreground">Outstanding Invoices</h3>
                   <Button
                     variant="outline"
                     size="sm"
@@ -2521,14 +1421,14 @@ const handleDownloadPaymentReport = async () => {
                   <>
                     {loadingOutstanding ? (
                       <div className="flex items-center justify-center py-8">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-600"></div>
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
                       </div>
                     ) : (
                       <>
                         {(selectedInvoiceIds.length > 0 || selectedBillInvoiceIds.length > 0) && (
-                          <div className="mb-4 p-3 bg-white rounded-lg border-2 border-orange-300 shadow-sm">
+                          <div className="mb-4 rounded-md border border-border bg-muted/20 p-3">
                             <div className="flex items-center justify-between text-sm mb-2">
-                              <span className="font-semibold text-gray-700">
+                              <span className="font-semibold text-foreground">
                                 Selected: {selectedInvoiceIds.length + selectedBillInvoiceIds.length} invoice(s)
                               </span>
                               <Button
@@ -2538,26 +1438,26 @@ const handleDownloadPaymentReport = async () => {
                                   setSelectedInvoiceIds([]);
                                   setSelectedBillInvoiceIds([]);
                                 }}
-                                className="text-xs text-orange-600 hover:text-orange-700 hover:bg-orange-50"
+                                className="text-xs text-primary hover:text-primary hover:bg-muted"
                               >
                                 Clear All
                               </Button>
                             </div>
                             <div className="space-y-1 text-xs">
                               {calculateSelectedBalance().rentBalance > 0 && (
-                                <div className="flex justify-between text-gray-600">
+                                <div className="flex justify-between text-muted-foreground">
                                   <span>Rent Balance:</span>
                                   <span className="font-semibold text-red-600">Ksh {calculateSelectedBalance().rentBalance.toLocaleString()}</span>
                                 </div>
                               )}
                               {calculateSelectedBalance().billBalance > 0 && (
-                                <div className="flex justify-between text-gray-600">
+                                <div className="flex justify-between text-muted-foreground">
                                   <span>Bill Balance:</span>
                                   <span className="font-semibold text-red-600">Ksh {calculateSelectedBalance().billBalance.toLocaleString()}</span>
                                 </div>
                               )}
                               <div className="flex justify-between text-sm font-bold border-t pt-1 mt-1">
-                                <span className="text-gray-800">Total Selected Balance:</span>
+                                <span className="text-foreground">Total Selected Balance:</span>
                                 <span className="text-red-700">Ksh {calculateSelectedBalance().total.toLocaleString()}</span>
                               </div>
                             </div>
@@ -2566,19 +1466,19 @@ const handleDownloadPaymentReport = async () => {
 
                         {outstandingInvoices.length > 0 && (
                           <div className="mb-4">
-                            <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                              <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
+                            <h4 className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
+                              <span className="size-2 rounded-full bg-primary"></span>
                               Rent Invoices ({outstandingInvoices.length})
                             </h4>
-                            <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                            <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
                               {outstandingInvoices.map((invoice) => (
                                 <motion.label
                                   key={invoice.id}
                                   whileHover={{ scale: 1.01 }}
-                                  className={`flex items-start gap-3 p-3 rounded-lg border-2 transition-all cursor-pointer ${
+                                  className={`flex cursor-pointer items-start gap-3 rounded-md border p-3 transition-colors ${
                                     selectedInvoiceIds.includes(invoice.id)
-                                      ? 'border-orange-500 bg-orange-100 shadow-md'
-                                      : 'border-gray-200 hover:border-orange-300 bg-white hover:shadow-sm'
+                                      ? 'border-primary bg-primary/5'
+                                      : 'border-border bg-background hover:bg-muted/40'
                                   }`}
                                 >
                                   <input
@@ -2591,11 +1491,11 @@ const handleDownloadPaymentReport = async () => {
                                         setSelectedInvoiceIds(selectedInvoiceIds.filter(id => id !== invoice.id));
                                       }
                                     }}
-                                    className="mt-1 h-4 w-4 text-orange-600 focus:ring-orange-500 border-gray-300 rounded"
+                                    className="mt-1 size-4 rounded border-border text-primary focus:ring-ring"
                                   />
                                   <div className="flex-1 min-w-0">
                                     <div className="flex items-center justify-between mb-1 flex-wrap gap-1">
-                                      <span className="font-semibold text-sm text-gray-900 truncate">
+                                      <span className="font-semibold text-sm text-foreground truncate">
                                         {invoice.invoiceNumber}
                                       </span>
                                       <div className="flex items-center gap-1">
@@ -2607,7 +1507,7 @@ const handleDownloadPaymentReport = async () => {
                                         </span>
                                       </div>
                                     </div>
-                                    <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
+                                    <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
                                       <div>
                                         <span className="font-medium">Period:</span> {invoice.paymentPeriod}
                                       </div>
@@ -2631,14 +1531,21 @@ const handleDownloadPaymentReport = async () => {
                           </div>
                         )}
 
+                        {outstandingInvoices.length === 0 && outstandingBillInvoices.length === 0 && (
+                          <div className="rounded-md border border-dashed border-border bg-muted/20 px-4 py-8 text-center">
+                            <p className="text-sm font-medium text-foreground">No outstanding invoices</p>
+                            <p className="mt-1 text-xs text-muted-foreground">There are no invoice balances available for selection.</p>
+                          </div>
+                        )}
+
                         {selectedInvoiceIds.length === 0 && selectedBillInvoiceIds.length === 0 && 
                         (outstandingInvoices.length > 0 || outstandingBillInvoices.length > 0) && (
-                          <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                          <div className="mt-4 rounded-md border border-border bg-muted/30 p-3">
                             <div className="flex items-start gap-2">
-                              <svg className="w-5 h-5 text-blue-600 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <svg className="w-5 h-5 text-primary mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                               </svg>
-                              <p className="text-xs text-blue-800">
+                              <p className="text-xs text-muted-foreground">
                                 <strong>Auto-Allocation Mode:</strong> Payment will be automatically applied to the oldest outstanding invoices first (FIFO).
                               </p>
                             </div>
@@ -2650,22 +1557,51 @@ const handleDownloadPaymentReport = async () => {
                 )}
               </div>
 
+              </div>
+              <div className="min-w-0 space-y-4">
+              {/* Payment Policy Header */}
+              <div className="rounded-lg border border-border bg-card p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-semibold text-muted-foreground mb-1">Payment Policy</h3>
+                    <p className="text-2xl font-bold text-foreground">
+                      {tenant.paymentPolicy === 'MONTHLY' && 'Monthly Payment'}
+                      {tenant.paymentPolicy === 'QUARTERLY' && 'Quarterly Payment'}
+                      {tenant.paymentPolicy === 'ANNUAL' && 'Annual Payment'}
+                    </p>
+                  </div>
+                  <div className={`px-4 py-2 rounded-full text-sm font-bold border ${getPaymentPolicyColor(tenant.paymentPolicy)}`}>
+                    {tenant.paymentPolicy}
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">
+                  {tenant.paymentPolicy === 'MONTHLY' && 'Payment due every month'}
+                  {tenant.paymentPolicy === 'QUARTERLY' && 'Payment due every 3 months'}
+                  {tenant.paymentPolicy === 'ANNUAL' && 'Payment due once per year'}
+                </p>
+                {tenant.rentStart && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Rent start date: {new Date(tenant.rentStart).toLocaleDateString()}
+                  </p>
+                )}
+              </div>
+
               {/* Payment Options Section */}
-              <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
-                <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                  <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="rounded-lg border border-border bg-card p-4">
+                <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2">
+                  <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                   </svg>
                   Payment Options
                 </h3>
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between p-3 bg-white rounded-lg shadow-sm">
+                  <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-muted/20 p-3">
                     <div>
-                      <Label htmlFor="createMissingInvoices" className="text-sm font-semibold text-gray-800">
+                      <Label htmlFor="createMissingInvoices" className="text-sm font-semibold text-foreground">
                         Create Missing Invoice
                       </Label>
-                      <p className="text-xs text-gray-600 mt-1">
+                      <p className="text-xs text-muted-foreground mt-1">
                         Automatically create an invoice if none exists for the period
                       </p>
                     </div>
@@ -2676,12 +1612,12 @@ const handleDownloadPaymentReport = async () => {
                     />
                   </div>
                   
-                  <div className="flex items-center justify-between p-3 bg-white rounded-lg shadow-sm">
+                  <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-muted/20 p-3">
                     <div>
-                      <Label htmlFor="autoGenerateBalanceInvoice" className="text-sm font-semibold text-gray-800">
+                      <Label htmlFor="autoGenerateBalanceInvoice" className="text-sm font-semibold text-foreground">
                         Generate Balance Invoice
                       </Label>
-                      <p className="text-xs text-gray-600 mt-1">
+                      <p className="text-xs text-muted-foreground mt-1">
                         Create a new invoice for remaining balance if payment is partial
                       </p>
                     </div>
@@ -2692,12 +1628,12 @@ const handleDownloadPaymentReport = async () => {
                     />
                   </div>
                   
-                  <div className="flex items-center justify-between p-3 bg-white rounded-lg shadow-sm">
+                  <div className="flex items-center justify-between gap-4 rounded-md border border-border bg-muted/20 p-3">
                     <div>
-                      <Label htmlFor="updateExistingInvoices" className="text-sm font-semibold text-gray-800">
+                      <Label htmlFor="updateExistingInvoices" className="text-sm font-semibold text-foreground">
                         Update Existing Invoices
                       </Label>
-                      <p className="text-xs text-gray-600 mt-1">
+                      <p className="text-xs text-muted-foreground mt-1">
                         Apply payment to existing unpaid invoices for the same period
                       </p>
                     </div>
@@ -2711,18 +1647,22 @@ const handleDownloadPaymentReport = async () => {
               </div>
 
               {/* Payment Form Fields - DYNAMIC BASED ON PAYMENT POLICY */}
-              <div className="space-y-6">
+              <div className="space-y-5 rounded-lg border border-border bg-card p-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground">Payment entry</h3>
+                  <p className="mt-1 text-xs text-muted-foreground">Select the payment period, enter the received amount and add any supporting notes.</p>
+                </div>
                 <div className="space-y-2">
-                  <Label htmlFor="paymentPeriod" className="text-sm font-semibold text-gray-800">
+                  <Label htmlFor="paymentPeriod" className="text-sm font-semibold text-foreground">
                     Payment Period <span className="text-red-500">*</span>
                   </Label>
                   
                   {/* Current Period Indicator */}
                   {tenant.rentStart && (
-                    <div className="p-3 bg-green-50 border border-green-200 rounded-lg mb-3">
+                    <div className="p-3 bg-success/10 border border-success/20 rounded-lg mb-3">
                       <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                        <p className="text-sm text-green-800">
+                        <div className="w-2 h-2 bg-success rounded-full animate-pulse"></div>
+                        <p className="text-sm text-success">
                           <span className="font-semibold">Current {tenant.paymentPolicy} Period:</span>{' '}
                           {tenant.paymentPolicy === 'MONTHLY' && new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
                           {tenant.paymentPolicy === 'QUARTERLY' && getQuarterPeriods(tenant.rentStart, 1)[0]?.display}
@@ -2740,10 +1680,10 @@ const handleDownloadPaymentReport = async () => {
                         type="month"
                         value={paymentForm.paymentPeriod}
                         onChange={(e) => setPaymentForm({ ...paymentForm, paymentPeriod: e.target.value })}
-                        className="w-full text-gray-900"
+                        className="w-full text-foreground"
                         required
                       />
-                      <p className="text-xs text-gray-500 mt-1">
+                      <p className="text-xs text-muted-foreground mt-1">
                         Select the month for this payment
                       </p>
                     </div>
@@ -2754,7 +1694,7 @@ const handleDownloadPaymentReport = async () => {
                     <div>
                       <div className="grid grid-cols-2 gap-3 mb-3">
                         <div>
-                          <Label className="text-xs text-gray-600">
+                          <Label className="text-xs text-muted-foreground">
                             Year
                           </Label>
                           <select
@@ -2764,7 +1704,7 @@ const handleDownloadPaymentReport = async () => {
                               const currentQuarter = paymentForm.paymentPeriod?.split('-')[1] || 'Q1';
                               setPaymentForm({ ...paymentForm, paymentPeriod: `${year}-${currentQuarter}` });
                             }}
-                            className="w-full p-2 border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                           >
                             {getQuarterPeriods(tenant.rentStart, 8).map((period, index) => (
                               <option key={index} value={period.startYear}>
@@ -2774,7 +1714,7 @@ const handleDownloadPaymentReport = async () => {
                           </select>
                         </div>
                         <div>
-                          <Label className="text-xs text-gray-600">
+                          <Label className="text-xs text-muted-foreground">
                             Quarter
                           </Label>
                           <select
@@ -2784,7 +1724,7 @@ const handleDownloadPaymentReport = async () => {
                               const currentYear = paymentForm.paymentPeriod?.split('-')[0] || new Date().getFullYear().toString();
                               setPaymentForm({ ...paymentForm, paymentPeriod: `${currentYear}-${quarter}` });
                             }}
-                            className="w-full p-2 border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                           >
                             {getQuarterPeriods(tenant.rentStart, 8).map((period, index) => (
                               <option key={index} value={period.quarter}>
@@ -2804,15 +1744,15 @@ const handleDownloadPaymentReport = async () => {
                             onClick={() => setPaymentForm({ ...paymentForm, paymentPeriod: period.value })}
                             className={`px-3 py-1 text-xs rounded-full border transition-all ${
                               paymentForm.paymentPeriod === period.value
-                                ? 'bg-blue-600 text-white border-blue-600'
-                                : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400'
+                                ? 'border-primary bg-primary text-primary-foreground'
+                                : 'border-border bg-background text-foreground hover:bg-muted'
                             }`}
                           >
                             {period.quarter} ({period.display})
                           </button>
                         ))}
                       </div>
-                      <p className="text-xs text-gray-500 mt-2">
+                      <p className="text-xs text-muted-foreground mt-2">
                         Quarters are calculated from rent start date: {new Date(tenant.rentStart).toLocaleDateString()}
                       </p>
                     </div>
@@ -2822,13 +1762,13 @@ const handleDownloadPaymentReport = async () => {
                   {tenant.paymentPolicy === 'ANNUAL' && tenant.rentStart && (
                     <div>
                       <div>
-                        <Label className="text-xs text-gray-600">
+                        <Label className="text-xs text-muted-foreground">
                           Year
                         </Label>
                         <select
                           value={paymentForm.paymentPeriod}
                           onChange={(e) => setPaymentForm({ ...paymentForm, paymentPeriod: e.target.value })}
-                          className="w-full p-2 border border-gray-300 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                         >
                           {getAnnualPeriods(tenant.rentStart, 5).map((period, index) => (
                             <option key={index} value={period.value}>
@@ -2847,15 +1787,15 @@ const handleDownloadPaymentReport = async () => {
                             onClick={() => setPaymentForm({ ...paymentForm, paymentPeriod: period.value })}
                             className={`px-3 py-1 text-xs rounded-full border transition-all ${
                               paymentForm.paymentPeriod === period.value
-                                ? 'bg-blue-600 text-white border-blue-600'
-                                : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400'
+                                ? 'border-primary bg-primary text-primary-foreground'
+                                : 'border-border bg-background text-foreground hover:bg-muted'
                             }`}
                           >
                             {period.display}
                           </button>
                         ))}
                       </div>
-                      <p className="text-xs text-gray-500 mt-2">
+                      <p className="text-xs text-muted-foreground mt-2">
                         Years are calculated from rent start date: {new Date(tenant.rentStart).toLocaleDateString()}
                       </p>
                     </div>
@@ -2863,18 +1803,18 @@ const handleDownloadPaymentReport = async () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="amountPaid" className="text-sm font-semibold text-gray-800">
+                  <Label htmlFor="amountPaid" className="text-sm font-semibold text-foreground">
                     Amount Paid <span className="text-red-500">*</span>
                   </Label>
                   <div className="relative">
-                    <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 font-semibold">Ksh</span>
+                    <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground font-semibold">Ksh</span>
                     <Input
                       id="amountPaid"
                       type="number"
                       placeholder={`Enter amount (${tenant.paymentPolicy === 'MONTHLY' ? 'monthly' : tenant.paymentPolicy === 'QUARTERLY' ? 'quarterly' : 'annual'} payment)`}
                       value={paymentForm.amountPaid}
                       onChange={(e) => setPaymentForm({ ...paymentForm, amountPaid: e.target.value })}
-                      className="w-full text-gray-900 pl-12 text-lg font-semibold"
+                      className="w-full text-foreground pl-12 text-lg font-semibold"
                       required
                     />
                   </div>
@@ -2883,13 +1823,13 @@ const handleDownloadPaymentReport = async () => {
                     <motion.div 
                       initial={{ opacity: 0, height: 0 }}
                       animate={{ opacity: 1, height: 'auto' }}
-                      className="mt-3 p-3 bg-gray-50 rounded-lg border space-y-2"
+                      className="mt-3 p-3 bg-muted/30 rounded-lg border space-y-2"
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-600">Payment Status:</span>
+                        <span className="text-sm text-muted-foreground">Payment Status:</span>
                         <span className={`px-3 py-1 rounded-full text-xs font-bold ${
                           calculatePaymentStatus().status === 'PAID' 
-                            ? 'bg-green-100 text-green-800 border border-green-300'
+                            ? 'bg-green-100 text-success border border-green-300'
                             : calculatePaymentStatus().status === 'PARTIAL'
                             ? 'bg-yellow-100 text-yellow-800 border border-yellow-300'
                             : 'bg-red-100 text-red-800 border border-red-300'
@@ -2897,15 +1837,15 @@ const handleDownloadPaymentReport = async () => {
                           {calculatePaymentStatus().status}
                         </span>
                       </div>
-                      <p className="text-xs text-gray-600">{calculatePaymentStatus().details}</p>
+                      <p className="text-xs text-muted-foreground">{calculatePaymentStatus().details}</p>
                       
                       {parseFloat(paymentForm.amountPaid) > 0 && parseFloat(paymentForm.amountPaid) < totalDue && (
                         <div className="mt-2">
-                          <div className="flex justify-between text-xs text-gray-600 mb-1">
+                          <div className="flex justify-between text-xs text-muted-foreground mb-1">
                             <span>Payment Progress</span>
                             <span>{((parseFloat(paymentForm.amountPaid) / totalDue) * 100).toFixed(1)}%</span>
                           </div>
-                          <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div className="w-full bg-muted rounded-full h-2">
                             <div 
                               className="bg-yellow-500 h-2 rounded-full transition-all duration-300"
                               style={{ width: `${Math.min((parseFloat(paymentForm.amountPaid) / totalDue) * 100, 100)}%` }}
@@ -2915,7 +1855,7 @@ const handleDownloadPaymentReport = async () => {
                       )}
                       
                       {parseFloat(paymentForm.amountPaid) > totalDue && (
-                        <div className="p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
+                        <div className="rounded border border-warning/20 bg-warning/10 p-2 text-xs text-warning">
                           <span className="font-semibold">⚠️ Overpayment:</span> Excess of Ksh {(parseFloat(paymentForm.amountPaid) - totalDue).toLocaleString()} will be handled according to your overpayment settings.
                         </div>
                       )}
@@ -2924,7 +1864,7 @@ const handleDownloadPaymentReport = async () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="paymentNotes" className="text-sm font-semibold text-gray-800">
+                  <Label htmlFor="paymentNotes" className="text-sm font-semibold text-foreground">
                     Notes (Optional)
                   </Label>
                   <Textarea
@@ -2932,14 +1872,15 @@ const handleDownloadPaymentReport = async () => {
                     placeholder={`Add any additional notes about this ${tenant.paymentPolicy === 'MONTHLY' ? 'monthly' : tenant.paymentPolicy === 'QUARTERLY' ? 'quarterly' : 'annual'} payment...`}
                     value={paymentForm.notes}
                     onChange={(e) => setPaymentForm({ ...paymentForm, notes: e.target.value })}
-                    className="min-h-20 text-gray-900"
+                    className="min-h-20 text-foreground"
                   />
                 </div>
               </div>
+              </div>
             </div>
           </div>
-          
-          <DialogFooter className="px-6 py-4 border-t bg-gray-50">
+
+          <DialogFooter className="shrink-0 border-t border-border bg-muted/20 px-5 py-4 sm:px-6">
             <Button
               variant="outline"
               onClick={() => {
@@ -2956,19 +1897,12 @@ const handleDownloadPaymentReport = async () => {
             <Button
               onClick={handleCreatePayment}
               disabled={creatingPayment || !paymentForm.paymentPeriod || !paymentForm.amountPaid}
-              className="bg-blue-600 hover:bg-blue-700 min-w-24"
+              loading={creatingPayment}
+              className="min-w-24"
             >
-              {creatingPayment ? (
-                <>
-                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  Processing...
-                </>
-              ) : (
-                `Record ${tenant.paymentPolicy === 'MONTHLY' ? 'Monthly' : tenant.paymentPolicy === 'QUARTERLY' ? 'Quarterly' : 'Annual'} Payment`
-              )}
+              {creatingPayment
+                ? 'Processing…'
+                : `Record ${tenant.paymentPolicy === 'MONTHLY' ? 'Monthly' : tenant.paymentPolicy === 'QUARTERLY' ? 'Quarterly' : 'Annual'} Payment`}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -3069,526 +2003,98 @@ const handleDownloadPaymentReport = async () => {
         </DialogContent>
       </Dialog>
 
-      {/* Payment Reports Dialog */}
-      <Dialog open={showPaymentReportsDialog} onOpenChange={setShowPaymentReportsDialog}>
-        <DialogContent className="max-w-6xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-2xl font-bold text-heading-color">Payment Reports</DialogTitle>
-            <DialogDescription className="text-gray-700">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                <span className="text-sm sm:text-base">All payment reports for {tenant.fullName}</span>
-                <div className="flex items-center gap-2 w-full sm:w-auto">
-                  {(isAdmin || isManager || permissions.payments.canView) && (
-                    <Button
-                      onClick={handleDownloadPaymentReport}
-                      disabled={generatingPDF || paymentReports.length === 0}
-                      size="sm"
-                      className="w-full sm:w-auto whitespace-nowrap"
-                    >
-                      {generatingPDF ? (
-                        <>
-                          <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                          </svg>
-                          Generating...
-                        </>
-                      ) : (
-                        <>
-                          <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                          </svg>
-                          Download Report
-                        </>
-                      )}
-                    </Button>
-                  )}
-
-                  {(isAdmin || isManager || permissions.payments.canView) && paymentReports.length > 0 && (
-                    <WhatsAppSendButton
-                      tenantId={tenant.id}
-                      documentType="All Payment Reports"
-                      tenantPhone={tenant.contact}
-                      size="sm"
-                      showLabel
-                    />
-                  )}
-                </div>
-              </div>
+      {/* Demand Letter Generation Dialog */}
+      <Dialog open={showDemandLetterDialog} onOpenChange={setShowDemandLetterDialog}>
+        <DialogContent className="flex max-h-[90dvh] w-[calc(100vw-2rem)] max-w-4xl flex-col gap-0 overflow-hidden p-0">
+          <DialogHeader className="shrink-0 px-5 py-4 sm:px-6">
+            <DialogTitle>Generate Demand Letter</DialogTitle>
+            <DialogDescription>
+              Create a demand letter for {tenant.fullName}
+              {tenant.unit?.unitNo ? ` · Unit ${tenant.unit.unitNo}` : ''} using the existing overdue invoice calculation.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            {paymentReportsLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-              </div>
-            ) : paymentReports.length === 0 ? (
-              <div className="text-center py-12 text-gray-500">
-                <svg className="w-16 h-16 mx-auto mb-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                </svg>
-                <p className="text-lg font-medium">No payment reports found</p>
-                <p className="text-sm mt-1">Record your first payment to get started</p>
-              </div>
-            ) : (
-              <div className="grid gap-4">
-                {paymentReports.map((report) => (
-                  <motion.div
-                    key={report.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="p-4 sm:p-6 border border-gray-200 rounded-xl hover:shadow-lg transition-shadow bg-white"
-                  >
-                    <div className="flex flex-col lg:flex-row lg:items-start gap-4">
-                      <div className="space-y-3 flex-1 min-w-0">
-                        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-                          <h3 className="text-base sm:text-lg font-bold text-gray-900">{report.paymentPeriod}</h3>
-                          <span className={`px-2 sm:px-3 py-1 rounded-full text-xs font-semibold border ${getPaymentStatusColor(report.status)}`}>
-                            {report.status}
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 text-sm">
-                          <div>
-                            <p className="text-gray-500 font-medium text-xs sm:text-sm">Total Due</p>
-                            <p className="text-gray-900 font-bold text-sm sm:text-base">Ksh {report.totalDue.toLocaleString()}</p>
-                          </div>
-                          <div>
-                            <p className="text-gray-500 font-medium text-xs sm:text-sm">Amount Paid</p>
-                            <p className="text-green-700 font-bold text-sm sm:text-base">Ksh {report.amountPaid.toLocaleString()}</p>
-                          </div>
-                          {report.arrears > 0 && (
-                            <div>
-                              <p className="text-gray-500 font-medium text-xs sm:text-sm">Arrears</p>
-                              <p className="text-red-700 font-bold text-sm sm:text-base">Ksh {report.arrears.toLocaleString()}</p>
-                            </div>
-                          )}
-                          <div>
-                            <p className="text-gray-500 font-medium text-xs sm:text-sm">Date Paid</p>
-                            <p className="text-gray-900 font-semibold text-xs sm:text-sm">
-                              {new Date(report.datePaid).toLocaleDateString()}
-                            </p>
-                          </div>
-                        </div>
-                        {report.notes && (
-                          <div className="text-sm">
-                            <p className="text-gray-500 font-medium text-xs sm:text-sm">Notes</p>
-                            <p className="text-gray-700 text-xs sm:text-sm wrap-break-words">{report.notes}</p>
-                          </div>
-                        )}
-                      </div>
 
-                      <div className="flex flex-row lg:flex-col gap-2 shrink-0 w-full lg:w-auto mt-2 lg:mt-0 pt-3 lg:pt-0 border-t lg:border-t-0 border-gray-100">
-                        
-                        {report.status === 'PARTIAL' && report.arrears > 0 && (isAdmin || isManager || permissions.invoices.canCreate) && (
-                          <Button
-                            onClick={() => openPartialPaymentInvoiceDialog(report)}
-                            size="sm"
-                            className="flex-1 lg:flex-none bg-yellow-600 hover:bg-yellow-700 text-xs sm:text-sm whitespace-nowrap"
-                          >
-                            <svg className="w-3 h-3 sm:w-4 sm:h-4 mr-1 sm:mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                            </svg>
-                            <span className="hidden sm:inline">Generate Balance Invoice</span>
-                            <span className="sm:hidden">Balance Invoice</span>
-                          </Button>
-                        )}
-
-                        {(isAdmin || isManager || permissions.payments.canDelete) && (
-
-                          <Button
-                            onClick={() => handleDeletePaymentReport(report.id, report.paymentPeriod)}
-                            variant="outline"
-                            size="sm"
-                            disabled={deletingPaymentReportId === report.id}
-                            className="flex-1 lg:flex-none border-2 border-red-500 text-red-600 hover:bg-red-50 hover:text-red-700 font-medium transition-all duration-200 text-xs sm:text-sm whitespace-nowrap"
-                          >
-                            {deletingPaymentReportId === report.id ? (
-                              <>
-                                <svg className="animate-spin -ml-1 mr-2 h-3 w-3 sm:h-4 sm:w-4 text-red-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                                <span className="hidden sm:inline">Deleting...</span>
-                                <span className="sm:hidden">...</span>
-                              </>
-                            ) : (
-                              <>
-                                <svg className="w-3 h-3 sm:w-4 sm:h-4 mr-1 sm:mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                </svg>
-                                <span className="hidden sm:inline">Delete</span>
-                                <span className="sm:hidden">Del</span>
-                              </>
-                            )}
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Partial Payment Invoice Dialog */}
-      <Dialog open={showPartialPaymentInvoiceDialog} onOpenChange={setShowPartialPaymentInvoiceDialog}>
-        <DialogContent className="sm:max-w-125">
-          <DialogHeader>
-            <DialogTitle className="text-2xl font-bold text-heading-color">Generate Balance Invoice</DialogTitle>
-            <DialogDescription className="text-gray-700">
-              {selectedPartialPayment && (
-                <>
-                  Generate invoice for outstanding balance of{' '}
-                  <span className="font-bold text-red-700">
-                    Ksh {selectedPartialPayment.arrears.toLocaleString()}
-                  </span>
-                </>
-              )}
-            </DialogDescription>
-          </DialogHeader>
-          {selectedPartialPayment && (
-            <>
-              <div className="mt-2 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
-                <div className="text-sm text-yellow-900">
-                  Period: <span className="font-bold">{selectedPartialPayment.paymentPeriod}</span>
-                </div>
-                <div className="text-sm text-yellow-900">
-                  Paid: Ksh {selectedPartialPayment.amountPaid.toLocaleString()} of Ksh {selectedPartialPayment.totalDue.toLocaleString()}
-                </div>
-              </div>
-              <div className="mt-2 p-3 bg-blue-50 rounded-lg border border-blue-200">
-                <div className="text-sm text-blue-900 font-medium">
-                  Payment Policy: <span className="font-bold">{tenant.paymentPolicy}</span>
-                </div>
-              </div>
-            </>
-          )}
-          <div className="space-y-6 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="partialDueDate" className="text-sm font-semibold text-gray-800">
-                Due Date <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                id="partialDueDate"
-                type="date"
-                value={partialInvoiceForm.dueDate}
-                onChange={(e) => setPartialInvoiceForm({ ...partialInvoiceForm, dueDate: e.target.value })}
-                className="w-full"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="partialNotes" className="text-sm font-semibold text-gray-800">
-                Notes (Optional)
-              </Label>
-              <Textarea
-                id="partialNotes"
-                placeholder="Add any additional notes"
-                value={partialInvoiceForm.notes}
-                onChange={(e) => setPartialInvoiceForm({ ...partialInvoiceForm, notes: e.target.value })}
-                className="min-h-25"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setShowPartialPaymentInvoiceDialog(false);
-                setSelectedPartialPayment(null);
-              }}
-              disabled={generatingPartialInvoice}
-            >
-              Cancel
-            </Button>
-            {(isAdmin || isManager || permissions.invoices.canCreate) && (
-              <Button
-                onClick={handleGeneratePartialPaymentInvoice}
-                disabled={generatingPartialInvoice || !partialInvoiceForm.dueDate}
-                className="bg-yellow-600 hover:bg-yellow-700"
-              >
-                {generatingPartialInvoice ? (
-                  <>
-                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    Generating...
-                  </>
-                ) : (
-                  'Generate Balance Invoice'
-                )}
-              </Button>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Bill Invoices Dialog - With Delete button for ADMIN and MANAGER */}
-      <Dialog open={showBillInvoicesDialog} onOpenChange={setShowBillInvoicesDialog}>
-        <DialogContent className="max-w-6xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-2xl font-bold text-heading-color">Bill Invoices</DialogTitle>
-            <DialogDescription className="text-gray-700">
-              <div className="flex items-center justify-between flex-wrap gap-3">
-                <span>All bill invoices for {tenant.fullName}</span>
-                <div className="flex gap-2 flex-wrap">
-  {(isAdmin || isManager || permissions.billInvoices.canView) && (
-    <div className="flex items-center gap-2 p-1.5 rounded-lg border border-gray-200 bg-gray-50">
-      <Button
-        onClick={handleDownloadBillPaymentReport}
-        disabled={generatingBillPDF || billInvoices.length === 0}
-        size="sm"
-        variant="outline"
-      >
-        {generatingBillPDF ? (
-          <>
-            <svg className="animate-spin -ml-1 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            Generating...
-          </>
-        ) : (
-          <>
-            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-            </svg>
-            Bill Report
-          </>
-        )}
-      </Button>
-      <WhatsAppSendButton tenantId={tenantId} documentType="Bill Report" tenantPhone={tenant.contact} size="sm" />
-    </div>
-  )}
-
-  {canViewComprehensiveReport && (
-    <div className="flex items-center gap-2 p-1.5 rounded-lg border border-gray-200 bg-gray-50">
-      <Button
-        onClick={handleDownloadComprehensiveReport}
-        disabled={generatingComprehensivePDF || (paymentReports.length === 0 && billInvoices.length === 0)}
-        size="sm"
-      >
-        {generatingComprehensivePDF ? (
-          <>
-            <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            Generating...
-          </>
-        ) : (
-          <>
-            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-            </svg>
-            Full Report
-          </>
-        )}
-      </Button>
-      <WhatsAppSendButton tenantId={tenantId} documentType="Full Report" tenantPhone={tenant.contact} size="sm" />
-    </div>
-  )}
-</div>
-              </div>
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            {billInvoicesLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-              </div>
-            ) : billInvoices.length === 0 ? (
-              <div className="text-center py-12 text-gray-500">
-                <svg className="w-16 h-16 mx-auto mb-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                <p className="text-lg font-medium">No bill invoices found</p>
-                <p className="text-sm mt-1">Bill invoices will appear here once generated</p>
-              </div>
-            ) : (
-              <div className="grid gap-4">
-                {billInvoices.map((billInvoice) => (
-                  <motion.div
-                    key={billInvoice.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="p-6 border border-gray-200 rounded-xl hover:shadow-lg transition-shadow bg-white"
-                  >
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between flex-wrap gap-2">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <h3 className="text-lg font-bold text-gray-900">{billInvoice.invoiceNumber}</h3>
-                          <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getStatusColor(billInvoice.status)}`}>
-                            {billInvoice.status}
-                          </span>
-                          <span className="px-3 py-1 rounded-full text-xs font-semibold border bg-purple-100 text-purple-800 border-purple-200">
-                            {billInvoice.billType}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
-                        <div>
-                          <p className="text-gray-500 font-medium">Issue Date</p>
-                          <p className="text-gray-900 font-semibold">
-                            {new Date(billInvoice.issueDate).toLocaleDateString()}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-gray-500 font-medium">Due Date</p>
-                          <p className="text-gray-900 font-semibold">
-                            {new Date(billInvoice.dueDate).toLocaleDateString()}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-gray-500 font-medium">Units</p>
-                          <p className="text-gray-900 font-bold">{billInvoice.units}</p>
-                        </div>
-                        <div>
-                          <p className="text-gray-500 font-medium">Grand Total</p>
-                          <p className="text-gray-900 font-bold">Ksh {billInvoice.grandTotal.toLocaleString()}</p>
-                        </div>
-                        {billInvoice.balance > 0 && (
-                          <div>
-                            <p className="text-gray-500 font-medium">Balance</p>
-                            <p className="text-red-700 font-bold">Ksh {billInvoice.balance.toLocaleString()}</p>
-                          </div>
-                        )}
-                      </div>
-                      {billInvoice.notes && (
-                        <div className="text-sm">
-                          <p className="text-gray-500 font-medium">Notes</p>
-                          <p className="text-gray-700">{billInvoice.notes}</p>
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex flex-col gap-2 mt-4">
-                      {/* Delete Button - Only visible for ADMIN and MANAGER */}
-                     
-                      {(isAdmin || isManager) && (
-                        
+          <div className="flex-1 overflow-y-auto px-5 py-5 sm:px-6">
+            <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-start">
+              <div className="min-w-0 space-y-4">
+                <section className="rounded-lg border border-border bg-muted/20 p-4" aria-labelledby="demand-generation-heading">
+                  <div className="flex items-start gap-3">
+                    <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-warning/10 text-warning" aria-hidden="true">
+                      <svg className="size-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      </svg>
+                    </span>
+                    <div className="min-w-0">
+                      <h3 id="demand-generation-heading" className="text-sm font-semibold text-foreground">Automatic generation</h3>
+                      <p className="mt-1 text-sm leading-5 text-muted-foreground">
+                        The system will fetch this tenant&apos;s overdue invoices and calculate the total outstanding amount automatically.
+                      </p>
+                      {(isAdmin || isManager || permissions.demandLetters.canView) && (
                         <Button
-                          onClick={() => handleDeleteBillInvoice(billInvoice.id, billInvoice.invoiceNumber)}
-                          variant="outline"
+                          onClick={handleViewOverdueInvoices}
+                          variant="link"
                           size="sm"
-                          disabled={deletingBillInvoiceId === billInvoice.id}
-                          className="w-full bg-linear-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-medium shadow-md hover:shadow-lg transition-all duration-200 border border-red-700"
+                          disabled={loadingOutstanding}
+                          loading={loadingOutstanding}
+                          className="mt-3"
                         >
-                          {deletingBillInvoiceId === billInvoice.id ? (
-                            <>
-                              <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                              </svg>
-                              Deleting...
-                            </>
-                          ) : (
-                            <>
-                              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                              </svg>
-                              Delete
-                            </>
-                          )}
+                          View overdue invoices
                         </Button>
                       )}
                     </div>
-                  </motion.div>
-                ))}
-              </div>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Demand Letter Generation Dialog */}
-      <Dialog open={showDemandLetterDialog} onOpenChange={setShowDemandLetterDialog}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
-          <div className="shrink-0 px-6 pt-6">
-            <DialogHeader>
-              <DialogTitle className="text-2xl font-bold text-heading-color">Generate Demand Letter</DialogTitle>
-              <DialogDescription className="text-gray-600">
-                Generate a demand letter for {tenant.fullName} based on overdue invoices. The system will automatically calculate outstanding amounts and generate the appropriate demand letter.
-              </DialogDescription>
-            </DialogHeader>
-          </div>
-          
-          <div className="flex-1 overflow-y-auto pr-2 -mr-2">
-            <div className="space-y-6 py-4 pr-2">
-              <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                <div className="flex items-start gap-3">
-                  <svg className="w-5 h-5 text-yellow-600 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                  </svg>
-                  <div>
-                    <p className="text-sm font-semibold text-yellow-800 mb-1">Automatic Generation</p>
-                    <p className="text-sm text-yellow-700">
-                      The system will automatically fetch all overdue invoices for this tenant and calculate the total outstanding amount.
-                    </p>
-                    {(isAdmin || isManager || permissions.demandLetters.canView) && (
-                      <Button
-                        onClick={handleViewOverdueInvoices}
-                        variant="outline"
-                        disabled={loadingOutstanding}
-                        className="text-yellow-700 hover:text-yellow-800 p-0 h-auto mt-2 flex items-center gap-1"
-                      >
-                        {loadingOutstanding && (
-                          <svg className="animate-spin h-4 w-4 text-yellow-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                          </svg>
-                        )}
-                        View overdue invoices
-                      </Button>
-                    )}
                   </div>
-                </div>
+                </section>
+
+                <section className="rounded-lg border border-border p-4" aria-labelledby="demand-contents-heading">
+                  <h3 id="demand-contents-heading" className="text-sm font-semibold text-foreground">Letter contents</h3>
+                  <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
+                    {[
+                      'All overdue invoices with dates and amounts',
+                      'Total outstanding balance',
+                      'Tenant and property information',
+                      'Payment instructions and deadline',
+                      'Legal notice and consequences',
+                    ].map((item) => (
+                      <li key={item} className="flex gap-2">
+                        <span className="mt-2 size-1.5 shrink-0 rounded-full bg-primary" aria-hidden="true" />
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="demand-notes" className="text-sm font-medium text-gray-700">
-                  Additional Notes (Optional)
-                  <span className="text-gray-400 ml-1 font-normal">
-                    - Add any instructions or specific details for the demand letter
-                  </span>
-                </Label>
-                <Textarea
-                  id="demand-notes"
-                  placeholder="Example: Include a 14-day payment deadline. Mention that legal action may be pursued if payment is not received. Note any previous payment arrangements that were not honored..."
-                  value={demandLetterForm.notes}
-                  onChange={(e) => setDemandLetterForm({ ...demandLetterForm, notes: e.target.value })}
-                  className="min-h-30 resize-y placeholder:text-gray-500 placeholder:italic placeholder:text-sm border-gray-300 focus:border-blue-500 focus:ring-blue-500"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  These notes will be incorporated into the demand letter content
-                </p>
-              </div>
+              <div className="min-w-0 space-y-4">
+                <section className="space-y-2" aria-labelledby="demand-notes-heading">
+                  <div>
+                    <h3 id="demand-notes-heading" className="text-sm font-semibold text-foreground">Additional notes</h3>
+                    <p className="mt-1 text-xs text-muted-foreground">Add optional instructions or details to incorporate into the letter.</p>
+                  </div>
+                  <Label htmlFor="demand-notes" className="sr-only">Additional notes</Label>
+                  <Textarea
+                    id="demand-notes"
+                    placeholder="For example: Include a 14-day payment deadline or mention a previous payment arrangement."
+                    value={demandLetterForm.notes}
+                    onChange={(event) => setDemandLetterForm({ ...demandLetterForm, notes: event.target.value })}
+                    className="min-h-40 resize-y"
+                  />
+                  <p className="text-xs text-muted-foreground">These notes will be incorporated into the demand letter content.</p>
+                </section>
 
-              <div className="space-y-2 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                <p className="text-sm font-semibold text-blue-800">The demand letter will include:</p>
-                <ul className="text-sm text-blue-700 space-y-1 list-disc list-inside">
-                  <li>All overdue invoices with dates and amounts</li>
-                  <li>Total outstanding balance</li>
-                  <li>Tenant and property information</li>
-                  <li>Payment instructions and deadline</li>
-                  <li>Legal notice and consequences</li>
-                </ul>
-              </div>
-              
-              <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
-                <p className="text-sm font-semibold text-gray-800 mb-2">Important Reminders:</p>
-                <ul className="text-sm text-gray-600 space-y-1 list-disc list-inside">
-                  <li>The demand letter will be saved to the tenant's documents</li>
-                  <li>A notification will be sent to the tenant</li>
-                  <li>You can preview the letter before finalizing</li>
-                  <li>The letter will be dated with today's date</li>
-                </ul>
+                <section className="rounded-lg border border-border bg-muted/20 p-4" aria-labelledby="demand-reminders-heading">
+                  <h3 id="demand-reminders-heading" className="text-sm font-semibold text-foreground">Before you generate</h3>
+                  <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
+                    <li>The demand letter will be saved to the tenant documents.</li>
+                    <li>A notification will be sent to the tenant.</li>
+                    <li>You can preview the letter before finalizing.</li>
+                    <li>The letter will use the current date.</li>
+                  </ul>
+                </section>
               </div>
             </div>
           </div>
-          
-          <DialogFooter className="shrink-0 pt-4 border-t border-gray-200">
+
+          <DialogFooter className="shrink-0 px-5 py-4 sm:px-6">
             <Button
               variant="outline"
               onClick={() => {
@@ -3596,7 +2102,6 @@ const handleDownloadPaymentReport = async () => {
                 setDemandLetterForm({ demandPeriod: '', notes: '' });
               }}
               disabled={generatingDemandLetter}
-              className="px-6"
             >
               Cancel
             </Button>
@@ -3604,237 +2109,16 @@ const handleDownloadPaymentReport = async () => {
               <Button
                 onClick={handleGenerateDemandLetter}
                 disabled={generatingDemandLetter}
-                className="bg-red-600 hover:bg-red-700 text-white px-6"
+                variant="destructive"
+                loading={generatingDemandLetter}
               >
-                {generatingDemandLetter ? (
-                  <>
-                    <motion.div
-                      className="w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2"
-                      animate={{ rotate: 360 }}
-                      transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                    />
-                    Generating...
-                  </>
-                ) : (
-                  'Generate Demand Letter'
-                )}
+                {generatingDemandLetter ? 'Generating…' : 'Generate Demand Letter'}
               </Button>
             )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Overdue Invoices Dialog */}
-      <Dialog open={showOverdueInvoicesDialog} onOpenChange={setShowOverdueInvoicesDialog}>
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-2xl font-bold text-heading-color">Overdue Invoices</DialogTitle>
-            <DialogDescription className="text-gray-700">
-              Overdue invoices for {tenant.fullName}
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="space-y-4 py-4">
-            {loadingOutstanding ? (
-              <div className="flex items-center justify-center py-12">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-              </div>
-            ) : overdueInvoices.length === 0 ? (
-              <div className="text-center py-12 text-gray-500">
-                <svg className="w-16 h-16 mx-auto mb-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                <p className="text-lg font-medium">No overdue invoices found</p>
-                <p className="text-sm mt-1">All invoices are up to date</p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-semibold text-red-800">Total Overdue Amount</p>
-                      <p className="text-2xl font-bold text-red-700">
-                        Ksh {overdueInvoices.reduce((sum, invoice) => sum + invoice.balance, 0).toLocaleString()}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm font-semibold text-red-800">Overdue Invoices</p>
-                      <p className="text-2xl font-bold text-red-700">{overdueInvoices.length}</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid gap-4">
-                  {overdueInvoices.map((invoice) => (
-                    <motion.div
-                      key={invoice.id}
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="p-6 border border-gray-200 rounded-xl hover:shadow-lg transition-shadow bg-white"
-                    >
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between flex-wrap gap-2">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <h3 className="text-lg font-bold text-gray-900">{invoice.invoiceNumber}</h3>
-                            <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getStatusColor(invoice.status)}`}>
-                              {invoice.status}
-                            </span>
-                            <span className="px-3 py-1 rounded-full text-xs font-semibold border bg-red-100 text-red-800 border-red-200">
-                              OVERDUE
-                            </span>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-sm font-semibold text-red-700">Balance Due</p>
-                            <p className="text-lg font-bold text-red-700">Ksh {invoice.balance.toLocaleString()}</p>
-                          </div>
-                        </div>
-                        
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                          <div>
-                            <p className="text-gray-500 font-medium">Period</p>
-                            <p className="text-gray-900 font-semibold">{invoice.paymentPeriod}</p>
-                          </div>
-                          <div>
-                            <p className="text-gray-500 font-medium">Issue Date</p>
-                            <p className="text-gray-900 font-semibold">
-                              {new Date(invoice.issueDate).toLocaleDateString()}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-gray-500 font-medium">Due Date</p>
-                            <p className="text-gray-900 font-semibold">
-                              {new Date(invoice.dueDate).toLocaleDateString()}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-gray-500 font-medium">Days Overdue</p>
-                            <p className="text-red-700 font-bold">
-                              {Math.max(0, Math.floor((Date.now() - new Date(invoice.dueDate).getTime()) / (1000 * 60 * 60 * 24)))} days
-                            </p>
-                          </div>
-                        </div>
-                        
-                        <div className="grid grid-cols-2 gap-4 text-sm">
-                          <div>
-                            <p className="text-gray-500 font-medium">Total Due</p>
-                            <p className="text-gray-900 font-bold">Ksh {invoice.totalDue.toLocaleString()}</p>
-                          </div>
-                          <div>
-                            <p className="text-gray-500 font-medium">Amount Paid</p>
-                            <p className="text-green-700 font-semibold">Ksh {invoice.amountPaid.toLocaleString()}</p>
-                          </div>
-                        </div>
-                        
-                        {invoice.notes && (
-                          <div className="text-sm">
-                            <p className="text-gray-500 font-medium">Notes</p>
-                            <p className="text-gray-700">{invoice.notes}</p>
-                          </div>
-                        )}
-                      </div>
-                    </motion.div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-          
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowOverdueInvoicesDialog(false)}
-              className="px-6"
-            >
-              Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Demand Letters List Dialog */}
-      <Dialog open={showDemandLettersListDialog} onOpenChange={setShowDemandLettersListDialog}>
-        <DialogContent className="max-w-6xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-2xl font-bold text-heading-color">Demand Letters</DialogTitle>
-            <DialogDescription>
-              All demand letters generated for {tenant.fullName}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            {demandLettersLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <motion.div
-                  className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full"
-                  animate={{ rotate: 360 }}
-                  transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                />
-              </div>
-            ) : demandLetters.length === 0 ? (
-              <div className="text-center py-12">
-                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <svg className="w-8 h-8 text-gray-800" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                </div>
-                <p className="text-gray-800">No demand letters found</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-gray-200">
-                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Letter No.</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Issue Date</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Amount</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Rental Period</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Status</th>
-                      <th className="text-left py-3 px-4 font-semibold text-gray-700">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {demandLetters.map((letter) => (
-                      <tr key={letter.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                        <td className="py-3 px-4 font-semibold text-gray-900">{letter.letterNumber}</td>
-                        <td className="py-3 px-4 text-gray-800 font-medium">
-                          {letter.issueDate ? new Date(letter.issueDate).toLocaleDateString() : 'N/A'}
-                        </td>
-                        <td className="py-3 px-4 font-bold text-gray-900">
-                          Ksh {letter.outstandingAmount?.toLocaleString() ?? '0'}
-                        </td>
-                        <td className="py-3 px-4 text-gray-800 font-medium">{letter.rentalPeriod}</td>
-                        <td className="py-3 px-4">
-                          <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getDemandLetterStatusColor(letter.status)}`}>
-                            {letter.status}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4">
-                           <WhatsAppSendButton
-                            tenantId={tenantId}
-                            documentType="Demand Letter"
-                            documentId={letter.id}
-                            tenantPhone={tenant.contact}
-                          />
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleDownloadDemandLetter(letter.id)}
-                            className="flex items-center gap-2 text-gray-800 hover:text-gray-900 border-gray-400 hover:border-gray-600 bg-white hover:bg-gray-50 font-medium"
-                          >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                            </svg>
-                            Download
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
     </motion.div>
   );
 }

@@ -14,9 +14,9 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { SectionHeader } from '@/components/ui/section-header'
 import { Skeleton } from '@/components/ui/skeleton'
 
-interface PropertyActivationsTabProps { propertyId: string }
+interface PropertyActivationsTabProps { propertyId: string; propertyName: string }
 
-export function PropertyActivationsTab({ propertyId }: PropertyActivationsTabProps) {
+export function PropertyActivationsTab({ propertyId, propertyName }: PropertyActivationsTabProps) {
   const [activationRequests, setActivationRequests] = useState<ActivationRequest[]>([])
   const [activationsLoading, setActivationsLoading] = useState(true)
   const [showActivationForm, setShowActivationForm] = useState(false)
@@ -83,10 +83,7 @@ export function PropertyActivationsTab({ propertyId }: PropertyActivationsTabPro
   if (showActivationForm) {
     return (
       <PermissionGuard permission={editingActivation ? PermissionCode.EDIT_ACTIVATION_REQUEST : PermissionCode.CREATE_ACTIVATION_REQUEST}>
-        <Card>
-          <CardHeader className="border-b border-border"><SectionHeader title={editingActivation ? 'Edit Activation Request' : 'Create Activation Request'} actions={<Button variant="outline" onClick={closeForm}>Cancel</Button>} /></CardHeader>
-          <CardContent className="pt-5"><ActivationForm propertyId={propertyId} activation={editingActivation} onSuccess={handleSuccess} onCancel={closeForm} /></CardContent>
-        </Card>
+        <ActivationForm propertyId={propertyId} propertyName={propertyName} activation={editingActivation} onSuccess={handleSuccess} onCancel={closeForm} />
       </PermissionGuard>
     )
   }

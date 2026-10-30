@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { 
   analyticsRoutes, 
@@ -17,6 +17,7 @@ export default function AnalyticsLayout({
 }) {
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const auth = useAuth();
   const { isLoading } = auth;
 
@@ -47,16 +48,18 @@ export default function AnalyticsLayout({
       if (!hasAccess) {
         // Redirect to the first accessible route
         const firstAccessibleRoute = getFirstAccessibleRoute(userPermissions, userRole);
-        router.replace(firstAccessibleRoute);
+        const search = searchParams.toString();
+        router.replace(search ? `${firstAccessibleRoute}?${search}` : firstAccessibleRoute);
       }
     } else if (pathname === '/analytics') {
       // If user is on the analytics root, redirect to the first accessible route if needed
       const firstAccessibleRoute = getFirstAccessibleRoute(userPermissions, userRole);
       if (firstAccessibleRoute !== '/analytics') {
-        router.replace(firstAccessibleRoute);
+        const search = searchParams.toString();
+        router.replace(search ? `${firstAccessibleRoute}?${search}` : firstAccessibleRoute);
       }
     }
-  }, [auth, isLoading, pathname, router]);
+  }, [auth, isLoading, pathname, router, searchParams]);
 
   // If loading, show loading state
   if (isLoading) {

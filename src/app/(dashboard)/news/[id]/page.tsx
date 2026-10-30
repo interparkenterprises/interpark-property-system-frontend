@@ -1,108 +1,137 @@
-'use client';
+'use client'
 
-import { useEffect, useState } from 'react';
-import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { News } from '@/types';
-import { newsAPI } from '@/lib/api';
-import { Button } from '@/components/ui/button';
-import NewsForm from '@/components/forms/NewsForm';
-import { useAuth } from '@/context/AuthContext';
+import { useCallback, useEffect, useState } from 'react'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
+import { ArrowLeft, FileQuestion, Pencil, ShieldAlert, Trash2 } from 'lucide-react'
+import type { News } from '@/types'
+import { newsAPI } from '@/lib/api'
+import { useAuth } from '@/context/AuthContext'
+import { useBreadcrumbAction, useBreadcrumbOverride } from '@/components/layout/BreadcrumbContext'
+import NewsForm from '@/components/forms/NewsForm'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { EmptyState } from '@/components/ui/empty-state'
+import { PageHeader } from '@/components/ui/page-header'
+import { Skeleton } from '@/components/ui/skeleton'
+
+function formatPublishedDate(value: string) {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? 'Publication date unavailable' : new Intl.DateTimeFormat('en-KE', { day: 'numeric', month: 'long', year: 'numeric' }).format(date)
+}
 
 export default function NewsDetailPage() {
-  const params = useParams();
-  const searchParams = useSearchParams();
-  const router = useRouter();
-  const [news, setNews] = useState<News | null>(null);
-  const [loading, setLoading] = useState(true);
-  const { user } = useAuth();
-  
-  const newsId = params.id as string;
-  const isEdit = searchParams.get('edit') === 'true';
+  const params = useParams()
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const { isAdmin, isLoading: authLoading } = useAuth()
+  const newsId = params.id as string
+  const isEdit = searchParams.get('edit') === 'true'
+  const [news, setNews] = useState<News | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
+  const [notFound, setNotFound] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleteLoading, setDeleteLoading] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
 
-  useEffect(() => {
-    fetchNews();
-  }, [newsId]);
+  useBreadcrumbOverride(`/news/${newsId}`, loading ? 'Loading…' : news?.title ?? 'News details')
+  useBreadcrumbAction(isEdit && isAdmin ? 'Edit' : null)
 
-  const fetchNews = async () => {
+  const fetchNews = useCallback(async () => {
     try {
-      const data = await newsAPI.getById(newsId);
-      setNews(data);
-    } catch (error) {
-      console.error('Error fetching news:', error);
+      setNews(await newsAPI.getById(newsId))
+      setLoadError('')
+      setNotFound(false)
+    } catch (requestError) {
+      console.error('Error fetching news:', requestError)
+      const message = requestError instanceof Error ? requestError.message : 'Unable to load this announcement.'
+      if (message.toLowerCase().includes('not found')) setNotFound(true)
+      else setLoadError(message)
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }, [newsId])
+
+  // This dynamic client route loads its article after the id is available.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void fetchNews() }, [fetchNews])
 
   const handleDelete = async () => {
-    if (confirm('Are you sure you want to delete this news item?')) {
-      try {
-        await newsAPI.delete(newsId);
-        router.push('/dashboard/news');
-      } catch (error) {
-        console.error('Error deleting news:', error);
-      }
+    setDeleteLoading(true)
+    setDeleteError('')
+    try {
+      await newsAPI.delete(newsId)
+      router.push('/news')
+    } catch (requestError) {
+      console.error('Error deleting news:', requestError)
+      setDeleteError(requestError instanceof Error ? requestError.message : 'The announcement could not be deleted.')
+    } finally {
+      setDeleteLoading(false)
     }
-  };
-
-  const handleUpdateSuccess = () => {
-    router.push('/dashboard/news');
-  };
-
-  if (loading) {
-    return <div>Loading...</div>;
   }
 
-  if (!news) {
-    return <div>News not found</div>;
+  if (loading || authLoading) {
+    return <div className="mx-auto max-w-4xl space-y-5"><Skeleton className="h-10 w-72" /><Skeleton className="h-14" /><Skeleton className="h-96" /></div>
   }
 
-  if (isEdit && user?.role === 'ADMIN') {
+  if (isEdit && !isAdmin) {
+    return <EmptyState icon={ShieldAlert} title="Administrator access required" description="Only administrators can edit announcements." action={<Button variant="outline" onClick={() => router.push(`/news/${newsId}`)}>View announcement</Button>} />
+  }
+
+  if (loadError) {
     return (
-      <div>
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-semibold text-gray-800">Edit News</h1>
-          <Button variant="secondary" onClick={() => router.back()}>
-            Cancel
-          </Button>
-        </div>
-        <div className="bg-white p-6 rounded-lg shadow">
-          <NewsForm 
-            news={news} 
-            onSuccess={handleUpdateSuccess}
-            onCancel={() => router.back()}
-          />
-        </div>
+      <div className="mx-auto max-w-3xl space-y-4">
+        <Alert variant="destructive"><AlertTitle>Unable to load announcement</AlertTitle><AlertDescription>{loadError}</AlertDescription></Alert>
+        <div className="flex gap-2"><Button onClick={() => void fetchNews()}>Try again</Button><Button variant="outline" onClick={() => router.push('/news')}>Back to news</Button></div>
       </div>
-    );
+    )
+  }
+
+  if (notFound || !news) {
+    return <EmptyState icon={FileQuestion} title="Announcement not found" description="This announcement does not exist or is no longer available." action={<Button variant="outline" onClick={() => router.push('/news')}>Back to news</Button>} />
+  }
+
+  if (isEdit) {
+    return (
+      <div className="mx-auto max-w-4xl space-y-6">
+        <PageHeader title="Edit announcement" description={news.title} actions={<Button variant="outline" onClick={() => router.push(`/news/${news.id}`)}><ArrowLeft className="h-4 w-4" />Back to article</Button>} />
+        <NewsForm news={news} onSuccess={() => router.push('/news')} onCancel={() => router.push(`/news/${news.id}`)} />
+      </div>
+    )
   }
 
   return (
-    <div>
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-semibold text-gray-800">{news.title}</h1>
-        {user?.role === 'ADMIN' && (
-          <div className="space-x-2">
-            <Button onClick={() => router.push(`/dashboard/news/${news.id}?edit=true`)}>
-              Edit
-            </Button>
-            <Button variant="danger" onClick={handleDelete}>
-              Delete
-            </Button>
-          </div>
-        )}
-      </div>
+    <div className="mx-auto max-w-4xl space-y-6">
+      <Button variant="ghost" className="-ml-2" onClick={() => router.push('/news')}><ArrowLeft className="h-4 w-4" />Back to news</Button>
+      <PageHeader
+        title={news.title}
+        description={`Published ${formatPublishedDate(news.publishedAt)}`}
+        actions={isAdmin ? <><Button variant="outline" onClick={() => router.push(`/news/${news.id}?edit=true`)}><Pencil className="h-4 w-4" />Edit</Button><Button variant="destructive" onClick={() => { setDeleteError(''); setDeleteOpen(true) }}><Trash2 className="h-4 w-4" />Delete</Button></> : undefined}
+      />
 
-      <div className="bg-white p-6 rounded-lg shadow">
-        <div className="prose max-w-none">
-          <p className="text-gray-600 whitespace-pre-wrap">{news.content}</p>
-        </div>
-        <div className="mt-6 pt-4 border-t border-gray-200">
-          <p className="text-sm text-gray-500">
-            Published: {new Date(news.publishedAt).toLocaleDateString()}
-          </p>
-        </div>
-      </div>
+      <Card>
+        <CardContent className="px-5 py-6 sm:px-8 sm:py-8">
+          <article className="whitespace-pre-wrap text-base leading-7 text-foreground">{news.content}</article>
+          <div className="mt-8 border-t border-border pt-4 text-sm text-muted-foreground">Published {formatPublishedDate(news.publishedAt)}</div>
+        </CardContent>
+      </Card>
+
+      <Dialog open={deleteOpen} onOpenChange={(open) => !deleteLoading && setDeleteOpen(open)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Delete announcement</DialogTitle><DialogDescription>This permanently deletes “{news.title}”. This action cannot be undone.</DialogDescription></DialogHeader>
+          <div className="px-5 py-5">{deleteError && <Alert variant="destructive"><AlertTitle>Unable to delete announcement</AlertTitle><AlertDescription>{deleteError}</AlertDescription></Alert>}</div>
+          <DialogFooter><Button variant="outline" disabled={deleteLoading} onClick={() => setDeleteOpen(false)}>Cancel</Button><Button variant="destructive" loading={deleteLoading} onClick={() => void handleDelete()}>Delete announcement</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
-  );
+  )
 }

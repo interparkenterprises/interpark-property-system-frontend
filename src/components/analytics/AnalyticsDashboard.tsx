@@ -36,12 +36,22 @@ export default function AnalyticsDashboard({ mode }: { mode: AnalyticsMode }) {
       loading={state.loading}
       error={state.error}
       meta={state.data?.meta}
+      showLoadingState={mode !== 'overview'}
       onFiltersChange={state.setDraftFilters}
       onApply={state.applyFilters}
       onRetry={state.load}
     >
-      {state.data && mode === 'overview' && (
-        <AnalyticsOverview data={state.data} filters={state.filters} occupancy={state.occupancy} tenants={state.tenants} />
+      {mode === 'overview' && (
+        <AnalyticsOverview
+          data={state.data}
+          filters={state.filters}
+          occupancy={state.occupancy}
+          tenants={state.tenants}
+          access={state.overviewAccess}
+          loading={state.overviewLoading}
+          errors={state.overviewErrors}
+          onRetry={state.load}
+        />
       )}
       {state.data && mode === 'rent' && (
         <RentAnalytics data={state.data} filters={state.filters} definitions={state.data.meta[0]?.definitions} />

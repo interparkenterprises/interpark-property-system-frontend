@@ -10,7 +10,8 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from '@/components/ui/chart'
-import { formatMoney } from '../AnalyticsCore'
+import { RankedComparison } from '@/components/ui/ranked-comparison'
+import { exactMoneyTitle, formatCompactMoney, formatMoney } from '../AnalyticsCore'
 import { AnalyticsEmpty } from '../AnalyticsStates'
 import type { PropertyBreakdownRow } from './types'
 
@@ -84,39 +85,38 @@ export function DomainStatusChart({ data, centerLabel = 'records' }: { data: Dom
 
 export function CategoryDistributionChart({ data }: { data: DomainDistributionItem[] }) {
   if (!data.length) return <AnalyticsEmpty title="No category data available" detail="This domain has no category dimension, or no category records matched the selected filters." />
-  const config = { amount: { label: 'Amount', color: 'var(--chart-2)' } } satisfies ChartConfig
   return (
-    <ChartContainer config={config} className="h-full w-full aspect-auto">
-      <BarChart accessibilityLayer data={data}>
-        <CartesianGrid vertical={false} />
-        <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} />
-        <YAxis tickFormatter={moneyTick} tickLine={false} axisLine={false} width={58} />
-        <ChartTooltip cursor={false} content={<ChartTooltipContent formatter={moneyTooltip} />} />
-        <Bar dataKey="amount" fill="var(--color-amount)" radius={[4, 4, 0, 0]} maxBarSize={40} />
-      </BarChart>
-    </ChartContainer>
+    <RankedComparison
+      items={[...data].sort((a, b) => b.amount - a.amount).map((item, index) => ({
+        id: `${item.label}-${index}`,
+        label: item.label,
+        values: { amount: { value: item.amount, display: formatCompactMoney(item.amount), title: exactMoneyTitle(item.amount) } },
+      }))}
+      columns={[{ key: 'amount', label: 'Amount', emphasized: true }]}
+      bars={[{ key: 'amount', color: 'var(--chart-2)' }]}
+      labelHeading="Category"
+      emptyMessage="No category data is available."
+    />
   )
 }
 
 export function PropertyBreakdownChart({ data }: { data: PropertyBreakdownRow[] }) {
   if (!data.length) return <AnalyticsEmpty title="No property records matched" detail="Try another date range or choose all accessible properties." />
-  const config = {
-    totalAmount: { label: 'Total amount', color: 'var(--chart-3)' },
-    rentAmount: { label: 'Rent amount', color: 'var(--chart-1)' },
-    billAmount: { label: 'Bill amount', color: 'var(--chart-2)' },
-  } satisfies ChartConfig
   return (
-    <ChartContainer config={config} className="h-full w-full aspect-auto">
-      <BarChart accessibilityLayer data={data.slice(0, 10)} layout="vertical" margin={{ left: 12, right: 12 }}>
-        <CartesianGrid horizontal={false} />
-        <XAxis type="number" tickFormatter={moneyTick} tickLine={false} axisLine={false} />
-        <YAxis type="category" dataKey="propertyName" width={110} tickLine={false} axisLine={false} />
-        <ChartTooltip cursor={false} content={<ChartTooltipContent formatter={moneyTooltip} />} />
-        <ChartLegend content={<ChartLegendContent />} />
-        <Bar dataKey="totalAmount" fill="var(--color-totalAmount)" radius={[0, 5, 5, 0]} maxBarSize={16} />
-        <Bar dataKey="rentAmount" fill="var(--color-rentAmount)" radius={[0, 5, 5, 0]} maxBarSize={16} />
-        <Bar dataKey="billAmount" fill="var(--color-billAmount)" radius={[0, 5, 5, 0]} maxBarSize={16} />
-      </BarChart>
-    </ChartContainer>
+    <RankedComparison
+      items={[...data].sort((a, b) => b.totalAmount - a.totalAmount).map(item => ({
+        id: item.propertyId,
+        label: item.propertyName,
+        values: {
+          rentAmount: { value: item.rentAmount, display: formatCompactMoney(item.rentAmount), title: exactMoneyTitle(item.rentAmount) },
+          billAmount: { value: item.billAmount, display: formatCompactMoney(item.billAmount), title: exactMoneyTitle(item.billAmount) },
+          totalAmount: { value: item.totalAmount, display: formatCompactMoney(item.totalAmount), title: exactMoneyTitle(item.totalAmount) },
+        },
+      }))}
+      columns={[{ key: 'rentAmount', label: 'Rent' }, { key: 'billAmount', label: 'Bills' }, { key: 'totalAmount', label: 'Total', emphasized: true }]}
+      bars={[{ key: 'rentAmount', color: 'var(--chart-1)' }, { key: 'billAmount', color: 'var(--chart-2)' }]}
+      barMode="stacked"
+      labelHeading="Property"
+    />
   )
 }

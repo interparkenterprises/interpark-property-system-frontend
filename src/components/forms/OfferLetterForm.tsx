@@ -1,854 +1,352 @@
-'use client';
+'use client'
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { offerLettersAPI } from '@/lib/api';
-import { propertiesAPI } from '@/lib/api';
-import { leadsAPI } from '@/lib/api';
-import { unitsAPI } from '@/lib/api';
-import type { Property, Lead, Unit, OfferStatus, LetterType, UsageType } from '@/types';
-import { useGlobalPermissions } from '@/app/providers/PermissionsProvider';
+import { useCallback, useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { FileClock, ShieldX } from 'lucide-react'
+import type { Lead, Property, Unit } from '@/types'
+import { leadsAPI, offerLettersAPI, propertiesAPI, unitsAPI } from '@/lib/api'
+import { useGlobalPermissions } from '@/app/providers/PermissionsProvider'
+import {
+  OfferAdditionalInformation,
+  OfferBasicInformation,
+  OfferCommercialTerms,
+  OfferFinancialTerms,
+  OfferLeaseTerms,
+} from '@/components/offers/form/OfferFormSections'
+import {
+  emptyOfferFormData,
+  type OfferFormData,
+  type OfferFormSection,
+  type OfferSubmissionPayload,
+} from '@/components/offers/form/types'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { EmptyState } from '@/components/ui/empty-state'
+import { FormActions } from '@/components/ui/form-actions'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 interface OfferLetterFormProps {
-  offerId?: string;
-  onSuccess?: () => void;
-  onCancel?: () => void;
+  offerId?: string
+  onSuccess?: () => void
+  onCancel?: () => void
 }
 
-// Draft storage key generator
-const getDraftKey = (offerId?: string) => 
-  offerId ? `offer_form_draft_${offerId}` : 'offer_form_draft_new';
+const getDraftKey = (offerId?: string) => offerId ? `offer_form_draft_${offerId}` : 'offer_form_draft_new'
 
 export default function OfferLetterForm({ offerId, onSuccess, onCancel }: OfferLetterFormProps) {
-  const router = useRouter();
-  const { 
-    isAdmin, 
-    isManager, 
-    isManagedUser, 
+  const router = useRouter()
+  const {
+    isManager,
+    isManagedUser,
     getAccessiblePropertyIds,
     canViewLeads,
     canViewProperties,
-    // canViewUnits is removed since we're using property-based filtering instead
-  } = useGlobalPermissions();
-  
-  const [loading, setLoading] = useState(false);
-  const [properties, setProperties] = useState<Property[]>([]);
-  const [leads, setLeads] = useState<Lead[]>([]);
-  const [units, setUnits] = useState<Unit[]>([]);
-  const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
-  const [selectedUnit, setSelectedUnit] = useState<Unit | null>(null);
-  const [isMixedUse, setIsMixedUse] = useState(false);
-  const [hasDraft, setHasDraft] = useState(false);
+  } = useGlobalPermissions()
+  const [formData, setFormData] = useState<OfferFormData>(emptyOfferFormData)
+  const [properties, setProperties] = useState<Property[]>([])
+  const [leads, setLeads] = useState<Lead[]>([])
+  const [units, setUnits] = useState<Unit[]>([])
+  const [selectedProperty, setSelectedProperty] = useState<Property | null>(null)
+  const [selectedUnit, setSelectedUnit] = useState<Unit | null>(null)
+  const [activeTab, setActiveTab] = useState<OfferFormSection>('basic')
+  const [isMixedUse, setIsMixedUse] = useState(false)
+  const [hasDraft, setHasDraft] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [optionsLoading, setOptionsLoading] = useState(true)
+  const [unitsLoading, setUnitsLoading] = useState(false)
+  const [optionsError, setOptionsError] = useState('')
+  const [formError, setFormError] = useState('')
+  const [clearDraftOpen, setClearDraftOpen] = useState(false)
 
-  const [formData, setFormData] = useState({
-    leadId: '',
-    propertyId: '',
-    unitId: '',
-    letterType: '' as LetterType | '',
-    rentAmount: '',
-    deposit: '',
-    leaseTerm: '',
-    serviceCharge: '',
-    escalationRate: '',
-    expiryDate: '',
-    additionalTerms: '',
-    notes: '',
-    // Commercial fields
-    rentPerSqFt: '',
-    serviceChargePerSqFt: '',
-    useOfPremises: '',
-    fitOutPeriodMonths: '',
-    depositMonths: '',
-    advanceRentMonths: '',
-    // Residential fields
-    escalationFrequency: '' as 'ANNUALLY' | 'BI_ANNUALLY' | '',
-  });
+  const draftKey = getDraftKey(offerId)
 
-  // Load draft from localStorage
-  const loadDraft = () => {
+  const saveDraft = useCallback((data: OfferFormData) => {
     try {
-      const draftKey = getDraftKey(offerId);
-      const savedDraft = localStorage.getItem(draftKey);
-      if (savedDraft) {
-        const parsedDraft = JSON.parse(savedDraft);
-        setFormData(parsedDraft);
-        setHasDraft(true);
-        return true;
+      localStorage.setItem(draftKey, JSON.stringify(data))
+    } catch (error) {
+      console.error('Error saving draft:', error)
+    }
+  }, [draftKey])
+
+  const clearDraft = useCallback(() => {
+    try {
+      localStorage.removeItem(draftKey)
+      setHasDraft(false)
+    } catch (error) {
+      console.error('Error clearing draft:', error)
+    }
+  }, [draftKey])
+
+  const fetchOptions = useCallback(async () => {
+    setOptionsLoading(true)
+    setOptionsError('')
+    const [propertyResult, leadResult] = await Promise.allSettled([
+      propertiesAPI.getAll(),
+      leadsAPI.getAll(),
+    ])
+
+    if (propertyResult.status === 'fulfilled') {
+      let data = propertyResult.value
+      if (isManagedUser) {
+        const accessibleIds = getAccessiblePropertyIds()
+        data = data.filter((property) => accessibleIds.includes(property.id))
       }
-    } catch (error) {
-      console.error('Error loading draft:', error);
-    }
-    return false;
-  };
-
-  // Save draft to localStorage
-  const saveDraft = (data: typeof formData) => {
-    try {
-      const draftKey = getDraftKey(offerId);
-      localStorage.setItem(draftKey, JSON.stringify(data));
-    } catch (error) {
-      console.error('Error saving draft:', error);
-    }
-  };
-
-  // Clear draft from localStorage
-  const clearDraft = () => {
-    try {
-      const draftKey = getDraftKey(offerId);
-      localStorage.removeItem(draftKey);
-      setHasDraft(false);
-    } catch (error) {
-      console.error('Error clearing draft:', error);
-    }
-  };
-
-  useEffect(() => {
-    fetchProperties();
-    fetchLeads();
-    
-    // Try to load draft
-    loadDraft();
-  }, []);
-
-  useEffect(() => {
-    if (formData.propertyId) {
-      fetchUnits(formData.propertyId);
-      const property = properties.find(p => p.id === formData.propertyId);
-      setSelectedProperty(property || null);
-      setIsMixedUse(property?.usage === 'MIXED_USE');
-      
-      // Clear unit selection when property changes
-      if (formData.unitId) {
-        const newFormData = { ...formData, unitId: '' };
-        setFormData(newFormData);
-        setSelectedUnit(null);
-        saveDraft(newFormData);
-      }
+      setProperties(data)
     } else {
-      setUnits([]);
-      setSelectedProperty(null);
-      setSelectedUnit(null);
-      setIsMixedUse(false);
+      console.error('Failed to fetch properties:', propertyResult.reason)
+      setProperties([])
+      setOptionsError('Properties could not be loaded. Please retry before creating the offer.')
     }
-  }, [formData.propertyId, properties]);
 
-  useEffect(() => {
-    // Auto-populate fields when a unit is selected
-    if (selectedUnit) {
-      const newFormData = {
-        ...formData,
-        rentAmount: selectedUnit.rentAmount.toString(),
-        // Auto-populate additional fields based on unit data
-        rentPerSqFt: selectedUnit.rentType === 'PER_SQFT' && selectedUnit.calculationInfo?.ratePerSqFt 
-          ? selectedUnit.calculationInfo.ratePerSqFt.toString() 
-          : formData.rentPerSqFt,
-        // Set default deposit (typically 1-2 months rent)
-        deposit: selectedUnit.rentAmount ? (selectedUnit.rentAmount * 2).toString() : formData.deposit,
-        // Set unit type for commercial/residential determination
-        ...(selectedUnit.unitType === 'COMMERCIAL' && {
-          useOfPremises: selectedUnit.usage || 'Commercial Space'
-        })
-      };
-      
-      setFormData(newFormData);
-      saveDraft(newFormData);
-    }
-  }, [selectedUnit]);
-
-  const fetchProperties = async () => {
-    try {
-      let data = await propertiesAPI.getAll();
-      
-      // Filter properties based on user permissions
+    if (leadResult.status === 'fulfilled') {
+      let data = leadResult.value
       if (isManagedUser) {
-        const accessibleIds = getAccessiblePropertyIds();
-        data = data.filter(property => accessibleIds.includes(property.id));
-      }
-      // For ADMIN and MANAGER, show all properties
-      
-      setProperties(data);
-    } catch (error) {
-      console.error('Failed to fetch properties:', error);
-    }
-  };
-
-  const fetchLeads = async () => {
-    try {
-      let data = await leadsAPI.getAll();
-      
-      // Filter leads based on user permissions
-      if (isManagedUser) {
-        // Managed users can only create offers for leads associated with their accessible properties
-        const accessibleIds = getAccessiblePropertyIds();
-        data = data.filter(lead => 
-          lead.propertyId && accessibleIds.includes(lead.propertyId)
-        );
+        const accessibleIds = getAccessiblePropertyIds()
+        data = data.filter((lead) => lead.propertyId && accessibleIds.includes(lead.propertyId))
       } else if (isManager && offerId === undefined) {
-        // For managers creating new offers, only show leads they created
-        // But when editing, they can see all leads associated with their properties
-        const userId = localStorage.getItem('userId');
-        data = data.filter(lead => lead.createdById === userId);
+        const userId = localStorage.getItem('userId')
+        data = data.filter((lead) => lead.createdById === userId)
       }
-      
-      setLeads(data);
-    } catch (error) {
-      console.error('Failed to fetch leads:', error);
-    }
-  };
-
-  const fetchUnits = async (propertyId: string) => {
-    try {
-      let data = await unitsAPI.getByProperty(propertyId);
-      
-      // Filter units based on user permissions
-      if (isManagedUser) {
-        const accessibleIds = getAccessiblePropertyIds();
-        if (!accessibleIds.includes(propertyId)) {
-          data = [];
-        }
-      }
-      
-      // Only show vacant units for offer letters
-      const vacantUnits = data.filter(unit => unit.status === 'VACANT');
-      setUnits(vacantUnits);
-    } catch (error) {
-      console.error('Failed to fetch units:', error);
-      setUnits([]);
-    }
-  };
-
-  const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
-  ) => {
-    const { name, value } = e.target;
-    let newFormData = { ...formData };
-    
-    if (name === 'propertyId') {
-      // Clear unit-related data when property changes
-      if (formData.propertyId !== value) {
-        setSelectedUnit(null);
-        newFormData = { 
-          ...newFormData, 
-          [name]: value,
-          unitId: '',
-          rentAmount: '',
-          rentPerSqFt: '',
-          deposit: ''
-        };
-      } else {
-        newFormData = { ...newFormData, [name]: value };
-      }
-    } else if (name === 'unitId') {
-      const unit = units.find(u => u.id === value);
-      setSelectedUnit(unit || null);
-      newFormData = { ...newFormData, [name]: value };
+      setLeads(data)
     } else {
-      newFormData = { ...newFormData, [name]: value };
+      console.error('Failed to fetch leads:', leadResult.reason)
+      setLeads([])
+      setOptionsError((current) => current || 'Leads could not be loaded. Please retry before creating the offer.')
     }
-    
-    setFormData(newFormData);
-    
-    // Auto-save draft on every change
-    saveDraft(newFormData);
-    
-    // Mark as having draft data
-    if (!hasDraft) {
-      setHasDraft(true);
-    }
-  };
+    setOptionsLoading(false)
+  }, [getAccessiblePropertyIds, isManagedUser, isManager, offerId])
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
+  const fetchUnits = useCallback(async (propertyId: string, selectedUnitId: string) => {
+    setUnitsLoading(true)
+    try {
+      let data = await unitsAPI.getByProperty(propertyId)
+      if (isManagedUser && !getAccessiblePropertyIds().includes(propertyId)) data = []
+      const vacantUnits = data.filter((unit) => unit.status === 'VACANT')
+      setUnits(vacantUnits)
+      setSelectedUnit(vacantUnits.find((unit) => unit.id === selectedUnitId) ?? null)
+    } catch (error) {
+      console.error('Failed to fetch units:', error)
+      setUnits([])
+      setSelectedUnit(null)
+    } finally {
+      setUnitsLoading(false)
+    }
+  }, [getAccessiblePropertyIds, isManagedUser])
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      void fetchOptions()
+      try {
+        const savedDraft = localStorage.getItem(draftKey)
+        if (savedDraft) {
+          setFormData({ ...emptyOfferFormData(), ...(JSON.parse(savedDraft) as Partial<OfferFormData>) })
+          setHasDraft(true)
+        }
+      } catch (error) {
+        console.error('Error loading draft:', error)
+      }
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [draftKey, fetchOptions])
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      const property = properties.find((candidate) => candidate.id === formData.propertyId) ?? null
+      setSelectedProperty(property)
+      setIsMixedUse(property?.usage === 'MIXED_USE')
+      if (formData.propertyId) void fetchUnits(formData.propertyId, formData.unitId)
+      else {
+        setUnits([])
+        setSelectedUnit(null)
+      }
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [fetchUnits, formData.propertyId, formData.unitId, properties])
+
+  useEffect(() => {
+    if (!selectedUnit) return
+    const frame = window.requestAnimationFrame(() => {
+      setFormData((current) => {
+        if (current.unitId !== selectedUnit.id) return current
+        const next: OfferFormData = {
+          ...current,
+          rentAmount: selectedUnit.rentAmount.toString(),
+          rentPerSqFt: selectedUnit.rentType === 'PER_SQFT' && selectedUnit.calculationInfo?.ratePerSqFt
+            ? selectedUnit.calculationInfo.ratePerSqFt.toString()
+            : current.rentPerSqFt,
+          deposit: selectedUnit.rentAmount ? (selectedUnit.rentAmount * 2).toString() : current.deposit,
+          ...(selectedUnit.unitType === 'COMMERCIAL' ? { useOfPremises: selectedUnit.usage || 'Commercial Space' } : {}),
+        }
+        saveDraft(next)
+        return next
+      })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [saveDraft, selectedUnit])
+
+  const showCommercial = selectedProperty?.usage === 'COMMERCIAL'
+    || (isMixedUse && formData.letterType === 'COMMERCIAL')
+    || selectedUnit?.unitType === 'COMMERCIAL'
+  const showResidentialFrequency = selectedProperty?.usage === 'RESIDENTIAL'
+    || (isMixedUse && formData.letterType === 'RESIDENTIAL')
+    || selectedUnit?.unitType === 'RESIDENTIAL'
+
+  useEffect(() => {
+    if (activeTab !== 'commercial' || showCommercial) return
+    const frame = window.requestAnimationFrame(() => setActiveTab('basic'))
+    return () => window.cancelAnimationFrame(frame)
+  }, [activeTab, showCommercial])
+
+  const updateField = (name: keyof OfferFormData, value: string) => {
+    let next = { ...formData, [name]: value }
+    if (name === 'propertyId' && formData.propertyId !== value) {
+      next = { ...next, unitId: '', rentAmount: '', rentPerSqFt: '', deposit: '' }
+      setSelectedUnit(null)
+    } else if (name === 'unitId') {
+      setSelectedUnit(units.find((unit) => unit.id === value) ?? null)
+    }
+    setFormData(next)
+    saveDraft(next)
+    setHasDraft(true)
+    setFormError('')
+  }
+
+  const validate = () => {
+    if (!formData.leadId || !formData.propertyId || (isMixedUse && !formData.letterType)) {
+      setActiveTab('basic')
+      return 'Select the required lead, property, and letter type before creating the offer.'
+    }
+    if (!formData.rentAmount || !formData.deposit) {
+      setActiveTab('financial')
+      return 'Enter the required rent amount and deposit.'
+    }
+    if (!formData.leaseTerm.trim()) {
+      setActiveTab('lease')
+      return 'Enter the required lease term.'
+    }
+    return ''
+  }
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    const validationError = validate()
+    if (validationError) {
+      setFormError(validationError)
+      return
+    }
+
+    setLoading(true)
+    setFormError('')
+    const payload: OfferSubmissionPayload = {
+      leadId: formData.leadId,
+      propertyId: formData.propertyId,
+      unitId: formData.unitId || undefined,
+      rentAmount: formData.rentAmount ? Number.parseFloat(formData.rentAmount) : undefined,
+      deposit: formData.deposit ? Number.parseFloat(formData.deposit) : undefined,
+      leaseTerm: formData.leaseTerm || undefined,
+      serviceCharge: formData.serviceCharge ? Number.parseFloat(formData.serviceCharge) : undefined,
+      escalationRate: formData.escalationRate ? Number.parseFloat(formData.escalationRate) : undefined,
+      expiryDate: formData.expiryDate || undefined,
+      additionalTerms: formData.additionalTerms || undefined,
+      notes: formData.notes || undefined,
+    }
+    if (!formData.letterType && selectedUnit) payload.letterType = selectedUnit.unitType === 'COMMERCIAL' ? 'COMMERCIAL' : 'RESIDENTIAL'
+    else if (formData.letterType) payload.letterType = formData.letterType
+    if (formData.rentPerSqFt) payload.rentPerSqFt = Number.parseFloat(formData.rentPerSqFt)
+    if (formData.serviceChargePerSqFt) payload.serviceChargePerSqFt = Number.parseFloat(formData.serviceChargePerSqFt)
+    if (formData.useOfPremises) payload.useOfPremises = formData.useOfPremises
+    if (formData.fitOutPeriodMonths) payload.fitOutPeriodMonths = Number.parseInt(formData.fitOutPeriodMonths)
+    if (formData.depositMonths) payload.depositMonths = Number.parseInt(formData.depositMonths)
+    if (formData.advanceRentMonths) payload.advanceRentMonths = Number.parseInt(formData.advanceRentMonths)
+    if (formData.escalationFrequency) payload.escalationFrequency = formData.escalationFrequency
 
     try {
-      // Prepare payload based on the selected unit and form data
-      const payload: any = {
-        leadId: formData.leadId,
-        propertyId: formData.propertyId,
-        unitId: formData.unitId || undefined,
-        rentAmount: formData.rentAmount ? parseFloat(formData.rentAmount) : undefined,
-        deposit: formData.deposit ? parseFloat(formData.deposit) : undefined,
-        leaseTerm: formData.leaseTerm || undefined,
-        serviceCharge: formData.serviceCharge ? parseFloat(formData.serviceCharge) : undefined,
-        escalationRate: formData.escalationRate ? parseFloat(formData.escalationRate) : undefined,
-        expiryDate: formData.expiryDate || undefined,
-        additionalTerms: formData.additionalTerms || undefined,
-        notes: formData.notes || undefined,
-      };
-
-      // Determine letter type if not explicitly set
-      if (!formData.letterType && selectedUnit) {
-        payload.letterType = selectedUnit.unitType === 'COMMERCIAL' ? 'COMMERCIAL' : 'RESIDENTIAL';
-      } else if (formData.letterType) {
-        payload.letterType = formData.letterType;
-      }
-
-      // Add commercial fields
-      if (formData.rentPerSqFt) payload.rentPerSqFt = parseFloat(formData.rentPerSqFt);
-      if (formData.serviceChargePerSqFt) payload.serviceChargePerSqFt = parseFloat(formData.serviceChargePerSqFt);
-      if (formData.useOfPremises) payload.useOfPremises = formData.useOfPremises;
-      if (formData.fitOutPeriodMonths) payload.fitOutPeriodMonths = parseInt(formData.fitOutPeriodMonths);
-      if (formData.depositMonths) payload.depositMonths = parseInt(formData.depositMonths);
-      if (formData.advanceRentMonths) payload.advanceRentMonths = parseInt(formData.advanceRentMonths);
-
-      // Add residential fields
-      if (formData.escalationFrequency) payload.escalationFrequency = formData.escalationFrequency;
-
-      // Use appropriate endpoint
       if (isMixedUse && formData.letterType) {
-        payload.letterType = formData.letterType;
-        await offerLettersAPI.createMixedUse(payload);
+        await offerLettersAPI.createMixedUse({ ...payload, letterType: formData.letterType })
       } else {
-        await offerLettersAPI.create(payload);
+        await offerLettersAPI.create(payload)
       }
-
-      // Clear draft after successful submission
-      clearDraft();
-
-      if (onSuccess) {
-        onSuccess();
-      } else {
-        router.push('/dashboard/offers');
-        router.refresh();
+      clearDraft()
+      if (onSuccess) onSuccess()
+      else {
+        router.push('/offers')
+        router.refresh()
       }
     } catch (error) {
-      console.error('Failed to create offer letter:', error);
-      alert('Failed to create offer letter. Please try again.');
+      console.error('Failed to create offer letter:', error)
+      setFormError(error instanceof Error ? error.message : 'Failed to create offer letter. Please try again.')
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
-  const handleClearDraft = () => {
-    if (confirm('Are you sure you want to clear the saved draft? This action cannot be undone.')) {
-      // Reset form to empty state
-      setFormData({
-        leadId: '',
-        propertyId: '',
-        unitId: '',
-        letterType: '' as LetterType | '',
-        rentAmount: '',
-        deposit: '',
-        leaseTerm: '',
-        serviceCharge: '',
-        escalationRate: '',
-        expiryDate: '',
-        additionalTerms: '',
-        notes: '',
-        rentPerSqFt: '',
-        serviceChargePerSqFt: '',
-        useOfPremises: '',
-        fitOutPeriodMonths: '',
-        depositMonths: '',
-        advanceRentMonths: '',
-        escalationFrequency: '' as 'ANNUALLY' | 'BI_ANNUALLY' | '',
-      });
-      setSelectedProperty(null);
-      setSelectedUnit(null);
-      setIsMixedUse(false);
-      clearDraft();
-    }
-  };
+  const confirmClearDraft = () => {
+    setFormData(emptyOfferFormData())
+    setSelectedProperty(null)
+    setSelectedUnit(null)
+    setUnits([])
+    setIsMixedUse(false)
+    setActiveTab('basic')
+    setClearDraftOpen(false)
+    clearDraft()
+  }
 
-  const getPropertyTypeLabel = () => {
-    if (!selectedProperty) return '';
-    if (selectedProperty.usage === 'MIXED_USE') return 'Mixed Use Property';
-    if (selectedProperty.usage === 'COMMERCIAL') return 'Commercial Property';
-    if (selectedProperty.usage === 'RESIDENTIAL') return 'Residential Property';
-    return selectedProperty.usage;
-  };
-
-  const getUnitDetails = () => {
-    if (!selectedUnit) return null;
-    
-    return (
-      <div className="mt-2 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-        <h4 className="font-medium text-blue-800 dark:text-blue-300">Selected Unit Details</h4>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-1 text-sm">
-          <div>
-            <span className="text-gray-600 dark:text-gray-400">Unit No:</span>
-            <span className="ml-2 font-medium">{selectedUnit.unitNo || 'N/A'}</span>
-          </div>
-          <div>
-            <span className="text-gray-600 dark:text-gray-400">Size:</span>
-            <span className="ml-2 font-medium">{selectedUnit.sizeSqFt} sq ft</span>
-          </div>
-          <div>
-            <span className="text-gray-600 dark:text-gray-400">Type:</span>
-            <span className="ml-2 font-medium">{selectedUnit.unitType}</span>
-          </div>
-          <div>
-            <span className="text-gray-600 dark:text-gray-400">Status:</span>
-            <span className="ml-2 font-medium">
-              <span className="px-2 py-0.5 text-xs rounded-full bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
-                {selectedUnit.status}
-              </span>
-            </span>
-          </div>
-        </div>
-        {selectedUnit.calculationInfo && (
-          <div className="mt-2 text-xs text-gray-600 dark:text-gray-400">
-            {selectedUnit.calculationInfo.formula && (
-              <p>Formula: {selectedUnit.calculationInfo.formula}</p>
-            )}
-            {selectedUnit.calculationInfo.ratePerSqFt && (
-              <p>Rate: KES {selectedUnit.calculationInfo.ratePerSqFt}/sq ft</p>
-            )}
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  // Show access denied if user doesn't have permission to view properties or leads
   if (!canViewProperties || !canViewLeads) {
-    return (
-      <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-8 text-center">
-        <h1 className="text-2xl font-bold text-red-700 dark:text-red-400 mb-2">Access Denied</h1>
-        <p className="text-red-600 dark:text-red-300">
-          You don't have permission to create offer letters. Please contact an administrator.
-        </p>
-      </div>
-    );
+    return <EmptyState icon={ShieldX} title="Access denied" description="You don't have permission to select the properties or leads required to create an offer letter." className="min-h-64" />
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6 bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
-      {/* Draft Banner */}
+    <form onSubmit={handleSubmit} className="max-w-6xl space-y-4">
       {hasDraft && (
-        <div className="bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 rounded flex justify-between items-center">
-          <span className="flex items-center gap-2">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            <span>Draft saved - Your changes are being automatically saved</span>
-          </span>
-          <button
-            type="button"
-            onClick={handleClearDraft}
-            className="text-sm text-blue-600 hover:text-blue-800 underline"
-          >
-            Clear Draft
-          </button>
-        </div>
+        <Alert variant="info" className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 gap-3">
+            <FileClock className="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
+            <div><AlertTitle>Draft saved</AlertTitle><AlertDescription>Your changes are being automatically saved.</AlertDescription></div>
+          </div>
+          <Button type="button" variant="ghost" size="sm" onClick={() => setClearDraftOpen(true)}>Clear draft</Button>
+        </Alert>
       )}
+      {optionsError && <Alert variant="destructive"><AlertTitle>Unable to load form options</AlertTitle><AlertDescription>{optionsError}</AlertDescription><Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => void fetchOptions()}>Retry</Button></Alert>}
+      {formError && <Alert variant="destructive"><AlertTitle>Offer could not be created</AlertTitle><AlertDescription>{formError}</AlertDescription></Alert>}
 
-      <div className="border-b pb-4 border-gray-200 dark:border-gray-700">
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Create Offer Letter</h2>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-          Generate an offer letter for a prospective tenant
-        </p>
-        {isManagedUser && properties.length === 0 && (
-          <p className="mt-2 text-sm text-amber-600 dark:text-amber-400">
-            Note: You can only create offers for properties you have access to.
-          </p>
-        )}
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as OfferFormSection)} orientation="vertical" className="flex-col gap-4 lg:flex-row lg:gap-6">
+        <TabsList className="w-full lg:w-56">
+          <TabsTrigger value="basic">1. Basic Information</TabsTrigger>
+          <TabsTrigger value="financial">2. Financial Terms</TabsTrigger>
+          {showCommercial && <TabsTrigger value="commercial">3. Commercial Terms</TabsTrigger>}
+          <TabsTrigger value="lease">{showCommercial ? '4' : '3'}. Lease Terms</TabsTrigger>
+          <TabsTrigger value="additional">{showCommercial ? '5' : '4'}. Additional Information</TabsTrigger>
+        </TabsList>
+        <div className="min-w-0 flex-1">
+          <TabsContent value="basic"><OfferBasicInformation formData={formData} onFieldChange={updateField} leads={leads} properties={properties} units={units} selectedProperty={selectedProperty} selectedUnit={selectedUnit} isMixedUse={isMixedUse} optionsLoading={optionsLoading} unitsLoading={unitsLoading} isManagedUser={isManagedUser} /></TabsContent>
+          <TabsContent value="financial"><OfferFinancialTerms formData={formData} onFieldChange={updateField} selectedUnit={selectedUnit} /></TabsContent>
+          {showCommercial && <TabsContent value="commercial"><OfferCommercialTerms formData={formData} onFieldChange={updateField} selectedUnit={selectedUnit} /></TabsContent>}
+          <TabsContent value="lease"><OfferLeaseTerms formData={formData} onFieldChange={updateField} showResidentialFrequency={showResidentialFrequency} /></TabsContent>
+          <TabsContent value="additional"><OfferAdditionalInformation formData={formData} onFieldChange={updateField} /></TabsContent>
+        </div>
+      </Tabs>
+
+      <div className="rounded-lg border border-border bg-card px-5 py-4">
+        <FormActions>
+          {onCancel && <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>}
+          <Button type="submit" loading={loading}>{loading ? 'Creating offer...' : 'Create Offer Letter'}</Button>
+        </FormActions>
       </div>
 
-      {/* Basic Information */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Lead <span className="text-red-500">*</span>
-          </label>
-          <select
-            name="leadId"
-            value={formData.leadId}
-            onChange={handleChange}
-            required
-            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-          >
-            <option value="" className="text-gray-500 dark:text-gray-400">Select a lead</option>
-            {leads.map(lead => (
-              <option key={lead.id} value={lead.id} className="text-gray-900 dark:text-gray-100">
-                {lead.name} - {lead.phone}
-              </option>
-            ))}
-          </select>
-          {isManagedUser && leads.length === 0 && (
-            <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-              No leads available for your assigned properties.
-            </p>
-          )}
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Property <span className="text-red-500">*</span>
-          </label>
-          <select
-            name="propertyId"
-            value={formData.propertyId}
-            onChange={handleChange}
-            required
-            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-          >
-            <option value="" className="text-gray-500 dark:text-gray-400">Select a property</option>
-            {properties.map(property => (
-              <option key={property.id} value={property.id} className="text-gray-900 dark:text-gray-100">
-                {property.name} - {property.address}
-              </option>
-            ))}
-          </select>
-          {selectedProperty && (
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              {getPropertyTypeLabel()}
-            </p>
-          )}
-          {isManagedUser && properties.length === 0 && (
-            <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-              You don't have access to any properties. Please contact an administrator.
-            </p>
-          )}
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Unit (Optional)
-          </label>
-          <select
-            name="unitId"
-            value={formData.unitId}
-            onChange={handleChange}
-            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-            disabled={!formData.propertyId || units.length === 0}
-          >
-            <option value="" className="text-gray-500 dark:text-gray-400">
-              {!formData.propertyId ? 'Select a property first' : 
-               units.length === 0 ? 'No vacant units available' : 
-               'Select a unit'}
-            </option>
-            {units.map(unit => (
-              <option key={unit.id} value={unit.id} className="text-gray-900 dark:text-gray-100">
-                Unit {unit.unitNo} - {unit.sizeSqFt} sq ft - KES {unit.rentAmount.toLocaleString()} - {unit.status}
-              </option>
-            ))}
-          </select>
-          {units.length > 0 && !formData.unitId && (
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              {units.length} vacant unit(s) available for this property
-            </p>
-          )}
-          {formData.propertyId && units.length === 0 && (
-            <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-              No vacant units available for this property.
-            </p>
-          )}
-          {selectedUnit && getUnitDetails()}
-        </div>
-
-        {isMixedUse && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Letter Type <span className="text-red-500">*</span>
-            </label>
-            <select
-              name="letterType"
-              value={formData.letterType}
-              onChange={handleChange}
-              required
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-            >
-              <option value="" className="text-gray-500 dark:text-gray-400">Select letter type</option>
-              <option value="COMMERCIAL" className="text-gray-900 dark:text-gray-100">Commercial</option>
-              <option value="RESIDENTIAL" className="text-gray-900 dark:text-gray-100">Residential</option>
-            </select>
-          </div>
-        )}
-      </div>
-
-      {/* Financial Terms */}
-      <div className="border-t pt-6 border-gray-200 dark:border-gray-700">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Financial Terms</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Rent Amount (KES) <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="number"
-              name="rentAmount"
-              value={formData.rentAmount}
-              onChange={handleChange}
-              required
-              step="0.01"
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
-              placeholder="50000.00"
-            />
-            {selectedUnit && (
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                Based on unit: KES {selectedUnit.rentAmount.toLocaleString()}
-              </p>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Deposit (KES) <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="number"
-              name="deposit"
-              value={formData.deposit}
-              onChange={handleChange}
-              required
-              step="0.01"
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
-              placeholder="50000.00"
-            />
-            {selectedUnit && (
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                Suggested: KES {(selectedUnit.rentAmount * 2).toLocaleString()} (2 months rent)
-              </p>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Service Charge (KES)
-            </label>
-            <input
-              type="number"
-              name="serviceCharge"
-              value={formData.serviceCharge}
-              onChange={handleChange}
-              step="0.01"
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
-              placeholder="5000.00"
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Commercial-Specific Fields */}
-      {(selectedProperty?.usage === 'COMMERCIAL' || 
-        (isMixedUse && formData.letterType === 'COMMERCIAL') ||
-        selectedUnit?.unitType === 'COMMERCIAL') && (
-        <div className="border-t pt-6 border-gray-200 dark:border-gray-700">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Commercial Terms</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Rent per Sq Ft (KES)
-              </label>
-              <input
-                type="number"
-                name="rentPerSqFt"
-                value={formData.rentPerSqFt}
-                onChange={handleChange}
-                step="0.01"
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
-                placeholder="50.00"
-              />
-              {selectedUnit?.rentType === 'PER_SQFT' && selectedUnit.calculationInfo?.ratePerSqFt && (
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  Unit rate: KES {selectedUnit.calculationInfo.ratePerSqFt}/sq ft
-                </p>
-              )}
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Service Charge per Sq Ft (KES)
-              </label>
-              <input
-                type="number"
-                name="serviceChargePerSqFt"
-                value={formData.serviceChargePerSqFt}
-                onChange={handleChange}
-                step="0.01"
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
-                placeholder="5.00"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Fit-Out Period (Months)
-              </label>
-              <input
-                type="number"
-                name="fitOutPeriodMonths"
-                value={formData.fitOutPeriodMonths}
-                onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
-                placeholder="3"
-              />
-            </div>
-
-            <div className="md:col-span-3">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Use of Premises
-              </label>
-              <input
-                type="text"
-                name="useOfPremises"
-                value={formData.useOfPremises}
-                onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
-                placeholder="Retail shop, Office space, etc."
-              />
-              {selectedUnit?.usage && (
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  Unit usage: {selectedUnit.usage}
-                </p>
-              )}
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Deposit (Months)
-              </label>
-              <input
-                type="number"
-                name="depositMonths"
-                value={formData.depositMonths}
-                onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
-                placeholder="3"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Advance Rent (Months)
-              </label>
-              <input
-                type="number"
-                name="advanceRentMonths"
-                value={formData.advanceRentMonths}
-                onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
-                placeholder="1"
-              />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Lease Terms */}
-      <div className="border-t pt-6 border-gray-200 dark:border-gray-700">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Lease Terms</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Lease Term <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              name="leaseTerm"
-              value={formData.leaseTerm}
-              onChange={handleChange}
-              required
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
-              placeholder="12 months, 2 years, etc."
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Escalation Rate (%)
-            </label>
-            <input
-              type="number"
-              name="escalationRate"
-              value={formData.escalationRate}
-              onChange={handleChange}
-              step="0.01"
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
-              placeholder="5.00"
-            />
-          </div>
-
-          {(selectedProperty?.usage === 'RESIDENTIAL' || 
-            (isMixedUse && formData.letterType === 'RESIDENTIAL') ||
-            selectedUnit?.unitType === 'RESIDENTIAL') && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Escalation Frequency
-              </label>
-              <select
-                name="escalationFrequency"
-                value={formData.escalationFrequency}
-                onChange={handleChange}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-              >
-                <option value="" className="text-gray-500 dark:text-gray-400">Select frequency</option>
-                <option value="ANNUALLY" className="text-gray-900 dark:text-gray-100">Annually</option>
-                <option value="BI_ANNUALLY" className="text-gray-900 dark:text-gray-100">Bi-Annually</option>
-              </select>
-            </div>
-          )}
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Offer Expiry Date
-            </label>
-            <input
-              type="date"
-              name="expiryDate"
-              value={formData.expiryDate}
-              onChange={handleChange}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Additional Information */}
-      <div className="border-t pt-6 border-gray-200 dark:border-gray-700">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Additional Information</h3>
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Additional Terms
-            </label>
-            <textarea
-              name="additionalTerms"
-              value={formData.additionalTerms}
-              onChange={handleChange}
-              rows={4}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
-              placeholder="Any special terms or conditions..."
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Internal Notes
-            </label>
-            <textarea
-              name="notes"
-              value={formData.notes}
-              onChange={handleChange}
-              rows={3}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
-              placeholder="Internal notes (not visible to client)..."
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Action Buttons */}
-      <div className="flex justify-end gap-4 border-t pt-6 border-gray-200 dark:border-gray-700">
-        {onCancel && (
-          <button
-            type="button"
-            onClick={onCancel}
-            className="px-6 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-          >
-            Cancel
-          </button>
-        )}
-        <button
-          type="submit"
-          disabled={loading}
-          className="px-6 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors disabled:bg-gray-400 dark:disabled:bg-gray-600 disabled:cursor-not-allowed"
-        >
-          {loading ? 'Creating...' : 'Create Offer Letter'}
-        </button>
-      </div>
+      <Dialog open={clearDraftOpen} onOpenChange={setClearDraftOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Clear saved draft?</DialogTitle><DialogDescription>This resets every offer field and permanently removes the saved draft.</DialogDescription></DialogHeader>
+          <DialogFooter><Button type="button" variant="outline" onClick={() => setClearDraftOpen(false)}>Cancel</Button><Button type="button" variant="destructive" onClick={confirmClearDraft}>Clear draft</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
     </form>
-  );
+  )
 }

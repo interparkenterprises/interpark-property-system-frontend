@@ -1,526 +1,275 @@
-'use client';
+'use client'
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { offerLettersAPI } from '@/lib/api';
-import type { OfferLetter, OfferStatus } from '@/types';
-import OfferLetterForm from '@/components/forms/OfferLetterForm';
-import { useAuth } from '@/context/AuthContext';
-import { useGlobalPermissions } from '@/app/providers/PermissionsProvider';
-import { PermissionGuard } from '@/components/auth/PermissionGuard';
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Download, FilePlus2, FileText, RefreshCw, Search, ShieldX, Trash2 } from 'lucide-react'
+import { toast } from 'sonner'
+import type { OfferLetter, OfferStatus } from '@/types'
+import { offerLettersAPI } from '@/lib/api'
+import OfferLetterForm from '@/components/forms/OfferLetterForm'
+import { PermissionGuard } from '@/components/auth/PermissionGuard'
+import { useAuth } from '@/context/AuthContext'
+import { useGlobalPermissions } from '@/app/providers/PermissionsProvider'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { EmptyState } from '@/components/ui/empty-state'
+import { Input } from '@/components/ui/input'
+import { PageHeader } from '@/components/ui/page-header'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Skeleton } from '@/components/ui/skeleton'
+import { StatusBadge } from '@/components/ui/status-badge'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+
+const offerStatuses: OfferStatus[] = ['DRAFT', 'SENT', 'ACCEPTED', 'REJECTED', 'EXPIRED', 'CANCELLED', 'CONVERTED']
+
+const dateFormatter = new Intl.DateTimeFormat('en-GB', {
+  day: 'numeric',
+  month: 'short',
+  year: 'numeric',
+})
+
+const currencyFormatter = new Intl.NumberFormat('en-KE', {
+  style: 'currency',
+  currency: 'KES',
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 2,
+})
+
+function statusAppearance(status: OfferStatus): 'neutral' | 'info' | 'success' | 'warning' | 'destructive' {
+  if (status === 'ACCEPTED' || status === 'CONVERTED') return 'success'
+  if (status === 'SENT') return 'info'
+  if (status === 'EXPIRED') return 'warning'
+  if (status === 'REJECTED' || status === 'CANCELLED') return 'destructive'
+  return 'neutral'
+}
 
 export default function OffersPage() {
-  const router = useRouter();
-  const { user, userId } = useAuth();
-  const { 
-    canViewOffers, 
-    canCreateOffer, 
-    canEditOffer, 
+  const { user, userId } = useAuth()
+  const {
+    canViewOffers,
+    canCreateOffer,
+    canEditOffer,
     canDeleteOffer,
-    isAdmin, 
+    isAdmin,
     isManager,
     isManagedUser,
-    getAccessiblePropertyIds 
-  } = useGlobalPermissions();
-  
-  const [offers, setOffers] = useState<OfferLetter[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
-  const [filterStatus, setFilterStatus] = useState<OfferStatus | 'ALL'>('ALL');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [generatingPdf, setGeneratingPdf] = useState<string | null>(null);
-  const [downloadingPdf, setDownloadingPdf] = useState<string | null>(null);
-  const [deletingOffer, setDeletingOffer] = useState<string | null>(null);
-  const [updatingStatus, setUpdatingStatus] = useState<string | null>(null);
+    getAccessiblePropertyIds,
+  } = useGlobalPermissions()
+  const [offers, setOffers] = useState<OfferLetter[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [showForm, setShowForm] = useState(false)
+  const [filterStatus, setFilterStatus] = useState<OfferStatus | 'ALL'>('ALL')
+  const [searchTerm, setSearchTerm] = useState('')
+  const [generatingPdf, setGeneratingPdf] = useState<string | null>(null)
+  const [downloadingPdf, setDownloadingPdf] = useState<string | null>(null)
+  const [deletingOffer, setDeletingOffer] = useState<string | null>(null)
+  const [updatingStatus, setUpdatingStatus] = useState<string | null>(null)
+  const [offerPendingDelete, setOfferPendingDelete] = useState<OfferLetter | null>(null)
 
-  // ✅ Check permission at the top - but after hooks
-  // All hooks must be called before conditional returns
-  useEffect(() => {
-    if (user && canViewOffers) {
-      fetchOffers();
-    }
-  }, [user, canViewOffers]);
-
-  const fetchOffers = async () => {
+  const fetchOffers = useCallback(async () => {
+    setLoading(true)
+    setError(null)
     try {
-      setLoading(true);
-      let data = await offerLettersAPI.getAll();
-      
-      // Apply filters based on user role and permissions
-      if (isAdmin) {
-        // Admins see all offers
-        // No filtering needed
-      } else if (isManager && userId) {
-        // Managers only see offers they created
-        data = data.filter(offer => offer.createdById === userId);
-      } else if (isManagedUser) {
-        // Managed users only see offers for properties they have access to
-        const accessiblePropertyIds = getAccessiblePropertyIds();
-        data = data.filter(offer => 
-          offer.propertyId && accessiblePropertyIds.includes(offer.propertyId)
-        );
+      let data = await offerLettersAPI.getAll()
+      if (isManager && userId) {
+        data = data.filter((offer) => offer.createdById === userId)
+      } else if (!isAdmin && isManagedUser) {
+        const accessiblePropertyIds = getAccessiblePropertyIds()
+        data = data.filter((offer) => offer.propertyId && accessiblePropertyIds.includes(offer.propertyId))
       }
-      
-      setOffers(data);
-    } catch (error) {
-      console.error('Failed to fetch offers:', error);
-      alert('Failed to fetch offers. Please try again.');
+      setOffers(data)
+    } catch (fetchError) {
+      console.error('Failed to fetch offers:', fetchError)
+      setError(fetchError instanceof Error ? fetchError.message : 'Offer letters could not be loaded.')
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }, [getAccessiblePropertyIds, isAdmin, isManagedUser, isManager, userId])
+
+  useEffect(() => {
+    if (!user || !canViewOffers) return
+    const frame = window.requestAnimationFrame(() => void fetchOffers())
+    return () => window.cancelAnimationFrame(frame)
+  }, [canViewOffers, fetchOffers, user])
+
+  const filteredOffers = useMemo(() => offers.filter((offer) => {
+    const normalizedSearch = searchTerm.trim().toLowerCase()
+    const matchesStatus = filterStatus === 'ALL' || offer.status === filterStatus
+    const matchesSearch = !normalizedSearch
+      || offer.offerNumber.toLowerCase().includes(normalizedSearch)
+      || offer.lead?.name?.toLowerCase().includes(normalizedSearch)
+      || offer.property?.name?.toLowerCase().includes(normalizedSearch)
+    return matchesStatus && matchesSearch
+  }), [filterStatus, offers, searchTerm])
 
   const handleGeneratePDF = async (offerId: string) => {
+    setGeneratingPdf(offerId)
     try {
-      setGeneratingPdf(offerId);
-      const result = await offerLettersAPI.generatePDF(offerId);
-      alert('PDF generated successfully!');
-      fetchOffers(); // Refresh to show updated offer with PDF URL
-    } catch (error: any) {
-      console.error('Failed to generate PDF:', error);
-      alert(`Failed to generate PDF: ${error.message || 'Please try again.'}`);
+      await offerLettersAPI.generatePDF(offerId)
+      await fetchOffers()
+      toast.success('PDF generated successfully')
+    } catch (operationError) {
+      console.error('Failed to generate PDF:', operationError)
+      toast.error(operationError instanceof Error ? operationError.message : 'Failed to generate PDF.')
     } finally {
-      setGeneratingPdf(null);
+      setGeneratingPdf(null)
     }
-  };
+  }
 
   const handleDownloadPDF = async (offerId: string, offerNumber: string) => {
+    setDownloadingPdf(offerId)
     try {
-      setDownloadingPdf(offerId);
-      const blob = await offerLettersAPI.downloadPDF(offerId);
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `Offer-Letter-${offerNumber}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-    } catch (error: any) {
-      console.error('Failed to download PDF:', error);
-      alert(`Failed to download PDF: ${error.message || 'Please try again.'}`);
+      const blob = await offerLettersAPI.downloadPDF(offerId)
+      const url = window.URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = `Offer-Letter-${offerNumber}.pdf`
+      document.body.appendChild(anchor)
+      anchor.click()
+      document.body.removeChild(anchor)
+      window.URL.revokeObjectURL(url)
+    } catch (operationError) {
+      console.error('Failed to download PDF:', operationError)
+      toast.error(operationError instanceof Error ? operationError.message : 'Failed to download PDF.')
     } finally {
-      setDownloadingPdf(null);
+      setDownloadingPdf(null)
     }
-  };
+  }
 
-  const handleStatusChange = async (offerId: string, newStatus: OfferStatus) => {
-    // Check if user has permission to edit offers
-    if (!canEditOffer) {
-      alert('You don\'t have permission to update offer status.');
-      return;
-    }
-    
+  const handleStatusChange = async (offerId: string, status: OfferStatus) => {
+    if (!canEditOffer) return
+    setUpdatingStatus(offerId)
     try {
-      setUpdatingStatus(offerId);
-      await offerLettersAPI.updateStatus(offerId, newStatus);
-      alert('Status updated successfully!');
-      fetchOffers();
-    } catch (error: any) {
-      console.error('Failed to update status:', error);
-      alert(`Failed to update status: ${error.message || 'Please try again.'}`);
+      await offerLettersAPI.updateStatus(offerId, status)
+      await fetchOffers()
+      toast.success('Offer status updated')
+    } catch (operationError) {
+      console.error('Failed to update status:', operationError)
+      toast.error(operationError instanceof Error ? operationError.message : 'Failed to update offer status.')
     } finally {
-      setUpdatingStatus(null);
+      setUpdatingStatus(null)
     }
-  };
+  }
 
-  const handleDelete = async (offerId: string) => {
-    if (!canDeleteOffer) {
-      alert('You don\'t have permission to delete offer letters.');
-      return;
-    }
-
-    if (!confirm('Are you sure you want to delete this offer letter? This action cannot be undone.')) return;
-
+  const handleDelete = async () => {
+    if (!offerPendingDelete || !canDeleteOffer) return
+    setDeletingOffer(offerPendingDelete.id)
     try {
-      setDeletingOffer(offerId);
-      await offerLettersAPI.delete(offerId);
-      alert('Offer letter deleted successfully!');
-      fetchOffers();
-    } catch (error: any) {
-      console.error('Failed to delete offer:', error);
-      alert(`Failed to delete offer letter: ${error.message || 'Please try again.'}`);
+      await offerLettersAPI.delete(offerPendingDelete.id)
+      setOfferPendingDelete(null)
+      await fetchOffers()
+      toast.success('Offer letter deleted')
+    } catch (operationError) {
+      console.error('Failed to delete offer:', operationError)
+      toast.error(operationError instanceof Error ? operationError.message : 'Failed to delete offer letter.')
     } finally {
-      setDeletingOffer(null);
+      setDeletingOffer(null)
     }
-  };
+  }
 
-  const getStatusColor = (status: OfferStatus) => {
-    const colors: Record<OfferStatus, string> = {
-      DRAFT: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200',
-      SENT: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
-      ACCEPTED: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
-      REJECTED: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200',
-      EXPIRED: 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200',
-      CANCELLED: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200',
-      CONVERTED: 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200',
-    };
-    return colors[status] || 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200';
-  };
-
-  const getLetterTypeColor = (letterType: string) => {
-    return letterType === 'COMMERCIAL' 
-      ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200' 
-      : 'bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-200';
-  };
-
-  // Filter offers based on user role and search
-  const filteredOffers = offers.filter(offer => {
-    const matchesStatus = filterStatus === 'ALL' || offer.status === filterStatus;
-    const matchesSearch = 
-      offer.offerNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      offer.lead?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      offer.property?.name?.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    // If user is MANAGER, also filter by user ID
-    if (isManager) {
-      return matchesStatus && matchesSearch && offer.createdById === userId;
-    }
-    
-    return matchesStatus && matchesSearch;
-  });
-
-  // Calculate stats
-  const stats = {
-    total: offers.length,
-    draft: offers.filter(o => o.status === 'DRAFT').length,
-    sent: offers.filter(o => o.status === 'SENT').length,
-    accepted: offers.filter(o => o.status === 'ACCEPTED').length,
-    rejected: offers.filter(o => o.status === 'REJECTED').length,
-  };
-
-  // ✅ Conditional returns AFTER all hooks
-  // Check if user has permission to view offers
   if (!canViewOffers) {
-    return (
-      <div className="p-6">
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-8 text-center">
-          <h1 className="text-2xl font-bold text-red-700 dark:text-red-400 mb-2">Access Denied</h1>
-          <p className="text-red-600 dark:text-red-300">
-            You don't have permission to view offer letters. Please contact an administrator.
-          </p>
-        </div>
-      </div>
-    );
+    return <EmptyState icon={ShieldX} title="Access denied" description="You don't have permission to view offer letters." className="min-h-64" />
   }
 
   if (showForm) {
     return (
-      <div className="p-6">
-        <OfferLetterForm
-          onSuccess={() => {
-            setShowForm(false);
-            fetchOffers();
-          }}
-          onCancel={() => setShowForm(false)}
-        />
+      <div className="min-w-0 space-y-6 pb-4">
+        <PageHeader title="Create Offer Letter" description="Prepare an offer using the existing property, unit, financial, and lease terms." actions={<Button variant="outline" size="sm" onClick={() => setShowForm(false)}>Back to offers</Button>} />
+        <OfferLetterForm onSuccess={() => { setShowForm(false); void fetchOffers() }} onCancel={() => setShowForm(false)} />
       </div>
-    );
+    )
   }
 
-  // Show loading while auth is being checked
-  if (!user && loading) {
-    return (
-      <div className="flex justify-center items-center h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 dark:border-blue-500"></div>
-      </div>
-    );
-  }
-
-  if (loading) {
-    return (
-      <div className="flex justify-center items-center py-12">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 dark:border-blue-500"></div>
-      </div>
-    );
-  }
+  const description = isAdmin ? 'Manage all offer letters.' : isManager ? 'Manage the offer letters you created.' : 'View offer letters for your assigned properties.'
+  const stats = [
+    ['Total Offers', offers.length],
+    ['Draft', offers.filter((offer) => offer.status === 'DRAFT').length],
+    ['Sent', offers.filter((offer) => offer.status === 'SENT').length],
+    ['Accepted', offers.filter((offer) => offer.status === 'ACCEPTED').length],
+    ['Rejected', offers.filter((offer) => offer.status === 'REJECTED').length],
+  ] as const
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header with user role info */}
-      <div className="flex justify-between items-start">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Offer Letters</h1>
-          <p className="text-gray-600 dark:text-gray-400 mt-1">
-            {isAdmin 
-              ? 'Manage all offer letters' 
-              : isManager
-              ? 'Manage your offer letters'
-              : 'View offer letters for your assigned properties'}
-          </p>
-          {isManager && (
-            <div className="mt-2 text-sm text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-3 py-1 rounded-full inline-block">
-              Viewing only offers you created
-            </div>
-          )}
-          {isManagedUser && (
-            <div className="mt-2 text-sm text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20 px-3 py-1 rounded-full inline-block">
-              Viewing offers for your assigned properties only
-            </div>
-          )}
-        </div>
-        <PermissionGuard module="offers" action="create">
-          <button
-            onClick={() => setShowForm(true)}
-            className="px-6 py-3 bg-blue-600 dark:bg-blue-700 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors font-medium shadow-sm"
-          >
-            + Create Offer Letter
-          </button>
-        </PermissionGuard>
-      </div>
+    <div className="min-w-0 space-y-6 pb-4">
+      <PageHeader
+        title="Offer Letters"
+        description={description}
+        actions={canCreateOffer ? <PermissionGuard module="offers" action="create"><Button size="sm" onClick={() => setShowForm(true)}><FilePlus2 className="h-4 w-4" aria-hidden="true" />Create Offer Letter</Button></PermissionGuard> : undefined}
+      />
 
-      {/* Stats Cards - Only show for ADMIN */}
       {isAdmin && (
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-            <p className="text-sm text-gray-600 dark:text-gray-400">Total Offers</p>
-            <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.total}</p>
-          </div>
-          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-            <p className="text-sm text-gray-600 dark:text-gray-400">Draft</p>
-            <p className="text-2xl font-bold text-gray-500 dark:text-gray-300">{stats.draft}</p>
-          </div>
-          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-            <p className="text-sm text-gray-600 dark:text-gray-400">Sent</p>
-            <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{stats.sent}</p>
-          </div>
-          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-            <p className="text-sm text-gray-600 dark:text-gray-400">Accepted</p>
-            <p className="text-2xl font-bold text-green-600 dark:text-green-400">{stats.accepted}</p>
-          </div>
-          <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-            <p className="text-sm text-gray-600 dark:text-gray-400">Rejected</p>
-            <p className="text-2xl font-bold text-red-600 dark:text-red-400">{stats.rejected}</p>
-          </div>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          {stats.map(([label, value]) => <Card key={label}><CardContent className="pt-5"><p className="text-sm text-muted-foreground">{label}</p><p className="mt-1 text-2xl font-semibold text-foreground">{value}</p></CardContent></Card>)}
         </div>
       )}
 
-      {/* Filters */}
-      <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-        <div className="flex flex-col md:flex-row gap-4">
-          <div className="flex-1">
-            <input
-              type="text"
-              placeholder="Search by offer number, lead name, or property..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
-            />
+      <Card>
+        <CardHeader className="border-b border-border"><CardTitle>Search and filter</CardTitle></CardHeader>
+        <CardContent className="grid gap-4 pt-5 md:grid-cols-[minmax(0,1fr)_14rem]">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" aria-hidden="true" />
+            <Input aria-label="Search offer letters" value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search by offer number, lead, or property..." className="pl-9" />
           </div>
-          <div>
-            <select
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value as OfferStatus | 'ALL')}
-              className="w-full md:w-48 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-            >
-              <option value="ALL" className="text-gray-900 dark:text-gray-100">All Status</option>
-              <option value="DRAFT" className="text-gray-900 dark:text-gray-100">Draft</option>
-              <option value="SENT" className="text-gray-900 dark:text-gray-100">Sent</option>
-              <option value="ACCEPTED" className="text-gray-900 dark:text-gray-100">Accepted</option>
-              <option value="REJECTED" className="text-gray-900 dark:text-gray-100">Rejected</option>
-              <option value="EXPIRED" className="text-gray-900 dark:text-gray-100">Expired</option>
-              <option value="CANCELLED" className="text-gray-900 dark:text-gray-100">Cancelled</option>
-              <option value="CONVERTED" className="text-gray-900 dark:text-gray-100">Converted</option>
-            </select>
-          </div>
-        </div>
-      </div>
+          <Select value={filterStatus} onValueChange={(value) => setFilterStatus(value as OfferStatus | 'ALL')}>
+            <SelectTrigger aria-label="Filter by status"><SelectValue /></SelectTrigger>
+            <SelectContent><SelectItem value="ALL">All statuses</SelectItem>{offerStatuses.map((status) => <SelectItem key={status} value={status}>{status.replaceAll('_', ' ')}</SelectItem>)}</SelectContent>
+          </Select>
+        </CardContent>
+      </Card>
 
-      {/* Offers List */}
-      {filteredOffers.length === 0 ? (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-12 text-center">
-          <svg
-            className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-            />
-          </svg>
-          <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">No offer letters found</h3>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            {isAdmin 
-              ? 'No offer letters match your search criteria.'
-              : isManager
-              ? "You haven't created any offer letters yet."
-              : "No offer letters found for your assigned properties."}
-          </p>
-          <PermissionGuard module="offers" action="create">
-            <button
-              onClick={() => setShowForm(true)}
-              className="mt-6 px-4 py-2 bg-blue-600 dark:bg-blue-700 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors"
-            >
-              Create Offer Letter
-            </button>
-          </PermissionGuard>
-        </div>
+      {loading ? (
+        <OffersTableSkeleton />
+      ) : error ? (
+        <Alert variant="destructive" className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><AlertTitle>Unable to load offers</AlertTitle><AlertDescription>{error}</AlertDescription></div><Button variant="outline" size="sm" onClick={() => void fetchOffers()}><RefreshCw className="h-4 w-4" aria-hidden="true" />Retry</Button></Alert>
+      ) : filteredOffers.length === 0 ? (
+        <EmptyState icon={FileText} title="No offer letters found" description={offers.length ? 'No offers match the current search and status filter.' : 'No offer letters are available yet.'} action={canCreateOffer ? <Button size="sm" onClick={() => setShowForm(true)}>Create Offer Letter</Button> : undefined} />
       ) : (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-              <thead className="bg-gray-50 dark:bg-gray-900">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Offer #
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Lead
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Property
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Type
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Rent Amount
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Issue Date
-                  </th>
-                  {isAdmin && (
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                      Created By
-                    </th>
-                  )}
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                {filteredOffers.map((offer) => (
-                  <tr key={offer.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100">
-                      {offer.offerNumber}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                        {offer.lead?.name || 'N/A'}
-                      </div>
-                      <div className="text-sm text-gray-500 dark:text-gray-400">
-                        {offer.lead?.phone || 'No phone'}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900 dark:text-gray-100">
-                        {offer.property?.name || 'N/A'}
-                      </div>
-                      {offer.unit && (
-                        <div className="text-sm text-gray-500 dark:text-gray-400">
-                          Unit {offer.unit.unitNo}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${getLetterTypeColor(offer.letterType)}`}>
-                        {offer.letterType}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
-                      KES {offer.rentAmount?.toLocaleString() || '0'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <PermissionGuard module="offers" action="edit">
-                        <select
-                          value={offer.status}
-                          onChange={(e) => handleStatusChange(offer.id, e.target.value as OfferStatus)}
-                          disabled={updatingStatus === offer.id}
-                          className={`px-2 py-1 text-xs font-medium rounded-full border-0 cursor-pointer ${getStatusColor(offer.status)}`}
-                        >
-                          <option value="DRAFT" className="text-gray-900 dark:text-gray-100">Draft</option>
-                          <option value="SENT" className="text-gray-900 dark:text-gray-100">Sent</option>
-                          <option value="ACCEPTED" className="text-gray-900 dark:text-gray-100">Accepted</option>
-                          <option value="REJECTED" className="text-gray-900 dark:text-gray-100">Rejected</option>
-                          <option value="EXPIRED" className="text-gray-900 dark:text-gray-100">Expired</option>
-                          <option value="CANCELLED" className="text-gray-900 dark:text-gray-100">Cancelled</option>
-                          <option value="CONVERTED" className="text-gray-900 dark:text-gray-100">Converted</option>
-                        </select>
-                      </PermissionGuard>
-                      {!canEditOffer && (
-                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(offer.status)}`}>
-                          {offer.status}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                      {offer.issueDate ? new Date(offer.issueDate).toLocaleDateString() : 'N/A'}
-                    </td>
-                    {isAdmin && offer.createdById && (
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                        {offer.createdById || 'Unknown'}
-                      </td>
-                    )}
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <div className="flex gap-2">
-                        {!offer.documentUrl && (
-                          <button
-                            onClick={() => handleGeneratePDF(offer.id)}
-                            disabled={generatingPdf === offer.id}
-                            className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 disabled:text-blue-300 dark:disabled:text-blue-700 disabled:cursor-not-allowed flex items-center gap-1"
-                            title="Generate PDF"
-                          >
-                            {generatingPdf === offer.id ? (
-                              <>
-                                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600 dark:border-blue-400"></div>
-                                Generating...
-                              </>
-                            ) : (
-                              'Generate'
-                            )}
-                          </button>
-                        )}
-                        {offer.documentUrl && (
-                          <button
-                            onClick={() => handleDownloadPDF(offer.id, offer.offerNumber)}
-                            disabled={downloadingPdf === offer.id}
-                            className="text-green-600 dark:text-green-400 hover:text-green-900 dark:hover:text-green-300 disabled:text-green-300 dark:disabled:text-green-700 disabled:cursor-not-allowed flex items-center gap-1"
-                            title="Download PDF"
-                          >
-                            {downloadingPdf === offer.id ? (
-                              <>
-                                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-green-600 dark:border-green-400"></div>
-                                Downloading...
-                              </>
-                            ) : (
-                              'Download'
-                            )}
-                          </button>
-                        )}
-                        <PermissionGuard module="offers" action="delete">
-                          <button
-                            onClick={() => handleDelete(offer.id)}
-                            disabled={deletingOffer === offer.id}
-                            className="text-red-600 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300 disabled:text-red-300 dark:disabled:text-red-700 disabled:cursor-not-allowed flex items-center gap-1"
-                            title="Delete"
-                          >
-                            {deletingOffer === offer.id ? (
-                              <>
-                                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-red-600 dark:border-red-400"></div>
-                                Deleting...
-                              </>
-                            ) : (
-                              'Delete'
-                            )}
-                          </button>
-                        </PermissionGuard>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <Table className="min-w-[1100px]">
+          <TableHead><TableHeader>Offer #</TableHeader><TableHeader>Lead</TableHeader><TableHeader>Property</TableHeader><TableHeader>Type</TableHeader><TableHeader>Rent Amount</TableHeader><TableHeader>Status</TableHeader><TableHeader>Issue Date</TableHeader>{isAdmin && <TableHeader>Created By</TableHeader>}<TableHeader>Actions</TableHeader></TableHead>
+          <TableBody>
+            {filteredOffers.map((offer) => (
+              <TableRow key={offer.id}>
+                <TableCell className="font-medium">{offer.offerNumber}</TableCell>
+                <TableCell><p className="font-medium">{offer.lead?.name || 'N/A'}</p><p className="text-xs text-muted-foreground">{offer.lead?.phone || 'No phone'}</p></TableCell>
+                <TableCell><p>{offer.property?.name || 'N/A'}</p>{offer.unit && <p className="text-xs text-muted-foreground">Unit {offer.unit.unitNo}</p>}</TableCell>
+                <TableCell><Badge variant="neutral">{offer.letterType}</Badge></TableCell>
+                <TableCell className="tabular-nums">{currencyFormatter.format(offer.rentAmount || 0)}</TableCell>
+                <TableCell>
+                  {canEditOffer ? (
+                    <Select value={offer.status} onValueChange={(value) => void handleStatusChange(offer.id, value as OfferStatus)} disabled={updatingStatus === offer.id}><SelectTrigger className="h-8 min-w-32"><SelectValue /></SelectTrigger><SelectContent>{offerStatuses.map((status) => <SelectItem key={status} value={status}>{status.replaceAll('_', ' ')}</SelectItem>)}</SelectContent></Select>
+                  ) : <StatusBadge status={offer.status} appearance={statusAppearance(offer.status)} />}
+                </TableCell>
+                <TableCell className="text-muted-foreground">{offer.issueDate ? dateFormatter.format(new Date(offer.issueDate)) : 'N/A'}</TableCell>
+                {isAdmin && <TableCell className="max-w-48 truncate text-muted-foreground">{offer.createdById || 'Unknown'}</TableCell>}
+                <TableCell>
+                  <div className="flex min-w-max items-center gap-1">
+                    {!offer.documentUrl ? <Button variant="ghost" size="sm" loading={generatingPdf === offer.id} onClick={() => void handleGeneratePDF(offer.id)}><FileText className="h-3.5 w-3.5" aria-hidden="true" />Generate PDF</Button> : <Button variant="ghost" size="sm" loading={downloadingPdf === offer.id} onClick={() => void handleDownloadPDF(offer.id, offer.offerNumber)}><Download className="h-3.5 w-3.5" aria-hidden="true" />Download</Button>}
+                    <PermissionGuard module="offers" action="delete"><Button variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10 hover:text-destructive" loading={deletingOffer === offer.id} onClick={() => setOfferPendingDelete(offer)}><Trash2 className="h-3.5 w-3.5" aria-hidden="true" />Delete</Button></PermissionGuard>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       )}
+
+      <Dialog open={Boolean(offerPendingDelete)} onOpenChange={(open) => { if (!open && !deletingOffer) setOfferPendingDelete(null) }}>
+        <DialogContent><DialogHeader><DialogTitle>Delete offer letter?</DialogTitle><DialogDescription>This permanently deletes {offerPendingDelete?.offerNumber || 'this offer letter'}. This action cannot be undone.</DialogDescription></DialogHeader><DialogFooter><Button variant="outline" onClick={() => setOfferPendingDelete(null)} disabled={Boolean(deletingOffer)}>Cancel</Button><Button variant="destructive" loading={Boolean(deletingOffer)} onClick={() => void handleDelete()}>{deletingOffer ? 'Deleting...' : 'Delete offer'}</Button></DialogFooter></DialogContent>
+      </Dialog>
     </div>
-  );
+  )
+}
+
+function OffersTableSkeleton() {
+  return <div className="space-y-4 rounded-lg border border-border p-5" aria-label="Loading offer letters" aria-busy="true"><Skeleton className="h-5 w-40" />{[0, 1, 2, 3].map((row) => <div key={row} className="grid grid-cols-[1fr_1fr_8rem] gap-6 border-t border-border pt-4"><Skeleton className="h-9" /><Skeleton className="h-9" /><Skeleton className="h-9" /></div>)}</div>
 }

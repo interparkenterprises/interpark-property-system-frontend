@@ -49,7 +49,7 @@ export function Dialog({ open, onOpenChange, children }: DialogProps) {
           aria-label="Close dialog"
           tabIndex={-1}
         />
-        <div className="relative z-10 w-full max-w-lg">{children}</div>
+        <div className="relative z-10 w-full">{children}</div>
       </div>
     </DialogContext.Provider>,
     document.body,
@@ -74,7 +74,7 @@ export const DialogContent = React.forwardRef<HTMLDivElement, React.HTMLAttribut
         aria-labelledby={context?.titleId}
         aria-describedby={context?.descriptionId}
         tabIndex={-1}
-        className={cn('relative max-h-[90dvh] overflow-y-auto rounded-lg border border-border bg-card text-card-foreground shadow-lg outline-none', className)}
+        className={cn('relative mx-auto w-full max-w-lg max-h-[90dvh] overflow-y-auto rounded-lg border border-border bg-card text-card-foreground shadow-lg outline-none', className)}
         {...props}
       >
         {children}

@@ -14,6 +14,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { SectionHeader } from '@/components/ui/section-header'
 import { Skeleton } from '@/components/ui/skeleton'
 import { MarkTenantLeftDialog } from '../dialogs/MarkTenantLeftDialog'
+import { useBreadcrumbAction, useBreadcrumbTrail } from '@/components/layout/BreadcrumbContext'
 
 interface PropertyTenantsTabProps {
   propertyId: string
@@ -33,6 +34,8 @@ export function PropertyTenantsTab({ propertyId, canManageTenants, onPropertyCha
   const [selectedReason, setSelectedReason] = useState<TenantLeftReason | ''>('')
   const [markLeftError, setMarkLeftError] = useState<string | null>(null)
   const [deletingTenantId, setDeletingTenantId] = useState<string | null>(null)
+  useBreadcrumbTrail(showTenantForm ? editingTenant?.fullName : null, editingTenant ? `/properties/${editingTenant.id}/tenant-details` : undefined)
+  useBreadcrumbAction(showTenantForm ? (editingTenant ? 'Edit' : 'Create') : null)
 
   const fetchTenants = useCallback(async () => {
     setFetchingTenants(true)

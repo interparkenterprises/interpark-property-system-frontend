@@ -1,288 +1,86 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
+import { ShieldX } from 'lucide-react'
 import { useGlobalPermissions } from '@/app/providers/PermissionsProvider'
+import { EmployeeForm, type EmployeeFormValues } from '@/components/employees/EmployeeForm'
+import { useBreadcrumbOverride } from '@/components/layout/BreadcrumbContext'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { EmptyState } from '@/components/ui/empty-state'
+import { PageHeader } from '@/components/ui/page-header'
+import { Spinner } from '@/components/ui/spinner'
 import { employeesAPI } from '@/lib/api'
-import { UpdateEmployeeRequest } from '@/types'
 
-interface EditEmployeePageProps {
-  params: Promise<{ id: string }>
+interface EditEmployeePageProps { params: Promise<{ id: string }> }
+
+const emptyValues: EmployeeFormValues = {
+  name: '', phoneNumber: '', email: '', jobTitle: '', jobDescription: '', salaryAmount: 0,
+  paymentFrequency: 'MONTHLY', status: 'ACTIVE',
 }
 
 export default function EditEmployeePage({ params }: EditEmployeePageProps) {
   const router = useRouter()
   const { canCreateEmployee, isAdmin, isManager } = useGlobalPermissions()
+  const [values, setValues] = useState(emptyValues)
+  const [employeeId, setEmployeeId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [employeeLoaded, setEmployeeLoaded] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [formData, setFormData] = useState<UpdateEmployeeRequest>({})
-  const [employeeId, setEmployeeId] = useState<string | null>(null)
+  useBreadcrumbOverride(employeeId ? `/employees/${employeeId}` : '', loading ? 'Loading…' : values.name || 'Employee details')
 
-  // Unwrap params
+  useEffect(() => { void params.then(value => setEmployeeId(value.id)) }, [params])
   useEffect(() => {
-    const unwrapParams = async () => {
-      const unwrappedParams = await params
-      setEmployeeId(unwrappedParams.id)
+    if (!employeeId) return
+    let active = true
+    const fetchEmployee = async () => {
+      setLoading(true)
+      try {
+        const employee = await employeesAPI.getById(employeeId)
+        if (!active) return
+        setValues({
+          name: employee.name, phoneNumber: employee.phoneNumber || '', email: employee.email || '',
+          jobTitle: employee.jobTitle, jobDescription: employee.jobDescription || '', salaryAmount: employee.salaryAmount,
+          paymentFrequency: employee.paymentFrequency, status: employee.status,
+        })
+        setEmployeeLoaded(true)
+      } catch (fetchError) {
+        if (active) setError(fetchError instanceof Error ? fetchError.message : 'Employee could not be loaded.')
+      } finally {
+        if (active) setLoading(false)
+      }
     }
-    unwrapParams()
-  }, [params])
-
-  useEffect(() => {
-    if (employeeId) {
-      fetchEmployee()
-    }
+    void fetchEmployee()
+    return () => { active = false }
   }, [employeeId])
 
-  const fetchEmployee = async () => {
-    if (!employeeId) return
-    
-    try {
-      setLoading(true)
-      const employee = await employeesAPI.getById(employeeId)
-      setFormData({
-        name: employee.name,
-        phoneNumber: employee.phoneNumber,
-        email: employee.email,
-        jobTitle: employee.jobTitle,
-        jobDescription: employee.jobDescription,
-        salaryAmount: employee.salaryAmount,
-        paymentFrequency: employee.paymentFrequency,
-        status: employee.status
-      })
-    } catch (err: any) {
-      setError(err.message)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // Redirect if no permission
   if (!canCreateEmployee || (!isAdmin && !isManager)) {
-    return (
-      <div className="p-8 text-center">
-        <p className="text-red-600">You don't have permission to edit employees.</p>
-        <Link href="/employees" className="mt-4 inline-block text-[#005478] hover:underline">
-          Back to Employees
-        </Link>
-      </div>
-    )
+    return <EmptyState icon={ShieldX} title="You don't have permission to edit employees." description="Contact an administrator if you need employee-management access." className="min-h-64" />
   }
+  if (loading) return <div className="flex min-h-64 items-center justify-center"><Spinner size="lg" label="Loading employee…" /></div>
+  if (!employeeLoaded) return <EmptyState title="Employee unavailable" description={error || 'The employee record could not be loaded.'} />
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
     if (!employeeId) return
-    
     setSaving(true)
     setError(null)
-
     try {
-      await employeesAPI.update(employeeId, formData)
+      await employeesAPI.update(employeeId, values)
       router.push(`/employees/${employeeId}`)
-    } catch (err: any) {
-      setError(err.message || 'Failed to update employee')
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : 'Failed to update employee')
     } finally {
       setSaving(false)
     }
   }
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    const { name, value } = e.target
-    setFormData(prev => ({
-      ...prev,
-      [name]: name === 'salaryAmount' ? parseFloat(value) || 0 : value
-    }))
-  }
-
-  if (loading) {
-    return (
-      <div className="flex justify-center items-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#005478]"></div>
-      </div>
-    )
-  }
-
   return (
-    <div className="p-6 max-w-4xl mx-auto">
-      <div className="mb-8">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Edit Employee</h1>
-            <p className="text-gray-600 mt-1">Update employee information</p>
-          </div>
-          <Link
-            href={`/employees/${employeeId}`}
-            className="px-4 py-2 text-gray-600 hover:text-gray-900 border rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            Cancel
-          </Link>
-        </div>
-      </div>
-
-      {error && (
-        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-          <p className="text-red-600">{error}</p>
-        </div>
-      )}
-
-      <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow p-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Personal Information */}
-          <div className="md:col-span-2">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Personal Information</h2>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Full Name *
-            </label>
-            <input
-              type="text"
-              name="name"
-              required
-              value={formData.name || ''}
-              onChange={handleChange}
-              placeholder="Enter full name"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-[#005478] focus:border-[#005478] text-gray-900 placeholder-gray-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Email
-            </label>
-            <input
-              type="email"
-              name="email"
-              value={formData.email || ''}
-              onChange={handleChange}
-              placeholder="employee@example.com"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-[#005478] focus:border-[#005478] text-gray-900 placeholder-gray-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Phone Number
-            </label>
-            <input
-              type="tel"
-              name="phoneNumber"
-              value={formData.phoneNumber || ''}
-              onChange={handleChange}
-              placeholder="+254XXXXXXXXX"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-[#005478] focus:border-[#005478] text-gray-900 placeholder-gray-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Status
-            </label>
-            <select
-              name="status"
-              value={formData.status || 'ACTIVE'}
-              onChange={handleChange}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-[#005478] focus:border-[#005478] text-gray-900"
-            >
-              <option value="ACTIVE">Active</option>
-              <option value="INACTIVE">Inactive</option>
-              <option value="ON_LEAVE">On Leave</option>
-              <option value="TERMINATED">Terminated</option>
-            </select>
-          </div>
-
-          {/* Job Information */}
-          <div className="md:col-span-2">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4 mt-4">Job Information</h2>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Job Title *
-            </label>
-            <input
-              type="text"
-              name="jobTitle"
-              required
-              value={formData.jobTitle || ''}
-              onChange={handleChange}
-              placeholder="e.g., Software Engineer"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-[#005478] focus:border-[#005478] text-gray-900 placeholder-gray-500"
-            />
-          </div>
-
-          <div className="md:col-span-2">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Job Description
-            </label>
-            <textarea
-              name="jobDescription"
-              rows={3}
-              value={formData.jobDescription || ''}
-              onChange={handleChange}
-              placeholder="Brief description of the role and responsibilities"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-[#005478] focus:border-[#005478] text-gray-900 placeholder-gray-500 resize-none"
-            />
-          </div>
-
-          {/* Compensation Information */}
-          <div className="md:col-span-2">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4 mt-4">Compensation Information</h2>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Salary Amount (KES) *
-            </label>
-            <input
-              type="number"
-              name="salaryAmount"
-              required
-              min="0"
-              step="0.01"
-              value={formData.salaryAmount || ''}
-              onChange={handleChange}
-              placeholder="0.00"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-[#005478] focus:border-[#005478] text-gray-900 placeholder-gray-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Payment Frequency *
-            </label>
-            <select
-              name="paymentFrequency"
-              value={formData.paymentFrequency || 'MONTHLY'}
-              onChange={handleChange}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-[#005478] focus:border-[#005478] text-gray-900"
-            >
-              <option value="MONTHLY">Monthly</option>
-              <option value="BI_WEEKLY">Bi-Weekly</option>
-              <option value="WEEKLY">Weekly</option>
-              <option value="DAILY">Daily</option>
-            </select>
-          </div>
-        </div>
-
-        <div className="flex justify-end gap-3 mt-8 pt-4 border-t">
-          <Link
-            href={`/employees/${employeeId}`}
-            className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
-          >
-            Cancel
-          </Link>
-          <button
-            type="submit"
-            disabled={saving}
-            className="px-6 py-2 bg-[#005478] text-white rounded-lg hover:bg-[#0078a3] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {saving ? 'Saving...' : 'Save Changes'}
-          </button>
-        </div>
-      </form>
+    <div className="mx-auto min-w-0 max-w-4xl space-y-6 pb-4">
+      <PageHeader title="Edit employee" description="Update employee information and salary configuration." />
+      {error && <Alert variant="destructive"><AlertTitle>Employee could not be updated</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>}
+      <EmployeeForm values={values} onChange={setValues} onSubmit={handleSubmit} cancelHref={`/employees/${employeeId}`} submitting={saving} submitLabel="Save changes" submittingLabel="Saving changes…" />
     </div>
   )
 }

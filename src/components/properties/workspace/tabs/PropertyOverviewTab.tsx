@@ -1,12 +1,10 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { Building2, ChartNoAxesColumnIncreasing, DoorOpen, ExternalLink, Users } from 'lucide-react'
+import { Building2, ChartNoAxesColumnIncreasing, DoorOpen, Users } from 'lucide-react'
 import type { Property } from '@/types'
 import { tenantsAPI } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { DetailItem, DetailList } from '@/components/ui/detail-list'
 import { Progress } from '@/components/ui/progress'
@@ -17,11 +15,9 @@ interface PropertyOverviewTabProps {
   property: Property
   canViewTenants: boolean
   canViewProviders: boolean
-  canViewFinancialDetails: boolean
 }
 
-export function PropertyOverviewTab({ property, canViewTenants, canViewProviders, canViewFinancialDetails }: PropertyOverviewTabProps) {
-  const router = useRouter()
+export function PropertyOverviewTab({ property, canViewTenants, canViewProviders }: PropertyOverviewTabProps) {
   const units = property.units ?? []
   const serviceProviders = property.serviceProviders ?? []
   const leads = property.leads ?? []
@@ -62,12 +58,6 @@ export function PropertyOverviewTab({ property, canViewTenants, canViewProviders
               <DetailItem label="Landlord">{property.landlord?.name || 'N/A'}</DetailItem>
               <DetailItem label="Manager">{property.manager?.name || 'N/A'}</DetailItem>
             </DetailList>
-            {canViewFinancialDetails && (
-              <Button className="mt-5" variant="outline" onClick={() => router.push(`/properties/${property.id}/details`)}>
-                View Financial Details
-                <ExternalLink className="h-4 w-4" aria-hidden="true" />
-              </Button>
-            )}
           </CardContent>
         </Card>
 

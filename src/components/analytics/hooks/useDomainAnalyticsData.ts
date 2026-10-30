@@ -6,9 +6,10 @@ import { propertiesAPI } from '@/lib/api'
 import { analyticsAPI, toAnalyticsApiFailure } from '@/lib/analyticsApi'
 import type { Property } from '@/types'
 import type { AnalyticsApiFailure, AnalyticsFilters, TenantLifecycleAnalytics } from '@/types/analytics'
-import { dateString, domainConfig, initialDomainFilters } from '../domains/domainConfig'
+import { domainConfig, initialDomainFilters } from '../domains/domainConfig'
 import { extractCategoryDistribution, extractPropertyBreakdown, extractStatusDistribution, extractTrendData, toLifecycleView } from '../domains/domainTransforms'
 import type { AnalyticsDomain, DomainResponse } from '../domains/types'
+import { useSharedAnalyticsFilters } from './useSharedAnalyticsFilters'
 
 async function fetchDomain(domain: AnalyticsDomain, filters: AnalyticsFilters): Promise<DomainResponse> {
   switch (domain) {
@@ -30,8 +31,7 @@ export function useDomainAnalyticsData(domain: AnalyticsDomain) {
     ? auth.isAdmin || auth.isManager
     : auth.isAdmin || auth.isManager || auth.hasPermission(definition.permission || '')
 
-  const [draftFilters, setDraftFilters] = useState<AnalyticsFilters>(initialDomainFilters)
-  const [filters, setFilters] = useState<AnalyticsFilters>(initialDomainFilters)
+  const { draftFilters, filters, setDraftFilters, applyFilters } = useSharedAnalyticsFilters(initialDomainFilters)
   const [properties, setProperties] = useState<Property[]>([])
   const [response, setResponse] = useState<DomainResponse | null>(null)
   const [lifecycleData, setLifecycleData] = useState<TenantLifecycleAnalytics | null>(null)
@@ -80,12 +80,6 @@ export function useDomainAnalyticsData(domain: AnalyticsDomain) {
   }, [load])
 
   const data = response?.data ?? null
-  const applyFilters = () => setFilters({
-    ...draftFilters,
-    asOf: draftFilters.dateTo || dateString(new Date()),
-    propertyId: definition.property ? draftFilters.propertyId : undefined,
-  })
-
   return {
     authorized,
     definition,

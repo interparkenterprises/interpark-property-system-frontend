@@ -1,539 +1,199 @@
-'use client';
+'use client'
 
-import { useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
-import { useAuth } from '@/context/AuthContext';
-import { otherIncomeAPI } from '@/lib/api';
-import {
-  OtherIncome,
-  OtherIncomeCategory,
-  InvoiceStatus,
-  OtherIncomeListResponse,
-} from '@/types';
-import IncomeFormModal from '@/components/forms/IncomeFormModal';
-import { formatCompactKes, formatExactKes } from '@/lib/numberFormat';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import Link from 'next/link'
+import { CircleCheck, Download, Eye, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { useAuth } from '@/context/AuthContext'
+import IncomeFormModal from '@/components/forms/IncomeFormModal'
+import { OtherIncomeOverviewPanel } from '@/components/my-income/IncomeAnalyticalPanels'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Button, buttonStyles } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { EmptyState } from '@/components/ui/empty-state'
+import { FormField } from '@/components/ui/form-field'
+import { PageHeader } from '@/components/ui/page-header'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Skeleton } from '@/components/ui/skeleton'
+import { StatusBadge } from '@/components/ui/status-badge'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { otherIncomeAPI } from '@/lib/api'
+import type { InvoiceStatus, OtherIncome, OtherIncomeCategory, OtherIncomeListResponse } from '@/types'
 
-// =============================================
-// SKELETON LOADING
-// =============================================
-const TableSkeleton = () => (
-  <div className="overflow-x-auto animate-pulse">
-    <table className="min-w-full divide-y divide-gray-200">
-      <thead className="bg-gray-50">
-        <tr>
-          {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => (
-            <th key={i} className="px-6 py-3">
-              <div className="h-4 w-20 rounded bg-gray-200" />
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody className="divide-y divide-gray-200 bg-white">
-        {[1, 2, 3, 4, 5].map((i) => (
-          <tr key={i}>
-            {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((j) => (
-              <td key={j} className="px-6 py-4">
-                <div className="h-4 w-24 rounded bg-gray-100" />
-              </td>
-            ))}
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  </div>
-);
-
-function SummaryCard({
-  title,
-  value,
-  fullValueTitle,
-  tone = 'blue',
-}: {
-  title: string;
-  value: string;
-  fullValueTitle?: string;
-  tone?: 'blue' | 'green' | 'amber' | 'purple';
-}) {
-  const tones = {
-    blue: 'bg-blue-50 text-blue-700 border-blue-100',
-    green: 'bg-green-50 text-green-700 border-green-100',
-    amber: 'bg-amber-50 text-amber-700 border-amber-100',
-    purple: 'bg-purple-50 text-purple-700 border-purple-100',
-  };
-
-  return (
-    <div className={`rounded-xl border p-4 ${tones[tone]}`}>
-      <p className="text-sm font-medium">{title}</p>
-      <p className="kpi-value mt-2 font-bold" title={fullValueTitle}>{value}</p>
-    </div>
-  );
+function statusAppearance(status: InvoiceStatus) {
+  if (status === 'PAID') return 'success' as const
+  if (status === 'UNPAID') return 'warning' as const
+  if (status === 'PARTIAL') return 'info' as const
+  if (status === 'OVERDUE') return 'destructive' as const
+  return 'neutral' as const
 }
+function formatCurrency(value: number) { return `KSH ${Number(value).toLocaleString('en-KE', { maximumFractionDigits: 3 })}` }
+function formatDate(value?: string | null) { return value ? new Date(value).toLocaleDateString('en-KE', { year: 'numeric', month: 'short', day: 'numeric' }) : '—' }
+function IncomeTableSkeleton() { return <div className="space-y-3 rounded-lg border border-border p-4">{[0, 1, 2, 3].map(row => <div key={row} className="grid grid-cols-5 gap-4"><Skeleton className="h-5" /><Skeleton className="h-5" /><Skeleton className="h-5" /><Skeleton className="h-5" /><Skeleton className="h-5" /></div>)}</div> }
 
-// =============================================
-// MAIN PAGE COMPONENT
-// =============================================
 export default function OtherIncomePage() {
-  const { user } = useAuth();
+  const { user } = useAuth()
+  const userId = user?.id
+  const [incomes, setIncomes] = useState<OtherIncome[]>([])
+  const [listStats, setListStats] = useState<OtherIncomeListResponse['stats'] | null>(null)
+  const [statusBreakdown, setStatusBreakdown] = useState<OtherIncomeListResponse['statusBreakdown']>([])
+  const [loading, setLoading] = useState(true)
+  const [tableLoading, setTableLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [showForm, setShowForm] = useState(false)
+  const [editingIncome, setEditingIncome] = useState<OtherIncome | null>(null)
+  const [downloading, setDownloading] = useState<string | null>(null)
+  const [markingPaidId, setMarkingPaidId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<OtherIncome | null>(null)
+  const [statusFilter, setStatusFilter] = useState<InvoiceStatus | 'all'>('all')
+  const [categoryFilter, setCategoryFilter] = useState<OtherIncomeCategory | 'all'>('all')
+  const loadedOnce = useRef(false)
 
-  const [incomes, setIncomes] = useState<OtherIncome[]>([]);
-  const [listStats, setListStats] = useState<OtherIncomeListResponse['stats'] | null>(null);
-
-  const [loading, setLoading] = useState(true);
-  const [tableLoading, setTableLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const [showForm, setShowForm] = useState(false);
-  const [editingIncome, setEditingIncome] = useState<OtherIncome | null>(null);
-  const [downloading, setDownloading] = useState<string | null>(null);
-  const [markingPaidId, setMarkingPaidId] = useState<string | null>(null);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-
-  const [statusFilter, setStatusFilter] = useState<InvoiceStatus | 'all'>('all');
-  const [categoryFilter, setCategoryFilter] = useState<OtherIncomeCategory | 'all'>('all');
+  const fetchIncomes = useCallback(async (fullLoading = false) => {
+    if (!userId) return
+    if (fullLoading) setLoading(true); else setTableLoading(true)
+    setError(null)
+    try {
+      const params: { status?: InvoiceStatus; category?: OtherIncomeCategory } = {}
+      if (statusFilter !== 'all') params.status = statusFilter
+      if (categoryFilter !== 'all') params.category = categoryFilter
+      const response = await otherIncomeAPI.getMyIncomes(userId, params)
+      setIncomes(response.data || [])
+      setListStats(response.stats || null)
+      setStatusBreakdown(response.statusBreakdown || [])
+      loadedOnce.current = true
+    } catch (fetchError) { setError(fetchError instanceof Error ? fetchError.message : 'Failed to fetch other incomes') }
+    finally { setLoading(false); setTableLoading(false) }
+  }, [categoryFilter, statusFilter, userId])
 
   useEffect(() => {
-    if (user?.id) {
-      fetchIncomes(true);
-    }
-  }, [user?.id]);
+    const frame = window.requestAnimationFrame(() => void fetchIncomes(!loadedOnce.current))
+    return () => window.cancelAnimationFrame(frame)
+  }, [fetchIncomes])
 
-  useEffect(() => {
-    if (user?.id && !loading) {
-      fetchIncomes(false);
-    }
-  }, [statusFilter, categoryFilter]);
-
-  const fetchIncomes = async (showFullLoading = true) => {
-    try {
-      if (showFullLoading) {
-        setLoading(true);
-      } else {
-        setTableLoading(true);
-      }
-
-      setError(null);
-
-      const params: {
-        status?: InvoiceStatus;
-        category?: OtherIncomeCategory;
-      } = {};
-
-      if (statusFilter !== 'all') params.status = statusFilter;
-      if (categoryFilter !== 'all') params.category = categoryFilter;
-
-      const response = await otherIncomeAPI.getMyIncomes(user!.id, params);
-
-      setIncomes(response.data || []);
-      setListStats(response.stats || null);
-    } catch (err) {
-      console.error('Error fetching other incomes:', err);
-      setError(err instanceof Error ? err.message : 'Failed to fetch other incomes');
-    } finally {
-      setLoading(false);
-      setTableLoading(false);
-    }
-  };
-
-  const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this income?')) return;
-
-    try {
-      setDeletingId(id);
-      await otherIncomeAPI.delete(id);
-      await fetchIncomes(false);
-      alert('Income deleted successfully!');
-    } catch (err) {
-      console.error('Error deleting income:', err);
-      alert(err instanceof Error ? err.message : 'Failed to delete income');
-    } finally {
-      setDeletingId(null);
-    }
-  };
-
-  const handleDownloadPDF = async (id: string) => {
-    try {
-      setDownloading(id);
-      const blob = await otherIncomeAPI.downloadInvoice(id);
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `other-income-invoice-${id}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('Error downloading PDF:', err);
-      alert(err instanceof Error ? err.message : 'Failed to download invoice');
-    } finally {
-      setDownloading(null);
-    }
-  };
-
-  const handleMarkAsPaid = async (id: string) => {
-    try {
-      setMarkingPaidId(id);
-      await otherIncomeAPI.markAsPaid(id);
-      await fetchIncomes(false);
-      alert('Income marked as paid!');
-    } catch (err) {
-      console.error('Error marking as paid:', err);
-      alert(err instanceof Error ? err.message : 'Failed to update status');
-    } finally {
-      setMarkingPaidId(null);
-    }
-  };
-
-  const formatCurrency = (amount: number) => {
-    const numericAmount =
-      typeof amount === 'number' ? amount : Number.parseFloat(String(amount)) || 0;
-
-    const roundedAmount = Math.round(numericAmount * 1000) / 1000;
-    const decimals = Number.isInteger(roundedAmount)
-      ? 0
-      : Math.min(String(roundedAmount).split('.')[1]?.length || 0, 3);
-
-    return roundedAmount.toLocaleString('en-KE', {
-      minimumFractionDigits: decimals,
-      maximumFractionDigits: decimals,
-    });
-  };
-
-  const formatDate = (date?: string | null) => {
-    if (!date) return '—';
-    return new Date(date).toLocaleDateString('en-KE', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
-  };
-
-  const getStatusBadge = (status: InvoiceStatus) => {
-    const config: Record<InvoiceStatus, string> = {
-      UNPAID: 'bg-yellow-100 text-yellow-800',
-      PARTIAL: 'bg-blue-100 text-blue-800',
-      PAID: 'bg-green-100 text-green-800',
-      OVERDUE: 'bg-red-100 text-red-800',
-      CANCELLED: 'bg-gray-100 text-gray-800',
-    };
-
-    return (
-      <span
-        className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${config[status]}`}
-      >
-        {status}
-      </span>
-    );
-  };
-
-  const getCategoryLabel = (category: OtherIncomeCategory) => {
-    return otherIncomeAPI.getCategoryLabel(category);
-  };
-
-  const summary = useMemo(() => {
-    return {
-      totalCount: listStats?.totalCount ?? incomes.length,
-      totalAmount:
-        listStats?.totalAmount ??
-        incomes.reduce((sum, item) => sum + Number(item.totalAmount || 0), 0),
-      totalVat:
-        listStats?.totalVat ??
-        incomes.reduce((sum, item) => sum + Number(item.vatAmount || 0), 0),
-      unpaidCount: incomes.filter(
-        (item) => item.status === 'UNPAID' || item.status === 'OVERDUE'
-      ).length,
-    };
-  }, [incomes, listStats]);
-
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50">
-        <div className="h-12 w-12 animate-spin rounded-full border-b-2 border-blue-600" />
-      </div>
-    );
+  const deleteIncome = async () => {
+    if (!pendingDelete) return
+    setDeletingId(pendingDelete.id)
+    try { await otherIncomeAPI.delete(pendingDelete.id); setPendingDelete(null); await fetchIncomes(false); alert('Income deleted successfully!') }
+    catch (deleteError) { alert(deleteError instanceof Error ? deleteError.message : 'Failed to delete income') }
+    finally { setDeletingId(null) }
+  }
+  const downloadPdf = async (id: string) => {
+    setDownloading(id)
+    try { const blob = await otherIncomeAPI.downloadInvoice(id); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = `other-income-invoice-${id}.pdf`; document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url) }
+    catch (downloadError) { alert(downloadError instanceof Error ? downloadError.message : 'Failed to download invoice') }
+    finally { setDownloading(null) }
+  }
+  const markPaid = async (id: string) => {
+    setMarkingPaidId(id)
+    try { await otherIncomeAPI.markAsPaid(id); await fetchIncomes(false); alert('Income marked as paid!') }
+    catch (statusError) { alert(statusError instanceof Error ? statusError.message : 'Failed to update status') }
+    finally { setMarkingPaidId(null) }
   }
 
+  const summary = useMemo(() => ({
+    totalCount: listStats?.totalCount ?? incomes.length,
+    totalAmount: listStats?.totalAmount ?? incomes.reduce((sum, item) => sum + Number(item.totalAmount || 0), 0),
+    totalVat: listStats?.totalVat ?? incomes.reduce((sum, item) => sum + Number(item.vatAmount || 0), 0),
+    unpaidCount: incomes.filter(item => item.status === 'UNPAID' || item.status === 'OVERDUE').length,
+  }), [incomes, listStats])
+
+  if (loading) return <div className="flex min-h-64 items-center justify-center"><IncomeTableSkeleton /></div>
+
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">My Income</h1>
-          <p className="mt-2 text-gray-600">
-            Track your commission earnings and other income
-          </p>
+    <div className="min-w-0 space-y-6 pb-4">
+      <PageHeader title="Other income" description="Manage income from consultancy, sales, and other services." actions={<Button size="sm" onClick={() => { setEditingIncome(null); setShowForm(true) }}><Plus className="size-4" />Add income</Button>} />
+      <div className="flex gap-2 border-b border-border pb-2"><Link href="/myIncome" className={buttonStyles({ variant: 'ghost', size: 'sm' })}>Commission history</Link><Link href="/myIncome/other" className={buttonStyles({ size: 'sm' })}>Other income</Link></div>
 
-          <div className="mt-6 border-b border-gray-200">
-            <nav className="-mb-px flex space-x-8">
-              <Link
-                href="/myIncome"
-                className="border-b-2 border-transparent px-1 py-4 text-sm font-medium text-gray-500 hover:border-gray-300 hover:text-gray-700"
-              >
-                Commission History
-              </Link>
-              <Link
-                href="/myIncome/other"
-                className="border-b-2 border-blue-500 px-1 py-4 text-sm font-medium text-blue-600"
-              >
-                Other Income
-              </Link>
-            </nav>
+      <OtherIncomeOverviewPanel summary={summary} statusBreakdown={statusBreakdown} />
+
+      {error && <Alert variant="destructive"><AlertTitle>Unable to load other income</AlertTitle><AlertDescription>{error}</AlertDescription><Button className="mt-3" size="sm" variant="outline" onClick={() => void fetchIncomes(true)}><RefreshCw className="size-4" />Retry</Button></Alert>}
+
+      <Card>
+        <CardHeader className="gap-4">
+          <CardTitle>Other income records</CardTitle>
+          <div className="flex flex-wrap items-end gap-4">
+            <FormField label="Status"><Select value={statusFilter} onValueChange={value => setStatusFilter(value as InvoiceStatus | 'all')}><SelectTrigger className="w-44"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All statuses</SelectItem>{(['UNPAID', 'PAID', 'PARTIAL', 'OVERDUE', 'CANCELLED'] as const).map(status => <SelectItem key={status} value={status}>{status}</SelectItem>)}</SelectContent></Select></FormField>
+            <FormField label="Category"><Select value={categoryFilter} onValueChange={value => setCategoryFilter(value as OtherIncomeCategory | 'all')}><SelectTrigger className="w-52"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All categories</SelectItem>{otherIncomeAPI.getCategories().map(category => <SelectItem key={category.value} value={category.value}>{category.label}</SelectItem>)}</SelectContent></Select></FormField>
+            <Button variant="ghost" size="sm" onClick={() => { setStatusFilter('all'); setCategoryFilter('all') }}>Clear filters</Button>
           </div>
-        </div>
-
-        <div className="mb-6 flex items-center justify-between">
-          <div>
-            <h2 className="text-xl font-semibold text-gray-900">Other Income</h2>
-            <p className="text-sm text-gray-500">
-              Manage income from consultancy, sales, and other services
-            </p>
-          </div>
-
-          <button
-            onClick={() => {
-              setEditingIncome(null);
-              setShowForm(true);
-            }}
-            className="flex items-center rounded-lg bg-blue-600 px-4 py-2 text-white transition-colors hover:bg-blue-700"
-          >
-            <svg className="mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            Add Income
-          </button>
-        </div>
-
-        <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <SummaryCard title="Total Invoices" value={summary.totalCount.toString()} tone="blue" />
-          <SummaryCard title="Total Value" value={formatCompactKes(summary.totalAmount)} fullValueTitle={formatExactKes(summary.totalAmount)} tone="green" />
-          <SummaryCard title="Total VAT" value={formatCompactKes(summary.totalVat)} fullValueTitle={formatExactKes(summary.totalVat)} tone="purple" />
-          <SummaryCard title="Open / Overdue" value={summary.unpaidCount.toString()} tone="amber" />
-        </div>
-
-        <div className="mb-6 flex flex-wrap items-end gap-4 rounded-lg bg-white p-4 shadow">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-gray-700">Status</label>
-            <select
-              className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:ring-blue-500"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as InvoiceStatus | 'all')}
-            >
-              <option value="all">All Status</option>
-              <option value="UNPAID">Unpaid</option>
-              <option value="PAID">Paid</option>
-              <option value="PARTIAL">Partial</option>
-              <option value="OVERDUE">Overdue</option>
-              <option value="CANCELLED">Cancelled</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="mb-1 block text-xs font-medium text-gray-700">Category</label>
-            <select
-              className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:ring-blue-500"
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value as OtherIncomeCategory | 'all')}
-            >
-              <option value="all">All Categories</option>
-              {otherIncomeAPI.getCategories().map((cat) => (
-                <option key={cat.value} value={cat.value}>
-                  {cat.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <button
-            onClick={() => {
-              setStatusFilter('all');
-              setCategoryFilter('all');
-            }}
-            className="text-sm text-blue-600 hover:text-blue-800"
-          >
-            Clear Filters
-          </button>
-        </div>
-
-        {error && (
-          <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {error}
-          </div>
-        )}
-
-        <div className="overflow-hidden rounded-lg bg-white shadow">
-          {tableLoading ? (
-            <TableSkeleton />
-          ) : incomes.length === 0 ? (
-            <div className="py-12 text-center">
-              <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1"
-                />
-              </svg>
-              <h3 className="mt-2 text-sm font-medium text-gray-900">No other income</h3>
-              <p className="mt-1 text-sm text-gray-500">
-                Add income from consultancy, property sales, or other services.
-              </p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                      Invoice #
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                      Title / Client
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                      Category
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                      Amount
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                      VAT
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                      Total
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                      Status
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                      Date
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-
-                <tbody className="divide-y divide-gray-200 bg-white">
-                  {incomes.map((income) => {
-                    const hasInvoice = Boolean(income.invoiceNumber);
-
-                    return (
-                      <tr key={income.id} className="hover:bg-gray-50">
-                        <td className="whitespace-nowrap px-6 py-4 text-sm font-medium">
-                          {hasInvoice ? (
-                            <Link
-                              href={`/myIncome/other/${income.id}`}
-                              className="font-semibold text-blue-600 hover:text-blue-800 hover:underline"
-                            >
-                              {income.invoiceNumber}
-                            </Link>
-                          ) : (
-                            <span className="text-gray-400">No invoice</span>
-                          )}
-                        </td>
-
-                        <td className="px-6 py-4">
-                          <div className="text-sm font-medium text-gray-900">{income.title}</div>
-                          <div className="text-sm text-gray-500">{income.clientName}</div>
-                        </td>
-
-                        <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
-                          {getCategoryLabel(income.category)}
-                        </td>
-
-                        <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-900">
-                          KSH {formatCurrency(Number(income.amount || 0))}
-                        </td>
-
-                        <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
-                          {income.vatType !== 'NOT_APPLICABLE' && income.vatAmount ? (
-                            `KSH ${formatCurrency(Number(income.vatAmount || 0))}`
-                          ) : (
-                            'N/A'
-                          )}
-                        </td>
-
-                        <td className="whitespace-nowrap px-6 py-4 text-sm font-semibold text-green-600">
-                          KSH {formatCurrency(Number(income.totalAmount || 0))}
-                        </td>
-
-                        <td className="whitespace-nowrap px-6 py-4">
-                          {getStatusBadge(income.status)}
-                        </td>
-
-                        <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
-                          {formatDate(income.issueDate)}
-                        </td>
-
-                        <td className="whitespace-nowrap px-6 py-4 text-sm">
-                          <div className="flex flex-col space-y-1">
-                            {hasInvoice && (
-                              <Link
-                                href={`/myIncome/other/${income.id}`}
-                                className="text-left text-xs text-sky-600 hover:text-sky-900"
-                              >
-                                View Details
-                              </Link>
-                            )}
-
-                            {(income.status === 'UNPAID' || income.status === 'PARTIAL') && (
-                              <button
-                                onClick={() => handleMarkAsPaid(income.id)}
-                                disabled={markingPaidId === income.id}
-                                className="text-left text-xs text-green-600 hover:text-green-900 disabled:opacity-50"
-                              >
-                                {markingPaidId === income.id ? 'Updating...' : 'Mark Paid'}
-                              </button>
-                            )}
-
-                            <button
-                              onClick={() => handleDownloadPDF(income.id)}
-                              disabled={downloading === income.id}
-                              className="text-left text-xs text-blue-600 hover:text-blue-900 disabled:opacity-50"
-                            >
-                              {downloading === income.id ? 'Downloading...' : 'Download PDF'}
-                            </button>
-
-                            <button
-                              onClick={() => {
-                                setEditingIncome(income);
-                                setShowForm(true);
-                              }}
-                              className="text-left text-xs text-indigo-600 hover:text-indigo-900"
-                            >
-                              Edit
-                            </button>
-
-                            <button
-                              onClick={() => handleDelete(income.id)}
-                              disabled={deletingId === income.id}
-                              className="text-left text-xs text-red-600 hover:text-red-900 disabled:opacity-50"
-                            >
-                              {deletingId === income.id ? 'Deleting...' : 'Delete'}
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+        </CardHeader>
+        <CardContent>
+          {tableLoading ? <IncomeTableSkeleton /> : incomes.length === 0 ? <EmptyState title="No other income" description="Add income from consultancy, property sales, or other services." /> : (
+            <Table className="min-w-[1180px]"><TableHead><TableHeader>Invoice #</TableHeader><TableHeader>Title / client</TableHeader><TableHeader>Category</TableHeader><TableHeader className="text-right">Amount</TableHeader><TableHeader className="text-right">VAT</TableHeader><TableHeader className="text-right">Total</TableHeader><TableHeader>Status</TableHeader><TableHeader>Date</TableHeader><TableHeader>Actions</TableHeader></TableHead>
+              <TableBody>{incomes.map(income => <TableRow key={income.id}>
+                <TableCell>{income.invoiceNumber ? <Link href={`/myIncome/other/${income.id}`} className="font-semibold text-primary hover:underline">{income.invoiceNumber}</Link> : <span className="text-muted-foreground">No invoice</span>}</TableCell>
+                <TableCell className="min-w-56 whitespace-normal"><p className="font-medium">{income.title}</p><p className="text-xs text-muted-foreground">{income.clientName}</p></TableCell><TableCell>{otherIncomeAPI.getCategoryLabel(income.category)}</TableCell>
+                <TableCell className="text-right tabular-nums">{formatCurrency(income.amount)}</TableCell><TableCell className="text-right tabular-nums">{income.vatType !== 'NOT_APPLICABLE' && income.vatAmount ? formatCurrency(income.vatAmount) : 'N/A'}</TableCell><TableCell className="text-right font-semibold tabular-nums">{formatCurrency(income.totalAmount)}</TableCell>
+                <TableCell><StatusBadge status={income.status} appearance={statusAppearance(income.status)} /></TableCell><TableCell>{formatDate(income.issueDate)}</TableCell>
+                <TableCell>
+                  <div className="flex flex-nowrap items-center gap-1">
+                    {income.invoiceNumber && (
+                      <Link
+                        href={`/myIncome/other/${income.id}`}
+                        className={buttonStyles({ variant: 'ghost', size: 'icon', className: 'h-8 w-8 text-sky-600 hover:bg-sky-500/10 hover:text-sky-700 dark:text-sky-400' })}
+                        aria-label="View income details"
+                        title="View income details"
+                      >
+                        <Eye className="size-4" aria-hidden="true" />
+                      </Link>
+                    )}
+                    {(income.status === 'UNPAID' || income.status === 'PARTIAL') && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-emerald-600 hover:bg-emerald-500/10 hover:text-emerald-700 dark:text-emerald-400"
+                        onClick={() => void markPaid(income.id)}
+                        loading={markingPaidId === income.id}
+                        aria-label="Mark income as paid"
+                        title="Mark income as paid"
+                      >
+                        {markingPaidId !== income.id && <CircleCheck className="size-4" aria-hidden="true" />}
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-primary hover:bg-primary/10 hover:text-primary"
+                      onClick={() => void downloadPdf(income.id)}
+                      loading={downloading === income.id}
+                      aria-label="Download income PDF"
+                      title="Download income PDF"
+                    >
+                      {downloading !== income.id && <Download className="size-4" aria-hidden="true" />}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-amber-600 hover:bg-amber-500/10 hover:text-amber-700 dark:text-amber-400"
+                      onClick={() => { setEditingIncome(income); setShowForm(true) }}
+                      aria-label="Edit income"
+                      title="Edit income"
+                    >
+                      <Pencil className="size-4" aria-hidden="true" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      onClick={() => setPendingDelete(income)}
+                      disabled={deletingId === income.id}
+                      aria-label="Delete income"
+                      title="Delete income"
+                    >
+                      <Trash2 className="size-4" aria-hidden="true" />
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>)}</TableBody>
+            </Table>
           )}
-        </div>
-      </div>
+        </CardContent>
+      </Card>
 
-      <IncomeFormModal
-        isOpen={showForm}
-        onClose={() => {
-          setShowForm(false);
-          setEditingIncome(null);
-        }}
-        onSuccess={() => {
-          fetchIncomes(false);
-        }}
-        editingIncome={editingIncome}
-        managerId={user?.id || ''}
-      />
+      <IncomeFormModal isOpen={showForm} onClose={() => { setShowForm(false); setEditingIncome(null) }} onSuccess={() => void fetchIncomes(false)} editingIncome={editingIncome} managerId={user?.id || ''} />
+      <Dialog open={Boolean(pendingDelete)} onOpenChange={open => { if (!open && !deletingId) setPendingDelete(null) }}><DialogContent><DialogHeader><DialogTitle>Delete other income?</DialogTitle><DialogDescription>This will delete {pendingDelete?.invoiceNumber || pendingDelete?.title}. This action uses the existing deletion request and cannot be undone.</DialogDescription></DialogHeader><DialogFooter><Button variant="outline" onClick={() => setPendingDelete(null)} disabled={Boolean(deletingId)}>Cancel</Button><Button variant="destructive" onClick={() => void deleteIncome()} loading={Boolean(deletingId)}>Delete income</Button></DialogFooter></DialogContent></Dialog>
     </div>
-  );
+  )
 }

@@ -1,7 +1,8 @@
 import type { AnalyticsFilters, MetricDefinition } from '@/types/analytics'
 import type { AnalyticsDashboardData } from '../types'
-import { CohortVsCashPanel, RevenueSection } from '../AnalyticsCore'
+import { RevenueSection } from '../AnalyticsCore'
 import { RentMetrics } from './RentMetrics'
+import { CohortCashComparison, PortfolioContext } from './RentContextPanels'
 import { ChartPanel } from '../charts/ChartPanel'
 import { CollectionsTrendChart } from '../charts/CollectionsTrendChart'
 import { ReceivablesTrendChart } from '../charts/ReceivablesTrendChart'
@@ -17,6 +18,7 @@ export function RentAnalytics({ data, filters, definitions }: {
   return (
     <>
       {summary && <RentMetrics summary={summary} filters={filters} />}
+      <PortfolioContext occupancy={data.occupancy} tenants={data.tenants} />
       <FinancialAnalyticsDetails data={data} definitions={definitions} />
     </>
   )
@@ -30,7 +32,7 @@ export function FinancialAnalyticsDetails({ data, definitions }: {
   const hasFinancialRecords = Boolean(summary && (summary.invoiceCount > 0 || summary.openInvoiceCount > 0))
   return (
     <>
-      {data.cohortCash && <CohortVsCashPanel data={data.cohortCash} />}
+      {data.cohortCash && <CohortCashComparison data={data.cohortCash} />}
       {data.collections && data.receivablesTrend && data.status && (
         <div className="grid gap-6 xl:grid-cols-2">
           <ChartPanel title="Recorded collection trend" subtitle="PaymentReport cash by datePaid; credit and prepaid rows excluded" tooltip="Money actually received, grouped by payment date. Compare with the receivables trend: one follows cash, the other follows invoices."><CollectionsTrendChart data={data.collections} /></ChartPanel>

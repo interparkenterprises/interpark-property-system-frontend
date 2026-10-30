@@ -1,24 +1,51 @@
 import type { AnalyticsFilters, OccupancySummary, TenantsSummary } from '@/types/analytics'
-import type { AnalyticsDashboardData } from '../types'
-import { Explain } from '../AnalyticsCore'
-import { FinancialAnalyticsDetails } from '../rent/RentAnalytics'
-import { RentMetrics } from '../rent/RentMetrics'
-import { OccupancyMetrics } from '../occupancy/OccupancyMetrics'
+import type { AnalyticsDashboardData, OverviewPanelAccess, OverviewPanelErrors, OverviewPanelLoading } from '../types'
+import { CollectionsPerformancePanel } from './CollectionsPerformancePanel'
+import { OccupancyPanel } from './OccupancyPanel'
+import { PropertyPerformancePanel } from './PropertyPerformancePanel'
+import { ReceivablesPanel } from './ReceivablesPanel'
+import { TenantMovementPanel } from './TenantMovementPanel'
 
-export function AnalyticsOverview({ data, filters, occupancy, tenants }: {
-  data: AnalyticsDashboardData
+export function AnalyticsOverview({ data, filters, occupancy, tenants, access, loading, errors, onRetry }: {
+  data: AnalyticsDashboardData | null
   filters: AnalyticsFilters
   occupancy?: OccupancySummary
   tenants?: TenantsSummary
+  access: OverviewPanelAccess
+  loading: OverviewPanelLoading
+  errors: OverviewPanelErrors
+  onRetry: () => void
 }) {
+  const receivables = data?.overview?.receivables || data?.receivables
+
   return (
-    <>
-      <Explain title="How to read this dashboard">
-        <strong className="text-foreground">Billed</strong> and <strong className="text-foreground">paid</strong> follow invoices due in the range; <strong className="text-foreground">recorded collections</strong> follow the date money was received. They answer different questions, so they will not match. The cohort-vs-cash panel reconciles them. Hover any information icon for the exact metric definition.
-      </Explain>
-      {data.overview?.receivables && <RentMetrics summary={data.overview.receivables} filters={filters} />}
-      {occupancy && tenants && <OccupancyMetrics occupancy={occupancy} tenants={tenants} />}
-      <FinancialAnalyticsDetails data={data} definitions={data.meta[0]?.definitions} />
-    </>
+    <div className="space-y-6">
+      <div className="grid min-w-0 gap-6 xl:grid-cols-3">
+        {access.collections && (
+          <CollectionsPerformancePanel
+            summary={receivables}
+            trend={data?.receivablesTrend}
+            loading={loading.collections}
+            error={errors.collections}
+            onRetry={onRetry}
+            className="xl:col-span-2"
+          />
+        )}
+        {access.receivables && (
+          <ReceivablesPanel
+            summary={receivables}
+            status={data?.status}
+            loading={loading.receivables}
+            error={errors.receivables}
+            onRetry={onRetry}
+          />
+        )}
+      </div>
+      <div className="grid min-w-0 gap-6 lg:grid-cols-2 xl:grid-cols-3">
+        {access.occupancy && <OccupancyPanel data={occupancy} asOf={filters.asOf} loading={loading.occupancy} error={errors.occupancy} onRetry={onRetry} />}
+        {access.tenants && <TenantMovementPanel data={tenants} loading={loading.tenants} error={errors.tenants} onRetry={onRetry} />}
+        {access.properties && <PropertyPerformancePanel data={data?.revenue} loading={loading.properties} error={errors.properties} onRetry={onRetry} />}
+      </div>
+    </div>
   )
 }

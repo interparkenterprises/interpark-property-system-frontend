@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { ArrowLeft, ChevronRight, Menu } from 'lucide-react'
 import { usePathname, useRouter } from 'next/navigation'
 import ThemeToggle from './ThemeToggle'
+import { useBreadcrumbState, type BreadcrumbOverride } from './BreadcrumbContext'
 
 interface AppHeaderProps {
   onMobileOpen: () => void
@@ -13,6 +14,7 @@ interface AppHeaderProps {
 interface BreadcrumbItem {
   label: string
   href?: string
+  path: string
 }
 
 const segmentLabels: Record<string, string> = {
@@ -25,7 +27,7 @@ const segmentLabels: Record<string, string> = {
   'create-with-property': 'Create with Property',
   dashboard: 'Dashboard',
   'demand-letters': 'Demand Letters',
-  details: 'Details',
+  details: 'Financial Details',
   due: 'Due for Payment',
   edit: 'Edit',
   employees: 'Employees',
@@ -96,24 +98,39 @@ function getBreadcrumbLabel(segments: string[], index: number) {
   return segmentLabels[segment] ?? formatSegment(segment)
 }
 
-function buildBreadcrumbs(pathname: string): BreadcrumbItem[] {
+function buildBreadcrumbs(pathname: string, overrides: Record<string, BreadcrumbOverride>, trail: BreadcrumbOverride[], trailRoot: string | null, action: string | null): BreadcrumbItem[] {
   const segments = pathname.split('/').filter(Boolean)
 
   if (segments.length === 0 || (segments.length === 1 && segments[0] === 'dashboard')) {
-    return [{ label: 'Dashboard' }]
+    return [{ label: 'Dashboard', path: '/dashboard' }]
   }
 
-  const breadcrumbs: BreadcrumbItem[] = [{ label: 'Dashboard', href: '/dashboard' }]
+  const breadcrumbs: BreadcrumbItem[] = [{ label: 'Dashboard', href: '/dashboard', path: '/dashboard' }]
 
   segments.forEach((segment, index) => {
     if (index === 0 && segment === 'dashboard') return
 
-    const isCurrent = index === segments.length - 1
+    const path = `/${segments.slice(0, index + 1).join('/')}`
+    if (trailRoot && path.length > trailRoot.length && path.startsWith(`${trailRoot}/`)) return
+    const override = overrides[path]
+    const isCurrent = index === segments.length - 1 && !trail.length && !action
     breadcrumbs.push({
-      label: getBreadcrumbLabel(segments, index),
-      href: isCurrent ? undefined : `/${segments.slice(0, index + 1).join('/')}`,
+      label: override?.label || getBreadcrumbLabel(segments, index),
+      href: isCurrent ? undefined : (override?.href || path),
+      path,
     })
   })
+
+  trail.forEach((item, index) => {
+    const isCurrent = index === trail.length - 1 && !action
+    breadcrumbs.push({
+      label: item.label || 'Record details',
+      href: isCurrent ? undefined : item.href,
+      path: `${pathname}#breadcrumb-${index}`,
+    })
+  })
+
+  if (action) breadcrumbs.push({ label: action, path: pathname })
 
   return breadcrumbs
 }
@@ -121,7 +138,8 @@ function buildBreadcrumbs(pathname: string): BreadcrumbItem[] {
 export default function AppHeader({ onMobileOpen, userName }: AppHeaderProps) {
   const pathname = usePathname()
   const router = useRouter()
-  const breadcrumbs = buildBreadcrumbs(pathname)
+  const { overrides, trail, trailRoot, backHref, action } = useBreadcrumbState()
+  const breadcrumbs = buildBreadcrumbs(pathname, overrides, trail, trailRoot, action)
 
   return (
     <header className="flex h-16 shrink-0 items-center gap-2 border-b border-border bg-card px-3 text-card-foreground sm:gap-3 sm:px-4">
@@ -136,7 +154,7 @@ export default function AppHeader({ onMobileOpen, userName }: AppHeaderProps) {
 
       <button
         type="button"
-        onClick={() => router.back()}
+        onClick={() => backHref ? router.push(backHref) : router.back()}
         className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         aria-label="Go back"
         title="Go back"
@@ -152,7 +170,7 @@ export default function AppHeader({ onMobileOpen, userName }: AppHeaderProps) {
 
             return (
               <li
-                key={`${breadcrumb.label}-${index}`}
+                key={`${breadcrumb.path}-${index}`}
                 className={`min-w-0 items-center gap-1 sm:gap-1.5 ${hideOnMobile ? 'hidden sm:flex' : 'flex'}`}
               >
                 {index > 0 && (

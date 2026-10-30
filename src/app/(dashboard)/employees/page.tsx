@@ -99,7 +99,7 @@ export default function EmployeesPage() {
           }
         />
       ) : (
-        <EmployeeList employees={employees} canEdit={canCreateEmployee} />
+        <EmployeeList employees={employees} canEdit={canAddEmployee} />
       )}
     </div>
   )

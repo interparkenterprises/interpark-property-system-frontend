@@ -1,687 +1,158 @@
-'use client';
+'use client'
 
-import { useState, useEffect } from 'react';
-import Link from 'next/link';
-import { useAuth } from '@/context/AuthContext';
-import { commissionsAPI } from '@/lib/api';
-import { ManagerCommission, CommissionStats, GenerateCommissionInvoiceRequest } from '@/types';
-import { formatCompactKes, formatExactKes } from '@/lib/numberFormat';
+import { useCallback, useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
+import { Download, FileText, RefreshCw } from 'lucide-react'
+import { useAuth } from '@/context/AuthContext'
+import { GenerateCommissionInvoiceDialog, type CommissionInvoiceFormData } from '@/components/my-income/GenerateCommissionInvoiceDialog'
+import { CommissionPerformancePanel } from '@/components/my-income/IncomeAnalyticalPanels'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Button, buttonStyles } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { EmptyState } from '@/components/ui/empty-state'
+import { PageHeader } from '@/components/ui/page-header'
+import { Skeleton } from '@/components/ui/skeleton'
+import { StatusBadge } from '@/components/ui/status-badge'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { commissionsAPI } from '@/lib/api'
+import type { CommissionStats, CommissionStatus, GenerateCommissionInvoiceRequest, ManagerCommission } from '@/types'
 
-// =============================================
-// SKELETON LOADING COMPONENT
-// =============================================
-const TableSkeleton = () => (
-  <div className="overflow-x-auto animate-pulse">
-    <table className="min-w-full divide-y divide-gray-200">
-      <thead className="bg-gray-50">
-        <tr>
-          {[1,2,3,4,5,6,7,8].map(i => (
-            <th key={i} className="px-6 py-3">
-              <div className="h-4 bg-gray-200 rounded w-20"></div>
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody className="bg-white divide-y divide-gray-200">
-        {[1,2,3,4,5].map(i => (
-          <tr key={i}>
-            {[1,2,3,4,5,6,7,8].map(j => (
-              <td key={j} className="px-6 py-4">
-                <div className="h-4 bg-gray-100 rounded w-24"></div>
-              </td>
-            ))}
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  </div>
-);
+type CommissionFilter = 'all' | 'pending' | 'paid' | 'processing'
+const STORAGE_KEY = 'invoiceFormData'
+const defaultInvoiceValues: CommissionInvoiceFormData = { description: '', vatRate: 16, bankName: '', accountName: '', accountNumber: '', branch: '', bankCode: '', swiftCode: '', currency: 'KES' }
 
-// =============================================
-// MAIN PAGE COMPONENT
-// =============================================
+function formatDate(value: string) { return new Date(value).toLocaleDateString('en-KE', { year: 'numeric', month: 'short', day: 'numeric' }) }
+function formatCurrency(value: number) { return new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES', maximumFractionDigits: 0 }).format(value) }
+function statusAppearance(status: CommissionStatus) {
+  if (status === 'PAID') return 'success' as const
+  if (status === 'PENDING') return 'warning' as const
+  if (status === 'PROCESSING') return 'info' as const
+  return 'destructive' as const
+}
+
+function CommissionTableSkeleton() {
+  return <div className="space-y-3 rounded-lg border border-border p-4">{[0, 1, 2, 3].map(row => <div key={row} className="grid grid-cols-4 gap-4"><Skeleton className="h-5" /><Skeleton className="h-5" /><Skeleton className="h-5" /><Skeleton className="h-5" /></div>)}</div>
+}
+
 export default function MyIncomePage() {
-  const { user } = useAuth();
-  const [incomeData, setIncomeData] = useState<{
-    commissions: ManagerCommission[];
-    stats: CommissionStats | null;
-    loading: boolean;
-    error: string | null;
-  }>({
-    commissions: [],
-    stats: null,
-    loading: true,
-    error: null,
-  });
-  const [tableLoading, setTableLoading] = useState(false);
-  const [selectedPeriod, setSelectedPeriod] = useState<'all' | 'pending' | 'paid' | 'processing'>('all');
-  const [updatingCommission, setUpdatingCommission] = useState<string | null>(null);
-  const [generatingInvoice, setGeneratingInvoice] = useState<string | null>(null);
-  const [downloadingInvoice, setDownloadingInvoice] = useState<string | null>(null);
-  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
-  const [selectedCommissionForInvoice, setSelectedCommissionForInvoice] = useState<string | null>(null);
-  const [invoiceFormData, setInvoiceFormData] = useState<InvoiceFormData>({
-    description: '',
-    vatRate: 16,
-    bankName: '',
-    accountName: '',
-    accountNumber: '',
-    branch: '',
-    bankCode: '',
-    swiftCode: '',
-    currency: 'KES',
-  });
+  const { user } = useAuth()
+  const userId = user?.id
+  const [commissions, setCommissions] = useState<ManagerCommission[]>([])
+  const [stats, setStats] = useState<CommissionStats | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [tableLoading, setTableLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [selectedPeriod, setSelectedPeriod] = useState<CommissionFilter>('all')
+  const [updatingCommission, setUpdatingCommission] = useState<string | null>(null)
+  const [generatingInvoice, setGeneratingInvoice] = useState<string | null>(null)
+  const [downloadingInvoice, setDownloadingInvoice] = useState<string | null>(null)
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false)
+  const [selectedCommissionForInvoice, setSelectedCommissionForInvoice] = useState<string | null>(null)
+  const [invoiceFormData, setInvoiceFormData] = useState(defaultInvoiceValues)
+  const loadedOnce = useRef(false)
 
-  interface InvoiceFormData {
-    description: string;
-    vatRate: number;
-    bankName: string;
-    accountName: string;
-    accountNumber: string;
-    branch: string;
-    bankCode: string;
-    swiftCode: string;
-    currency: string;
+  useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY)
+    if (!saved) return
+    const frame = window.requestAnimationFrame(() => {
+      try { setInvoiceFormData(current => ({ ...current, ...JSON.parse(saved), description: '' })) } catch { /* Ignore invalid persisted data. */ }
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [])
+  useEffect(() => { if (showInvoiceModal) localStorage.setItem(STORAGE_KEY, JSON.stringify(invoiceFormData)) }, [invoiceFormData, showInvoiceModal])
+
+  const fetchIncomeData = useCallback(async (fullLoading = false) => {
+    if (!userId) return
+    if (fullLoading) setLoading(true); else setTableLoading(true)
+    setError(null)
+    try {
+      const [commissionResponse, statsResponse] = await Promise.all([commissionsAPI.getManagerCommissions(userId), commissionsAPI.getCommissionStats(userId)])
+      const records = commissionResponse?.data || []
+      setCommissions(selectedPeriod === 'all' ? records : records.filter(record => record.status === selectedPeriod.toUpperCase()))
+      setStats(statsResponse)
+      loadedOnce.current = true
+    } catch (fetchError) {
+      setError(fetchError instanceof Error ? fetchError.message : 'Failed to fetch income data')
+    } finally {
+      setLoading(false); setTableLoading(false)
+    }
+  }, [selectedPeriod, userId])
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => void fetchIncomeData(!loadedOnce.current))
+    return () => window.cancelAnimationFrame(frame)
+  }, [fetchIncomeData])
+
+  const openInvoiceModal = (commission: ManagerCommission) => {
+    let persisted = invoiceFormData
+    const saved = localStorage.getItem(STORAGE_KEY)
+    if (saved) { try { persisted = { ...persisted, ...JSON.parse(saved) } } catch { /* Ignore invalid persisted data. */ } }
+    setSelectedCommissionForInvoice(commission.id)
+    setInvoiceFormData({ ...persisted, description: `Management commission for ${commission.property?.name || 'property'} (${formatDate(commission.periodStart)} - ${formatDate(commission.periodEnd)})`, accountName: persisted.accountName || user?.name || '' })
+    setShowInvoiceModal(true)
   }
 
-  const INVOICE_FORM_STORAGE_KEY = 'invoiceFormData';
-
-  // Load saved form data from localStorage
-  useEffect(() => {
-    const savedFormData = localStorage.getItem(INVOICE_FORM_STORAGE_KEY);
-    if (savedFormData) {
-      try {
-        const parsedData = JSON.parse(savedFormData);
-        setInvoiceFormData(prev => ({
-          ...prev,
-          ...parsedData,
-          description: '',
-        }));
-      } catch (error) {
-        console.error('Error parsing saved form data:', error);
-      }
-    }
-  }, []);
-
-  // Save form data to localStorage
-  useEffect(() => {
-    if (showInvoiceModal) {
-      localStorage.setItem(INVOICE_FORM_STORAGE_KEY, JSON.stringify(invoiceFormData));
-    }
-  }, [invoiceFormData, showInvoiceModal]);
-
-  // Initial data fetch
-  useEffect(() => {
-    if (user?.id) {
-      fetchIncomeData(true);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
-
-  // Fetch data when period changes
-  useEffect(() => {
-    if (user?.id && !incomeData.loading) {
-      fetchIncomeData(false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedPeriod]);
-
-  const fetchIncomeData = async (showFullLoading: boolean = true) => {
+  const generateInvoice = async () => {
+    if (!selectedCommissionForInvoice) return
+    setGeneratingInvoice(selectedCommissionForInvoice)
     try {
-      if (showFullLoading) {
-        setIncomeData(prev => ({ ...prev, loading: true, error: null }));
-      } else {
-        setTableLoading(true);
-      }
-      
-      console.log('Fetching income data for manager:', user!.id);
-      
-      const [commissionsResponse, statsResponse] = await Promise.all([
-        commissionsAPI.getManagerCommissions(user!.id),
-        commissionsAPI.getCommissionStats(user!.id)
-      ]);
-
-      console.log('Commissions response:', commissionsResponse);
-      console.log('Stats response:', statsResponse);
-
-      const commissionsArray = commissionsResponse?.data || [];
-      
-      // Filter commissions based on selected period
-      let filteredCommissions = commissionsArray;
-      if (selectedPeriod === 'pending') {
-        filteredCommissions = commissionsArray.filter(commission => 
-          commission.status === 'PENDING'
-        );
-      } else if (selectedPeriod === 'processing') {
-        filteredCommissions = commissionsArray.filter(commission => 
-          commission.status === 'PROCESSING'
-        );
-      } else if (selectedPeriod === 'paid') {
-        filteredCommissions = commissionsArray.filter(commission => 
-          commission.status === 'PAID'
-        );
-      }
-
-      setIncomeData({
-        commissions: filteredCommissions,
-        stats: statsResponse,
-        loading: false,
-        error: null,
-      });
-    } catch (error) {
-      console.error('Error fetching income data:', error);
-      setIncomeData(prev => ({
-        ...prev,
-        loading: false,
-        error: error instanceof Error ? error.message : 'Failed to fetch income data'
-      }));
-    } finally {
-      setTableLoading(false);
-    }
-  };
-
-  // Handlers (unchanged)
-  const handleMarkAsProcessing = async (commissionId: string) => {
-    try {
-      setUpdatingCommission(commissionId);
-      await commissionsAPI.markAsProcessing(commissionId);
-      await fetchIncomeData(false);
-    } catch (error) {
-      console.error('Error marking commission as processing:', error);
-      alert(error instanceof Error ? error.message : 'Failed to update commission status');
-    } finally {
-      setUpdatingCommission(null);
-    }
-  };
-
-  const handleMarkAsPaid = async (commissionId: string) => {
-    try {
-      setUpdatingCommission(commissionId);
-      await commissionsAPI.markAsPaid(commissionId);
-      await fetchIncomeData(false);
-    } catch (error) {
-      console.error('Error marking commission as paid:', error);
-      alert(error instanceof Error ? error.message : 'Failed to update commission status');
-    } finally {
-      setUpdatingCommission(null);
-    }
-  };
-
-  const openInvoiceModal = (commissionId: string, commission: ManagerCommission) => {
-    setSelectedCommissionForInvoice(commissionId);
-    
-    const savedFormData = localStorage.getItem(INVOICE_FORM_STORAGE_KEY);
-    let baseData = invoiceFormData;
-    
-    if (savedFormData) {
-      try {
-        baseData = JSON.parse(savedFormData);
-      } catch (error) {
-        console.error('Error parsing saved form data:', error);
-      }
-    }
-    
-    setInvoiceFormData({
-      ...baseData,
-      description: `Management commission for ${commission.property?.name || 'property'} (${formatDate(commission.periodStart)} - ${formatDate(commission.periodEnd)})`,
-      accountName: baseData.accountName || user?.name || '',
-    });
-    
-    setShowInvoiceModal(true);
-  };
-
-  const closeInvoiceModal = () => {
-    setShowInvoiceModal(false);
-    setTimeout(() => {
-      setSelectedCommissionForInvoice(null);
-    }, 300);
-  };
-
-  const handleGenerateInvoice = async () => {
-    if (!selectedCommissionForInvoice) return;
-
-    try {
-      setGeneratingInvoice(selectedCommissionForInvoice);
-      
-      const requestData: GenerateCommissionInvoiceRequest = {
-        description: invoiceFormData.description,
-        vatRate: invoiceFormData.vatRate,
-        bankName: invoiceFormData.bankName,
-        accountName: invoiceFormData.accountName,
-        accountNumber: invoiceFormData.accountNumber,
-        branch: invoiceFormData.branch || undefined,
-        bankCode: invoiceFormData.bankCode || undefined,
-        swiftCode: invoiceFormData.swiftCode || undefined,
-        currency: invoiceFormData.currency,
-      };
-
-      await commissionsAPI.generateCommissionInvoice(
-        selectedCommissionForInvoice,
-        requestData
-      );
-
-      alert('Invoice generated successfully!');
-      closeInvoiceModal();
-      await fetchIncomeData(false);
-    } catch (error) {
-      console.error('Error generating invoice:', error);
-      alert(error instanceof Error ? error.message : 'Failed to generate invoice');
-    } finally {
-      setGeneratingInvoice(null);
-    }
-  };
-
-  const handleDownloadInvoice = async (commissionId: string) => {
-    try {
-      setDownloadingInvoice(commissionId);
-      
-      const blob = await commissionsAPI.downloadCommissionInvoice(commissionId);
-      
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `commission-invoice-${commissionId}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-      
-      alert('Invoice downloaded successfully!');
-    } catch (error) {
-      console.error('Error downloading invoice:', error);
-      alert(error instanceof Error ? error.message : 'Failed to download invoice');
-    } finally {
-      setDownloadingInvoice(null);
-    }
-  };
-
-  // Utility functions
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-KE', {
-      style: 'currency',
-      currency: 'KES',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(amount);
-  };
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-KE', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
-  };
-
-  const getStatusBadge = (status: string) => {
-    const statusConfig = {
-      PENDING: { color: 'bg-yellow-100 text-yellow-800', label: 'Pending' },
-      PAID: { color: 'bg-green-100 text-green-800', label: 'Paid' },
-      PROCESSING: { color: 'bg-blue-100 text-blue-800', label: 'Processing' },
-      CANCELLED: { color: 'bg-red-100 text-red-800', label: 'Cancelled' },
-    };
-
-    const config = statusConfig[status as keyof typeof statusConfig] || 
-                  { color: 'bg-gray-100 text-gray-800', label: status };
-
-    return (
-      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${config.color}`}>
-        {config.label}
-      </span>
-    );
-  };
-
-  // Loading and error states
-  if (incomeData.loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-      </div>
-    );
+      const request: GenerateCommissionInvoiceRequest = { ...invoiceFormData, branch: invoiceFormData.branch || undefined, bankCode: invoiceFormData.bankCode || undefined, swiftCode: invoiceFormData.swiftCode || undefined }
+      await commissionsAPI.generateCommissionInvoice(selectedCommissionForInvoice, request)
+      alert('Invoice generated successfully!')
+      setShowInvoiceModal(false); setSelectedCommissionForInvoice(null)
+      await fetchIncomeData(false)
+    } catch (invoiceError) {
+      alert(invoiceError instanceof Error ? invoiceError.message : 'Failed to generate invoice')
+    } finally { setGeneratingInvoice(null) }
   }
 
-  if (incomeData.error) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="text-red-600 text-lg mb-2">Error loading income data</div>
-          <div className="text-gray-600 mb-4">{incomeData.error}</div>
-          <button
-            onClick={() => fetchIncomeData(true)}
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            Try Again
-          </button>
-        </div>
-      </div>
-    );
+  const markAsPaid = async (id: string) => {
+    setUpdatingCommission(id)
+    try { await commissionsAPI.markAsPaid(id); await fetchIncomeData(false) }
+    catch (updateError) { alert(updateError instanceof Error ? updateError.message : 'Failed to update commission status') }
+    finally { setUpdatingCommission(null) }
   }
 
-  const commissionsToRender = Array.isArray(incomeData.commissions) ? incomeData.commissions : [];
+  const downloadInvoice = async (id: string) => {
+    setDownloadingInvoice(id)
+    try {
+      const blob = await commissionsAPI.downloadCommissionInvoice(id)
+      const url = URL.createObjectURL(blob); const link = document.createElement('a')
+      link.href = url; link.download = `commission-invoice-${id}.pdf`; document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url)
+    } catch (downloadError) { alert(downloadError instanceof Error ? downloadError.message : 'Failed to download invoice') }
+    finally { setDownloadingInvoice(null) }
+  }
+
+  if (loading) return <div className="flex min-h-64 items-center justify-center"><CommissionTableSkeleton /></div>
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Header with Tabs */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">My Income</h1>
-          <p className="text-gray-600 mt-2">
-            Track your commission earnings and other income
-          </p>
-          
-          {/* Tab Navigation */}
-          <div className="border-b border-gray-200 mt-6">
-            <nav className="-mb-px flex space-x-8">
-              
-              <Link
-                href="/myIncome"
-                className="py-4 px-1 border-b-2 border-blue-500 font-medium text-sm text-blue-600"
-              >
-                Commission History
-              </Link>
-              <Link
-                href="/myIncome/other"
-                className="py-4 px-1 border-b-2 border-transparent font-medium text-sm text-gray-500 hover:text-gray-700 hover:border-gray-300"
-              >
-                Other Income
-              </Link>
-            </nav>
-          </div>
-        </div>
+    <div className="min-w-0 space-y-6 pb-4">
+      <PageHeader title="My income" description="Track your commission earnings and other income." actions={<Link href="/myIncome/other" className={buttonStyles({ variant: 'outline', size: 'sm' })}>Other income</Link>} />
+      <div className="flex gap-2 border-b border-border pb-2"><Link href="/myIncome" className={buttonStyles({ size: 'sm' })}>Commission history</Link><Link href="/myIncome/other" className={buttonStyles({ variant: 'ghost', size: 'sm' })}>Other income</Link></div>
+      {error && <Alert variant="destructive"><AlertTitle>Unable to load commission income</AlertTitle><AlertDescription>{error}</AlertDescription><Button className="mt-3" variant="outline" size="sm" onClick={() => void fetchIncomeData(true)}><RefreshCw className="size-4" />Retry</Button></Alert>}
 
-        {/* Stats Overview */}
-        {incomeData.stats && (
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-            <div className="bg-white rounded-lg shadow p-6">
-              <div className="flex items-center">
-                <div className="shrink-0">
-                  <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
-                    <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
-                    </svg>
-                  </div>
-                </div>
-                <div className="kpi-card-content ml-4">
-                  <p className="text-sm font-medium text-gray-600">Total Earned</p>
-                  <p className="kpi-value font-bold text-gray-900" title={formatExactKes(incomeData.stats.totalEarned)}>
-                    {formatCompactKes(incomeData.stats.totalEarned)}
-                  </p>
-                </div>
-              </div>
-            </div>
+      {stats && <CommissionPerformancePanel stats={stats} />}
 
-            <div className="bg-white rounded-lg shadow p-6">
-              <div className="flex items-center">
-                <div className="shrink-0">
-                  <div className="w-8 h-8 bg-yellow-100 rounded-lg flex items-center justify-center">
-                    <svg className="w-4 h-4 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  </div>
-                </div>
-                <div className="kpi-card-content ml-4">
-                  <p className="text-sm font-medium text-gray-600">Pending</p>
-                  <p className="kpi-value font-bold text-gray-900" title={formatExactKes(incomeData.stats.totalPending)}>
-                    {formatCompactKes(incomeData.stats.totalPending)}
-                  </p>
-                </div>
-              </div>
-            </div>
+      <Card>
+        <CardHeader className="flex-row flex-wrap items-center justify-between gap-3"><CardTitle>Commission history</CardTitle><div className="flex flex-wrap gap-2">{(['all', 'pending', 'processing', 'paid'] as const).map(filter => <Button key={filter} size="sm" variant={selectedPeriod === filter ? 'default' : 'outline'} onClick={() => setSelectedPeriod(filter)} className="capitalize">{filter}</Button>)}</div></CardHeader>
+        <CardContent>
+          {tableLoading ? <CommissionTableSkeleton /> : commissions.length === 0 ? <EmptyState title="No commissions found" description={selectedPeriod === 'all' ? "You don't have any commissions yet." : `No ${selectedPeriod} commissions found.`} /> : (
+            <Table className="min-w-[1080px]"><TableHead><TableHeader>Property</TableHeader><TableHeader>Period</TableHeader><TableHeader className="text-right">Income amount</TableHeader><TableHeader className="text-right">Commission rate</TableHeader><TableHeader className="text-right">Commission</TableHeader><TableHeader>Status</TableHeader><TableHeader>Paid date</TableHeader><TableHeader>Actions</TableHeader></TableHead>
+              <TableBody>{commissions.map(commission => <TableRow key={commission.id}>
+                <TableCell className="min-w-52 whitespace-normal"><p className="font-medium">{commission.property?.name || 'Unknown Property'}</p><p className="text-xs text-muted-foreground">{commission.property?.address}</p></TableCell>
+                <TableCell>{formatDate(commission.periodStart)} – {formatDate(commission.periodEnd)}</TableCell>
+                <TableCell className="text-right tabular-nums">{formatCurrency(commission.incomeAmount)}</TableCell><TableCell className="text-right tabular-nums">{commission.commissionFee}%</TableCell><TableCell className="text-right font-semibold tabular-nums">{formatCurrency(commission.commissionAmount)}</TableCell>
+                <TableCell><StatusBadge status={commission.status} appearance={statusAppearance(commission.status)} /></TableCell><TableCell>{commission.paidDate ? formatDate(commission.paidDate) : '—'}</TableCell>
+                <TableCell><div className="flex flex-wrap gap-1">{commission.status === 'PENDING' && <Button size="sm" variant="outline" onClick={() => openInvoiceModal(commission)}><FileText className="size-4" />Generate invoice</Button>}{commission.status === 'PROCESSING' && <><Button size="sm" variant="outline" onClick={() => void markAsPaid(commission.id)} loading={updatingCommission === commission.id}>Mark as paid</Button><Button size="sm" variant="outline" onClick={() => void downloadInvoice(commission.id)} loading={downloadingInvoice === commission.id}><Download className="size-4" />Download</Button></>}{commission.status === 'PAID' && <span className="text-xs text-muted-foreground">Completed</span>}</div></TableCell>
+              </TableRow>)}</TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
 
-            <div className="bg-white rounded-lg shadow p-6">
-              <div className="flex items-center">
-                <div className="shrink-0">
-                  <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
-                    <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  </div>
-                </div>
-                <div className="kpi-card-content ml-4">
-                  <p className="text-sm font-medium text-gray-600">Processing</p>
-                  <p className="kpi-value font-bold text-gray-900" title={formatExactKes(incomeData.stats.totalProcessing || 0)}>
-                    {formatCompactKes(incomeData.stats.totalProcessing || 0)}
-                  </p>
-                </div>
-              </div>
-            </div>
+      {stats?.commissionsByProperty?.length ? <Card><CardHeader><CardTitle>Commission by property</CardTitle></CardHeader><CardContent className="divide-y divide-border">{stats.commissionsByProperty.map(property => <div key={property.propertyId} className="flex items-center justify-between gap-4 py-3 text-sm"><span>{property.propertyName}</span><span className="font-semibold tabular-nums">{formatCurrency(property.totalCommission)}</span></div>)}</CardContent></Card> : null}
 
-            <div className="bg-white rounded-lg shadow p-6">
-              <div className="flex items-center">
-                <div className="shrink-0">
-                  <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
-                    <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  </div>
-                </div>
-                <div className="kpi-card-content ml-4">
-                  <p className="text-sm font-medium text-gray-600">Total Paid</p>
-                  <p className="kpi-value font-bold text-gray-900" title={formatExactKes(incomeData.stats.totalPaid)}>
-                    {formatCompactKes(incomeData.stats.totalPaid)}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Filters and Commission List */}
-        <div className="bg-white rounded-lg shadow">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-4 sm:space-y-0">
-              <h2 className="text-lg font-semibold text-gray-900">Commission History</h2>
-              
-              <div className="flex space-x-2">
-                <button
-                  onClick={() => setSelectedPeriod('all')}
-                  className={`px-3 py-1 text-sm rounded-md transition-colors ${
-                    selectedPeriod === 'all'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  All
-                </button>
-                <button
-                  onClick={() => setSelectedPeriod('pending')}
-                  className={`px-3 py-1 text-sm rounded-md transition-colors ${
-                    selectedPeriod === 'pending'
-                      ? 'bg-yellow-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  Pending
-                </button>
-                <button
-                  onClick={() => setSelectedPeriod('processing')}
-                  className={`px-3 py-1 text-sm rounded-md transition-colors ${
-                    selectedPeriod === 'processing'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  Processing
-                </button>
-                <button
-                  onClick={() => setSelectedPeriod('paid')}
-                  className={`px-3 py-1 text-sm rounded-md transition-colors ${
-                    selectedPeriod === 'paid'
-                      ? 'bg-green-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  Paid
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="overflow-hidden">
-            {tableLoading ? (
-              <TableSkeleton />
-            ) : commissionsToRender.length === 0 ? (
-              <div className="text-center py-12">
-                <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                <h3 className="mt-2 text-sm font-medium text-gray-900">No commissions found</h3>
-                <p className="mt-1 text-sm text-gray-500">
-                  {selectedPeriod === 'all' 
-                    ? "You don't have any commissions yet."
-                    : `No ${selectedPeriod} commissions found.`
-                  }
-                </p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Property
-                      </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Period
-                      </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Income Amount
-                      </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Commission Rate
-                      </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Commission
-                      </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Status
-                      </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Paid Date
-                      </th>
-                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Actions
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {commissionsToRender.map((commission) => (
-                      <tr key={commission.id} className="hover:bg-gray-50 transition-colors">
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm font-medium text-gray-900">
-                            {commission.property?.name || 'Unknown Property'}
-                          </div>
-                          <div className="text-sm text-gray-500">
-                            {commission.property?.address}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-900">
-                            {formatDate(commission.periodStart)} - {formatDate(commission.periodEnd)}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {formatCurrency(commission.incomeAmount)}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {commission.commissionFee}%
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm font-semibold text-green-600">
-                            {formatCurrency(commission.commissionAmount)}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          {getStatusBadge(commission.status)}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {commission.paidDate ? formatDate(commission.paidDate) : '-'}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                          <div className="flex flex-col space-y-2">
-                            {commission.status === 'PENDING' && (
-                              <button
-                                onClick={() => openInvoiceModal(commission.id, commission)}
-                                disabled={generatingInvoice === commission.id}
-                                className="inline-flex items-center px-2 py-1 border border-blue-600 text-xs font-medium rounded text-blue-600 bg-white hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                              >
-                                <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                </svg>
-                                {generatingInvoice === commission.id ? 'Generating...' : 'Generate Invoice'}
-                              </button>
-                            )}
-                            
-                            {commission.status === 'PROCESSING' && (
-                              <>
-                                <button
-                                  onClick={() => handleMarkAsPaid(commission.id)}
-                                  disabled={updatingCommission === commission.id}
-                                  className="inline-flex items-center px-2 py-1 border border-green-600 text-xs font-medium rounded text-green-600 bg-white hover:bg-green-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                  <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                  </svg>
-                                  {updatingCommission === commission.id ? 'Processing...' : 'Mark as Paid'}
-                                </button>
-                                <button
-                                  onClick={() => handleDownloadInvoice(commission.id)}
-                                  disabled={downloadingInvoice === commission.id}
-                                  className="inline-flex items-center px-2 py-1 border border-green-600 text-xs font-medium rounded text-green-600 bg-white hover:bg-green-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                  <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                  </svg>
-                                  {downloadingInvoice === commission.id ? 'Downloading...' : 'Download'}
-                                </button>
-                              </>
-                            )}
-                            
-                            {commission.status === 'PAID' && (
-                              <span className="text-gray-500 text-xs">Completed</span>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Property Breakdown */}
-        {incomeData.stats && incomeData.stats.commissionsByProperty && incomeData.stats.commissionsByProperty.length > 0 && (
-          <div className="mt-8 bg-white rounded-lg shadow">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900">Commission by Property</h2>
-            </div>
-            <div className="p-6">
-              <div className="space-y-4">
-                {incomeData.stats.commissionsByProperty.map((property) => (
-                  <div key={property.propertyId} className="flex items-center justify-between">
-                    <div className="flex-1">
-                      <div className="text-sm font-medium text-gray-900">
-                        {property.propertyName}
-                      </div>
-                    </div>
-                    <div className="text-sm font-semibold text-gray-900">
-                      {formatCurrency(property.totalCommission)}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Invoice Generation Modal (unchanged) */}
-      {showInvoiceModal && (
-        // ... (keep your existing modal code exactly as it is)
-        <div>Modal content here (unchanged)</div>
-      )}
+      <GenerateCommissionInvoiceDialog open={showInvoiceModal} onOpenChange={setShowInvoiceModal} values={invoiceFormData} onChange={setInvoiceFormData} onSubmit={() => void generateInvoice()} submitting={Boolean(generatingInvoice)} />
     </div>
-  );
+  )
 }

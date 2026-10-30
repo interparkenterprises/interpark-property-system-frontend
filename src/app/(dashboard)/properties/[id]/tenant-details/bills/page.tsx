@@ -6,6 +6,7 @@ import { motion, Variants } from 'framer-motion';
 import { Bill, BillType, BillStatus, Tenant, BillInvoice, InvoiceStatus, PaymentPolicy } from '@/types';
 import { billsAPI, tenantsAPI, billInvoicesAPI, invoicesAPI } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { useBreadcrumbOverride, useBreadcrumbRouteTrail } from '@/components/layout/BreadcrumbContext';
 import {
   Dialog,
   DialogContent,
@@ -28,6 +29,10 @@ import { toast } from 'sonner';
 import { useGlobalPermissions } from '@/app/providers/PermissionsProvider';
 import { PermissionCode } from '@/types';
 import { formatCompactKes, formatExactKes } from '@/lib/numberFormat';
+import { PageHeader } from '@/components/ui/page-header';
+import { Badge } from '@/components/ui/badge';
+import { StatCard } from '@/components/ui/stat-card';
+import { Table } from '@/components/ui/table';
 
 interface BillFormData {
   type: BillType;
@@ -49,6 +54,7 @@ export default function TenantBillsPage() {
   const params = useParams();
   const router = useRouter();
   const tenantId = params.id as string;
+  const tenantDetailsHref = `/properties/${tenantId}/tenant-details`;
   
   // Permission hooks - using the centralized permission system
   const { 
@@ -82,9 +88,9 @@ export default function TenantBillsPage() {
   useEffect(() => {
     if (!canAccessBillsPage) {
       toast.error('You do not have permission to access bills');
-      router.back();
+      router.push(tenantDetailsHref);
     }
-  }, [canAccessBillsPage, router]);
+  }, [canAccessBillsPage, router, tenantDetailsHref]);
 
   // ==============================================
   // PERMISSION CHECKS FOR SPECIFIC FEATURES
@@ -114,13 +120,19 @@ export default function TenantBillsPage() {
   const [loading, setLoading] = useState(true);
   const [billsLoading, setBillsLoading] = useState(false);
   const [billInvoicesLoading, setBillInvoicesLoading] = useState(false);
+  const tenantWorkspaceHref = tenant?.unit?.propertyId ? `/properties/${tenant.unit.propertyId}?tab=tenants` : '/properties';
+  useBreadcrumbOverride(`/properties/${tenantId}`, loading ? 'Loading…' : tenant?.unit?.property?.name ?? 'Property details', tenant?.unit?.propertyId ? `/properties/${tenant.unit.propertyId}` : '/properties');
+  useBreadcrumbRouteTrail([
+    { label: 'Tenants', href: tenantWorkspaceHref },
+    { label: loading ? 'Loading…' : tenant?.fullName ?? 'Tenant details', href: tenantDetailsHref },
+    { label: 'Bills' },
+  ], `/properties/${tenantId}`, tenantDetailsHref);
 
   // Dialog states
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [showPayDialog, setShowPayDialog] = useState(false);
   const [showGenerateInvoiceDialog, setShowGenerateInvoiceDialog] = useState(false);
-  const [showBillInvoicesDialog, setShowBillInvoicesDialog] = useState(false);
   const [selectedBill, setSelectedBill] = useState<Bill | null>(null);
   const [selectedBillInvoice, setSelectedBillInvoice] = useState<BillInvoice | null>(null);
   const [loadingLastBill, setLoadingLastBill] = useState(false);
@@ -865,8 +877,8 @@ export default function TenantBillsPage() {
           </svg>
         </div>
         <h2 className="text-2xl font-bold text-heading-color mb-2">Tenant Not Found</h2>
-        <p className="text-gray-800 mb-6">The tenant you're looking for doesn't exist.</p>
-        <Button onClick={() => router.back()}>Go Back</Button>
+        <p className="text-gray-800 mb-6">The tenant you are looking for does not exist.</p>
+        <Button onClick={() => router.push(tenantDetailsHref)}>Go Back</Button>
       </motion.div>
     );
   }
@@ -878,117 +890,33 @@ export default function TenantBillsPage() {
       variants={containerVariants}
       className="space-y-8 p-6 md:p-8"
     >
-      {/* Header */}
-      <motion.div variants={itemVariants} className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-        <div>
-          <Button
-            onClick={() => router.back()}
-            variant="outline"
-            className="mb-4"
-          >
-            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-            </svg>
-            Back to Tenant Details
-          </Button>
-          <h1 className="text-3xl md:text-4xl font-bold text-heading-color">Bills for {tenant.fullName}</h1>
-          <div className="flex items-center gap-4 mt-2">
-            <p className="text-gray-600">Manage water and electricity bills</p>
-            <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getPaymentPolicyColor(tenant.paymentPolicy)}`}>
-              Payment Policy: {tenant.paymentPolicy}
-            </span>
-          </div>
-        </div>
-        <div className="flex gap-3">
-          {/* View Bill Invoices Button - Using centralized permission */}
-          {(isAdmin || isManager || permissions.billInvoices.canView) && (
-            <Button
-              onClick={() => setShowBillInvoicesDialog(true)}
-              variant="outline"
-              className="px-6 py-3 border-2 border-purple-600 text-purple-600 hover:bg-purple-50"
-            >
-              <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              View Bill Invoices ({billInvoices.length})
-            </Button>
-          )}
-          
-          {/* Create New Bill Button - Using centralized permission */}
-          {(isAdmin || isManager || permissions.bills.canCreate) && (
-            <Button
-              onClick={() => {
-                resetBillForm();
-                setShowCreateDialog(true);
-                if (canViewBills || canRecordMeterReadings) {
-                  setTimeout(() => fetchLastBillInfo('WATER'), 0);
-                }
-              }}
-              className="px-6 py-3 bg-primary text-white hover:bg-primary/90"
-            >
-              <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              Create New Bill
-            </Button>
-          )}
-        </div>
-      </motion.div>
+      <PageHeader
+        title={`${tenant.fullName} · Bills`}
+        description="Water, electricity and other tenant charges."
+        leading={<div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary" aria-hidden="true">{getBillTypeIcon('WATER')}</div>}
+        actions={
+          <>
+            {(isAdmin || isManager || permissions.billInvoices.canView) && (
+              <Button variant="outline" onClick={() => router.push(`/properties/${tenantId}/tenant-details/bill-invoices`)}>Bill invoices</Button>
+            )}
+            {canCreateBill && (
+              <Button onClick={() => { resetBillForm(); setShowCreateDialog(true); if (canViewBills || canRecordMeterReadings) fetchLastBillInfo(billForm.type) }}>Create bill</Button>
+            )}
+            <Button variant="outline" onClick={() => router.push(tenantDetailsHref)}>Tenant details</Button>
+          </>
+        }
+      />
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        Payment policy <Badge variant="info">{tenant.paymentPolicy}</Badge>
+      </div>
 
-      {/* Summary Cards - Only show if user can view bills */}
       {canViewBills && (
-        <motion.div variants={itemVariants} className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <div className="bg-white rounded-2xl p-6 shadow-lg border border-gray-200">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-              </div>
-              <h3 className="text-sm font-semibold text-gray-600">Total Bills</h3>
-            </div>
-            <p className="kpi-value font-bold text-gray-900">{totalBills}</p>
-          </div>
-          <div className="bg-white rounded-2xl p-6 shadow-lg border border-gray-200">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-                <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
-              <h3 className="text-sm font-semibold text-gray-600">Paid Bills</h3>
-            </div>
-            <p className="kpi-value font-bold text-green-600">
-              {bills.filter(b => b.status === 'PAID').length}
-            </p>
-          </div>
-          <div className="bg-white rounded-2xl p-6 shadow-lg border border-gray-200">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
-                <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
-              <h3 className="text-sm font-semibold text-gray-600">Unpaid Bills</h3>
-            </div>
-            <p className="kpi-value font-bold text-red-600">
-              {bills.filter(b => b.status === 'UNPAID' || b.status === 'OVERDUE').length}
-            </p>
-          </div>
-          <div className="bg-white rounded-2xl p-6 shadow-lg border border-gray-200">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
-                <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
-              <h3 className="text-sm font-semibold text-gray-600">Total Amount</h3>
-            </div>
-            <p className="kpi-value font-bold text-purple-600" title={formatExactKes(bills.reduce((sum, b) => sum + b.grandTotal, 0))}>
-              {formatCompactKes(bills.reduce((sum, b) => sum + b.grandTotal, 0))}
-            </p>
-          </div>
-        </motion.div>
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <StatCard label="Total bills" value={totalBills} />
+          <StatCard label="Paid bills" value={bills.filter((bill) => bill.status === 'PAID').length} tone="success" />
+          <StatCard label="Unpaid bills" value={bills.filter((bill) => bill.status === 'UNPAID' || bill.status === 'OVERDUE').length} tone="warning" />
+          <StatCard label="Total amount" value={formatCompactKes(bills.reduce((sum, bill) => sum + bill.grandTotal, 0))} description={<span title={formatExactKes(bills.reduce((sum, bill) => sum + bill.grandTotal, 0))}>Current page total</span>} tone="primary" />
+        </div>
       )}
 
       {/* Bills Table */}
@@ -1005,8 +933,8 @@ export default function TenantBillsPage() {
             <svg className="w-16 h-16 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
             </svg>
-            <p className="text-gray-600">You don't have permission to view bills.</p>
-            <Button onClick={() => router.back()} className="mt-4">
+            <p className="text-gray-600">You do not have permission to view bills.</p>
+            <Button onClick={() => router.push(tenantDetailsHref)} className="mt-4">
               Go Back
             </Button>
           </div>
@@ -1033,7 +961,7 @@ export default function TenantBillsPage() {
         ) : (
           <>
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-300">
+              <Table className="divide-y divide-border">
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Type</th>
@@ -1170,7 +1098,7 @@ export default function TenantBillsPage() {
                     );
                   })}
                 </tbody>
-              </table>
+              </Table>
             </div>
             {totalPages > 1 && (
               <div className="p-6 border-t border-gray-200 flex items-center justify-between">
@@ -1889,114 +1817,6 @@ export default function TenantBillsPage() {
         </Dialog>
       )}
 
-      {/* Bill Invoices Dialog */}
-      {canViewBillInvoices && (
-        <Dialog open={showBillInvoicesDialog} onOpenChange={setShowBillInvoicesDialog}>
-          <DialogContent className="sm:max-w-200 max-h-[80vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle className="text-2xl font-bold text-gray-900">Bill Invoices</DialogTitle>
-              <DialogDescription className="text-gray-700">
-                Bill invoice history for {tenant.fullName}
-              </DialogDescription>
-              <div className="mt-2">
-                <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getPaymentPolicyColor(tenant.paymentPolicy)}`}>
-                  Payment Policy: {tenant.paymentPolicy}
-                </span>
-              </div>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="space-y-3">
-                {billInvoicesLoading ? (
-                  <div className="flex justify-center py-8">
-                    <motion.div
-                      className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full"
-                      animate={{ rotate: 360 }}
-                      transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                    />
-                  </div>
-                ) : billInvoices.length === 0 ? (
-                  <div className="text-center py-8">
-                    <svg className="w-16 h-16 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    <p className="text-gray-700">No bill invoices generated yet</p>
-                  </div>
-                ) : (
-                  billInvoices.map((invoice) => (
-                    <motion.div
-                      key={invoice.id}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow"
-                    >
-                      <div className="flex items-start justify-between mb-3">
-                        <div>
-                          <h4 className="font-semibold text-lg text-gray-900">{invoice.invoiceNumber}</h4>
-                          <p className="text-sm text-gray-700">
-                            {invoice.billType} - {new Date(invoice.issueDate).toLocaleDateString()}
-                          </p>
-                        </div>
-                        <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getStatusColor(invoice.status)}`}>
-                          {invoice.status}
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm mb-3">
-                        <div className="bg-gray-50 p-3 rounded">
-                          <p className="text-gray-700 text-xs mb-1">Units</p>
-                          <p className="font-semibold text-gray-900">{invoice.units.toFixed(2)}</p>
-                        </div>
-                        <div className="bg-gray-50 p-3 rounded">
-                          <p className="text-gray-700 text-xs mb-1">Rate</p>
-                          <p className="font-semibold text-gray-900">Ksh {invoice.chargePerUnit.toFixed(2)}</p>
-                        </div>
-                        <div className="bg-blue-50 p-3 rounded">
-                          <p className="text-gray-700 text-xs mb-1">Total Amount</p>
-                          <p className="font-semibold text-blue-700">Ksh {invoice.totalAmount.toLocaleString()}</p>
-                        </div>
-                        <div className="bg-green-50 p-3 rounded">
-                          <p className="text-gray-700 text-xs mb-1">Amount Paid</p>
-                          <p className="font-semibold text-green-700">Ksh {invoice.amountPaid.toLocaleString()}</p>
-                        </div>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <div>
-                          <p className="text-sm text-gray-700">Due Date: {new Date(invoice.dueDate).toLocaleDateString()}</p>
-                          <p className={`text-sm font-semibold ${invoice.balance > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                            Balance: Ksh {invoice.balance.toLocaleString()}
-                          </p>
-                        </div>
-                        <div className="flex gap-2">
-                          {invoice.balance > 0 && canRecordBillInvoicePayment && (
-                            <Button
-                              onClick={() => openPayBillInvoiceDialog(invoice)}
-                              size="sm"
-                              className="bg-green-600 hover:bg-green-700 text-white"
-                            >
-                              Pay
-                            </Button>
-                          )}
-                          {canDownloadBillInvoice && (
-                            <Button
-                              onClick={() => handleDownloadBillInvoice(invoice.id, invoice.invoiceNumber)}
-                              variant="outline"
-                              size="sm"
-                            >
-                              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                              </svg>
-                              Download PDF
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    </motion.div>
-                  ))
-                )}
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
-      )}
     </motion.div>
   );
 }

@@ -6,6 +6,7 @@ import { propertiesAPI } from '@/lib/api'
 import { analyticsAPI, toAnalyticsApiFailure } from '@/lib/analyticsApi'
 import type { Property } from '@/types'
 import type { AnalyticsApiFailure, AnalyticsFilters, AnalyticsMeta, TenantChurnAnalytics } from '@/types/analytics'
+import { useSharedAnalyticsFilters } from './useSharedAnalyticsFilters'
 
 const dateString = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
@@ -23,8 +24,7 @@ const initialFilters = (): AnalyticsFilters => {
 export function useDepartedTenantAnalytics() {
   const auth = useAuth()
   const canView = auth.isAdmin || auth.isManager || auth.hasPermission('VIEW_TENANTS')
-  const [draftFilters, setDraftFilters] = useState<AnalyticsFilters>(initialFilters)
-  const [filters, setFilters] = useState<AnalyticsFilters>(initialFilters)
+  const { draftFilters, filters, setDraftFilters, applyFilters } = useSharedAnalyticsFilters(initialFilters)
   const [properties, setProperties] = useState<Property[]>([])
   const [data, setData] = useState<TenantChurnAnalytics | null>(null)
   const [meta, setMeta] = useState<AnalyticsMeta | null>(null)
@@ -61,11 +61,6 @@ export function useDepartedTenantAnalytics() {
     const request = window.setTimeout(() => { void load() }, 0)
     return () => window.clearTimeout(request)
   }, [load])
-
-  const applyFilters = () => setFilters({
-    ...draftFilters,
-    asOf: draftFilters.dateTo ?? dateString(new Date()),
-  })
 
   return { canView, draftFilters, setDraftFilters, properties, data, meta, loading, error, load, applyFilters }
 }

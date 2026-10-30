@@ -18,6 +18,7 @@ import {
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { DetailItem, DetailList } from '@/components/ui/detail-list'
 import { EmptyState } from '@/components/ui/empty-state'
+import { FileUpload } from '@/components/ui/file-upload'
 import { FormActions } from '@/components/ui/form-actions'
 import { FormField } from '@/components/ui/form-field'
 import { FormSection } from '@/components/ui/form-section'
@@ -25,6 +26,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { PageHeader } from '@/components/ui/page-header'
 import { Progress } from '@/components/ui/progress'
+import { RankedComparison } from '@/components/ui/ranked-comparison'
 import { SectionHeader } from '@/components/ui/section-header'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
@@ -100,10 +102,19 @@ const occupancyConfig = {
   },
 } satisfies ChartConfig
 
+const rankedPropertyData = [
+  { id: 'riverside', label: 'Riverside Apartments', billed: 820000, allocated: 742000 },
+  { id: 'kilimani', label: 'Kilimani Heights', billed: 690000, allocated: 624000 },
+  { id: 'westlands', label: 'Westlands Court', billed: 560000, allocated: 486000 },
+  { id: 'parklands', label: 'Parklands Plaza', billed: 440000, allocated: 371000 },
+  { id: 'langata', label: 'Langata Gardens', billed: 315000, allocated: 268000 },
+]
+
 export default function ComponentsPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [notificationsEnabled, setNotificationsEnabled] = useState(true)
   const [tabsExample, setTabsExample] = useState('overview')
+  const [fileUploadExample, setFileUploadExample] = useState<File | null>(null)
 
   return (
     <div className="space-y-10 pb-12">
@@ -199,6 +210,15 @@ export default function ComponentsPage() {
                 <Switch id="notifications" checked={notificationsEnabled} onCheckedChange={setNotificationsEnabled} />
               </div>
             </div>
+            <div className="md:col-span-2">
+              <FileUpload
+                value={fileUploadExample}
+                onValueChange={setFileUploadExample}
+                title="Drop a supporting document here"
+                description="PDF, spreadsheet, image, or document"
+                buttonLabel="Select document"
+              />
+            </div>
           </CardContent>
         </Card>
       </ShowcaseSection>
@@ -221,7 +241,7 @@ export default function ComponentsPage() {
         </div>
       </ShowcaseSection>
 
-      <ShowcaseSection title="Charts" description="Shadcn-style responsive area charts using shared themes, tooltips and legends.">
+      <ShowcaseSection title="Charts" description="Responsive trends and ranked comparisons using shared themes, values and legends.">
         <div className="grid gap-4 xl:grid-cols-2">
           <Card>
             <CardHeader>
@@ -310,6 +330,29 @@ export default function ComponentsPage() {
                   />
                 </AreaChart>
               </ChartContainer>
+            </CardContent>
+          </Card>
+
+          <Card className="xl:col-span-2">
+            <CardHeader>
+              <CardTitle>Ranked comparison</CardTitle>
+              <CardDescription>Compact category comparison for properties and other long-label datasets.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <RankedComparison
+                items={rankedPropertyData.map(item => ({
+                  id: item.id,
+                  label: item.label,
+                  values: {
+                    billed: { value: item.billed, display: `Ksh ${(item.billed / 1000).toFixed(0)}K`, title: `Ksh ${item.billed.toLocaleString('en-KE')}` },
+                    allocated: { value: item.allocated, display: `Ksh ${(item.allocated / 1000).toFixed(0)}K`, title: `Ksh ${item.allocated.toLocaleString('en-KE')}` },
+                    rate: { value: (item.allocated / item.billed) * 100, display: `${((item.allocated / item.billed) * 100).toFixed(1)}%` },
+                  },
+                }))}
+                columns={[{ key: 'billed', label: 'Billed' }, { key: 'allocated', label: 'Allocated', emphasized: true }, { key: 'rate', label: 'Rate' }]}
+                bars={[{ key: 'billed', color: 'color-mix(in srgb, var(--primary) 22%, transparent)' }, { key: 'allocated', color: 'var(--primary)' }]}
+                labelHeading="Property"
+              />
             </CardContent>
           </Card>
         </div>

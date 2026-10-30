@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Attachment } from '@/types';
 import { tenantsAPI } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { FileUpload } from '@/components/ui/file-upload';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
@@ -29,7 +30,6 @@ import {
   Download,
   Pencil,
   Trash2,
-  Upload,
   X,
   Loader2,
   FolderOpen,
@@ -60,6 +60,7 @@ export function AttachmentSection({
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [previewingId, setPreviewingId] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
+  const [selectedUpload, setSelectedUpload] = useState<File | null>(null);
 
   const canUpload = isAdmin || isManager || canEdit;
 
@@ -80,13 +81,15 @@ export function AttachmentSection({
     fetchAttachments();
   }, [fetchAttachments]);
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleSelectedUpload = (file: File | null) => {
+    if (!file) {
+      setSelectedUpload(null);
+      return;
+    }
 
     if (file.size > 10 * 1024 * 1024) {
       toast.error('File size exceeds 10MB limit');
-      e.target.value = '';
+      setSelectedUpload(null);
       return;
     }
 
@@ -107,16 +110,22 @@ export function AttachmentSection({
 
     if (!allowedTypes.includes(file.type)) {
       toast.error('File type not supported. Please upload images, PDFs, Office documents, or text files.');
-      e.target.value = '';
+      setSelectedUpload(null);
       return;
     }
 
+    setSelectedUpload(file);
+  };
+
+  const handleFileUpload = async () => {
+    if (!selectedUpload) return;
+
     try {
       setUploading(true);
-      await tenantsAPI.uploadAttachment(tenantId, file);
+      await tenantsAPI.uploadAttachment(tenantId, selectedUpload);
       toast.success('File uploaded successfully!');
-      fetchAttachments();
-      e.target.value = '';
+      setSelectedUpload(null);
+      await fetchAttachments();
     } catch (error: any) {
       console.error('Error uploading file:', error);
       toast.error(error.message || 'Failed to upload file');
@@ -297,34 +306,28 @@ export function AttachmentSection({
           </div>
         </div>
 
-        {canUpload && (
-          <div className="relative w-full sm:w-auto">
-            <input
-              type="file"
-              id="file-upload"
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-              onChange={handleFileUpload}
-              disabled={uploading}
-            />
-            <Button
-              className="w-full sm:w-auto px-4 py-2 bg-purple-600 text-white hover:bg-purple-700 transition-colors disabled:opacity-50"
-              disabled={uploading}
-            >
-              {uploading ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Uploading...
-                </>
-              ) : (
-                <>
-                  <Upload className="w-4 h-4 mr-2" />
-                  Upload File
-                </>
-              )}
+      </div>
+
+      {canUpload && (
+        <div className="mb-6 space-y-3">
+          <FileUpload
+            id="tenant-attachment"
+            value={selectedUpload}
+            onValueChange={handleSelectedUpload}
+            accept="image/jpeg,image/png,image/gif,image/webp,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain,text/csv,application/json,application/zip"
+            maxSize={10 * 1024 * 1024}
+            disabled={uploading}
+            title="Drop a tenant attachment here"
+            description="Images, PDFs, Office documents, text files, CSV, JSON, or ZIP"
+            buttonLabel="Select file"
+          />
+          <div className="flex justify-end">
+            <Button onClick={handleFileUpload} disabled={!selectedUpload || uploading} loading={uploading}>
+              {uploading ? 'Uploading...' : 'Upload file'}
             </Button>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {loading ? (
         <div className="flex items-center justify-center py-12">
