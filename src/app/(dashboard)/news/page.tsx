@@ -6,6 +6,7 @@ import { ArrowRight, CalendarDays, Newspaper, Pencil, Plus, Trash2 } from 'lucid
 import type { News } from '@/types'
 import { newsAPI } from '@/lib/api'
 import { useAuth } from '@/context/AuthContext'
+import { getNewsTextPreview } from '@/components/news/rich-text'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button, buttonStyles } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -104,7 +105,7 @@ export default function NewsPage() {
                       </div>
                     )}
                   </div>
-                  <p className="line-clamp-3 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{item.content}</p>
+                  <p className="line-clamp-3 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{getNewsTextPreview(item.content)}</p>
                   <Link href={`/news/${item.id}`} className={buttonStyles({ variant: 'link' })}>Read announcement <ArrowRight className="h-4 w-4" /></Link>
                 </article>
               </CardContent>

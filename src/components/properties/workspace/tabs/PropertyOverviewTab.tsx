@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { Building2, ChartNoAxesColumnIncreasing, DoorOpen, Users } from 'lucide-react'
 import type { Property } from '@/types'
 import { tenantsAPI } from '@/lib/api'
@@ -55,7 +56,16 @@ export function PropertyOverviewTab({ property, canViewTenants, canViewProviders
               <DetailItem label="LR Number">{property.lrNumber || 'N/A'}</DetailItem>
               <DetailItem label="Property Form"><Badge variant="secondary">{property.form?.replaceAll('_', ' ') || 'N/A'}</Badge></DetailItem>
               <DetailItem label="Usage Type"><Badge variant="outline">{property.usage?.replaceAll('_', ' ') || 'N/A'}</Badge></DetailItem>
-              <DetailItem label="Landlord">{property.landlord?.name || 'N/A'}</DetailItem>
+              <DetailItem label="Landlord">
+                {property.landlord?.id ? (
+                  <Link
+                    href={`/landlords/${property.landlord.id}`}
+                    className="inline-block max-w-full truncate underline-offset-4 hover:text-primary hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {property.landlord.name}
+                  </Link>
+                ) : property.landlord?.name || 'N/A'}
+              </DetailItem>
               <DetailItem label="Manager">{property.manager?.name || 'N/A'}</DetailItem>
             </DetailList>
           </CardContent>

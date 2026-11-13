@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Building2, Eye, Pencil, Plus, Trash2 } from 'lucide-react'
 import type { Unit } from '@/types'
@@ -91,7 +92,16 @@ export function PropertyUnitsTab({ propertyId, units, onPropertyChanged }: Prope
             <Card key={unit.id}>
               <CardHeader className="flex-row items-start justify-between border-b border-border">
                 <div>
-                  <h3 className="font-semibold text-foreground">{unit.unitNo ? `Unit ${unit.unitNo}` : unit.type || 'Unit'}</h3>
+                  <h3 className="font-semibold text-foreground">
+                    {unit.id ? (
+                      <Link
+                        href={`/properties/${unit.id}/unit-details`}
+                        className="inline-block max-w-full truncate underline-offset-4 hover:text-primary hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        {unit.unitNo ? `Unit ${unit.unitNo}` : unit.type || 'Unit'}
+                      </Link>
+                    ) : unit.unitNo ? `Unit ${unit.unitNo}` : unit.type || 'Unit'}
+                  </h3>
                   <p className="mt-1 text-xs text-muted-foreground">{unit.floor || `ID: ${unit.id.slice(0, 8)}`}</p>
                 </div>
                 <Badge variant={unit.status === 'VACANT' ? 'success' : 'info'}>{unit.status}</Badge>

@@ -21,6 +21,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { FileUpload } from '@/components/ui/file-upload'
 import { FormActions } from '@/components/ui/form-actions'
 import { FormField } from '@/components/ui/form-field'
+import { FormDatePicker } from '@/components/ui/form-date-picker'
 import { FormSection } from '@/components/ui/form-section'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -115,6 +116,7 @@ export default function ComponentsPage() {
   const [notificationsEnabled, setNotificationsEnabled] = useState(true)
   const [tabsExample, setTabsExample] = useState('overview')
   const [fileUploadExample, setFileUploadExample] = useState<File | null>(null)
+  const [dateExample, setDateExample] = useState('2026-11-10')
 
   return (
     <div className="space-y-10 pb-12">
@@ -186,6 +188,8 @@ export default function ComponentsPage() {
             <Input label="Landlord email" type="email" defaultValue="accounts@riverside.co.ke" />
             <Input label="Disabled reference" defaultValue="PROP-0048" disabled />
             <Input label="Invoice amount" defaultValue="125000" error="Amount exceeds the approved limit." />
+            <FormDatePicker label="Lease start date" value={dateExample} onChange={setDateExample} min="2026-01-01" max="2027-12-31" required helperText={`Serialized value: ${dateExample}`} />
+            <FormDatePicker label="Unavailable inspection date" value="" onChange={() => undefined} disabled placeholder="Date selection disabled" />
             <Textarea label="Management notes" placeholder="Add internal notes for the property team..." helperText="Visible to authorised managers only." />
             <FormField label="Property manager" htmlFor="manager" description="The manager responsible for rent collection." required>
               <Select defaultValue="grace">
@@ -194,6 +198,8 @@ export default function ComponentsPage() {
                   <SelectItem value="grace">Grace Wanjiku</SelectItem>
                   <SelectItem value="daniel">Daniel Otieno</SelectItem>
                   <SelectItem value="amina">Amina Hassan</SelectItem>
+                  <SelectItem value="unavailable" disabled>Unavailable manager (disabled option)</SelectItem>
+                  <SelectItem value="long-label">Alexandra Wambui — Riverside Apartments and Westlands Commercial Centre</SelectItem>
                 </SelectContent>
               </Select>
             </FormField>

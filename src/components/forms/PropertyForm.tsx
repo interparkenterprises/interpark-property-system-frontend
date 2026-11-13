@@ -1,980 +1,462 @@
-'use client';
+'use client'
 
-import { useState, useEffect, forwardRef } from 'react';
-import { Property, Landlord, PropertyForm as PropertyFormType, UsageType } from '@/types';
-import { propertiesAPI, landlordsAPI } from '@/lib/api';
-import { Button } from '@/components/ui/button';
-import { FileUpload } from '@/components/ui/file-upload';
-import { useGlobalPermissions } from '@/app/providers/PermissionsProvider';
+import Image from 'next/image'
+import { forwardRef, useEffect, useState } from 'react'
+import { Building2, FileClock, Plus, Save, UserRound, UsersRound, X } from 'lucide-react'
+import type { Landlord, Property, PropertyForm as PropertyFormType, UsageType } from '@/types'
+import { landlordsAPI, propertiesAPI } from '@/lib/api'
+import { useGlobalPermissions } from '@/app/providers/PermissionsProvider'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { FileUpload } from '@/components/ui/file-upload'
+import { FormActions } from '@/components/ui/form-actions'
+import { FormField } from '@/components/ui/form-field'
+import { FormSection } from '@/components/ui/form-section'
+import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 interface PropertyFormProps {
-  property?: Property;
-  onSuccess?: () => void;
-  onCancel?: () => void;
+  property?: Property
+  onSuccess?: () => void
+  onCancel?: () => void
 }
 
-// Draft storage key generator
-const getDraftKey = (propertyId?: string) => 
-  propertyId ? `property_form_draft_${propertyId}` : 'property_form_draft_new';
+const emptyFormData = () => ({
+  name: '',
+  address: '',
+  lrNumber: '',
+  form: 'APARTMENT' as PropertyFormType,
+  usage: 'RESIDENTIAL' as UsageType,
+  landlordId: '',
+  landlordName: '',
+  landlordEmail: '',
+  landlordPhone: '',
+  landlordAddress: '',
+  landlordIdNumber: '',
+  commissionFee: 0,
+  imageFile: null as File | null,
+  accountNo: '',
+  accountName: '',
+  bank: '',
+  branch: '',
+  branchCode: '',
+})
+
+type PropertyFormData = ReturnType<typeof emptyFormData>
+type LandlordMode = 'existing' | 'new'
+
+const getDraftKey = (propertyId?: string) => propertyId ? `property_form_draft_${propertyId}` : 'property_form_draft_new'
 
 const PropertyForm = forwardRef<HTMLFormElement, PropertyFormProps>(
   ({ property, onSuccess, onCancel }, ref) => {
-    const { 
+    const {
       canViewLandlordsForAssignment,
       canCreateNewLandlord,
       canAssignLandlord,
       isAdmin,
       isManager,
       isManagedUser,
-      canCreateProperty
-    } = useGlobalPermissions();
-    
-    const [formData, setFormData] = useState({
-      name: '',
-      address: '',
-      lrNumber: '',
-      form: 'APARTMENT' as PropertyFormType,
-      usage: 'RESIDENTIAL' as UsageType,
-      landlordId: '',
-      landlordName: '',
-      landlordEmail: '',
-      landlordPhone: '',
-      landlordAddress: '',
-      landlordIdNumber: '',
-      commissionFee: 0,
-      imageFile: null as File | null,
-      // Bank details
-      accountNo: '',
-      accountName: '',
-      bank: '',
-      branch: '',
-      branchCode: '',
-    });
-    const [landlords, setLandlords] = useState<Landlord[]>([]);
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState('');
-    const [landlordMode, setLandlordMode] = useState<'existing' | 'new'>('existing');
-    const [imagePreview, setImagePreview] = useState<string | null>(null);
-    const [hasDraft, setHasDraft] = useState(false);
-    const [fetchingLandlords, setFetchingLandlords] = useState(false);
+      canCreateProperty,
+    } = useGlobalPermissions()
 
-    // Load draft from localStorage
-    const loadDraft = () => {
-      try {
-        const draftKey = getDraftKey(property?.id);
-        const savedDraft = localStorage.getItem(draftKey);
-        if (savedDraft) {
-          const parsedDraft = JSON.parse(savedDraft);
-          
-          // Note: File objects can't be serialized, so imageFile will be null in draft
-          setFormData(parsedDraft);
-          setHasDraft(true);
-          
-          // Restore image preview if there's a URL in the draft
-          if (parsedDraft.imagePreviewUrl) {
-            setImagePreview(parsedDraft.imagePreviewUrl);
-          }
-          
-          // Restore landlord mode
-          if (parsedDraft.landlordMode) {
-            setLandlordMode(parsedDraft.landlordMode);
-          }
-          
-          return true;
-        }
-      } catch (error) {
-        console.error('Error loading draft:', error);
-      }
-      return false;
-    };
+    const [formData, setFormData] = useState<PropertyFormData>(emptyFormData)
+    const [landlords, setLandlords] = useState<Landlord[]>([])
+    const [loading, setLoading] = useState(false)
+    const [error, setError] = useState('')
+    const [landlordMode, setLandlordMode] = useState<LandlordMode>('existing')
+    const [imagePreview, setImagePreview] = useState<string | null>(null)
+    const [hasDraft, setHasDraft] = useState(false)
+    const [fetchingLandlords, setFetchingLandlords] = useState(false)
+    const [clearDraftOpen, setClearDraftOpen] = useState(false)
 
-    // Save draft to localStorage
-    const saveDraft = (data: typeof formData, mode: typeof landlordMode, preview: typeof imagePreview) => {
+    const draftKey = getDraftKey(property?.id)
+    const canSelectExistingLandlords = canViewLandlordsForAssignment || isAdmin || isManager
+    const canAddNewLandlord = canCreateNewLandlord || isAdmin || isManager
+
+    const saveDraft = (data: PropertyFormData, mode: LandlordMode) => {
       try {
-        const draftKey = getDraftKey(property?.id);
-        const draftData = {
+        localStorage.setItem(draftKey, JSON.stringify({
           ...data,
+          imageFile: null,
           landlordMode: mode,
-          imagePreviewUrl: preview,
-          // Note: File objects are not serializable, so we don't save them
-        };
-        localStorage.setItem(draftKey, JSON.stringify(draftData));
-      } catch (error) {
-        console.error('Error saving draft:', error);
+        }))
+      } catch (draftError) {
+        console.error('Error saving draft:', draftError)
       }
-    };
+    }
 
-    // Clear draft from localStorage
     const clearDraft = () => {
       try {
-        const draftKey = getDraftKey(property?.id);
-        localStorage.removeItem(draftKey);
-        setHasDraft(false);
-      } catch (error) {
-        console.error('Error clearing draft:', error);
+        localStorage.removeItem(draftKey)
+        setHasDraft(false)
+      } catch (draftError) {
+        console.error('Error clearing draft:', draftError)
       }
-    };
+    }
 
-    const fetchLandlords = async () => {
-      // Only fetch landlords if user has permission to view them OR can create properties
-      if (!canViewLandlordsForAssignment && !isAdmin && !isManager && !canCreateProperty) {
-        console.log('User does not have permission to view landlords');
-        return;
-      }
-      
-      setFetchingLandlords(true);
-      try {
-        const data = await landlordsAPI.getAll();
-        setLandlords(data);
-      } catch (error: any) {
-        console.error('Error fetching landlords:', error);
-        // Don't show error to user for managed users - just show empty list
-        if (error?.response?.status !== 403) {
-          setError('Failed to load landlords. You can still create a new landlord.');
-        }
-        // Set empty array so user can still create new landlord
-        setLandlords([]);
-      } finally {
-        setFetchingLandlords(false);
-      }
-    };
+    const propertyValues = (record: Property): PropertyFormData => ({
+      name: record.name || '',
+      address: record.address || '',
+      lrNumber: record.lrNumber || '',
+      form: record.form || 'APARTMENT',
+      usage: record.usage || 'RESIDENTIAL',
+      landlordId: record.landlordId || '',
+      landlordName: record.landlord?.name || '',
+      landlordEmail: record.landlord?.email || '',
+      landlordPhone: record.landlord?.phone || '',
+      landlordAddress: record.landlord?.address || '',
+      landlordIdNumber: record.landlord?.idNumber || '',
+      commissionFee: record.commissionFee || 0,
+      imageFile: null,
+      accountNo: record.accountNo || '',
+      accountName: record.accountName || '',
+      bank: record.bank || '',
+      branch: record.branch || '',
+      branchCode: record.branchCode || '',
+    })
 
     useEffect(() => {
-      // Only fetch landlords if user has permission OR can create properties
-      if (canViewLandlordsForAssignment || isAdmin || isManager || canCreateProperty) {
-        fetchLandlords();
-      } else {
-        // For users without view permissions but with property create permission, default to new landlord mode
-        if (canCreateProperty) {
-          setLandlordMode('new');
-        } else {
-          setLandlordMode('existing');
+      const frame = window.requestAnimationFrame(() => {
+        if (canViewLandlordsForAssignment || isAdmin || isManager || canCreateProperty) {
+          setFetchingLandlords(true)
+          landlordsAPI.getAll()
+            .then(setLandlords)
+            .catch((fetchError: unknown) => {
+              console.error('Error fetching landlords:', fetchError)
+              setLandlords([])
+              const status = typeof fetchError === 'object' && fetchError && 'response' in fetchError
+                ? (fetchError as { response?: { status?: number } }).response?.status
+                : undefined
+              if (status !== 403) setError('Failed to load landlords. You can still create a new landlord.')
+            })
+            .finally(() => setFetchingLandlords(false))
+        } else if (canCreateProperty) {
+          setLandlordMode('new')
         }
-      }
-      
-      if (property) {
-        const draftLoaded = loadDraft();
-        
-        if (!draftLoaded) {
-          // No draft found, use property data
-          setLandlordMode(property.landlordId ? 'existing' : 'new');
-          setFormData({
-            name: property.name || '',
-            address: property.address || '',
-            lrNumber: property.lrNumber || '',
-            form: property.form || 'APARTMENT',
-            usage: property.usage || 'RESIDENTIAL',
-            landlordId: property.landlordId || '',
-            landlordName: property.landlord?.name || '',
-            landlordEmail: property.landlord?.email || '',
-            landlordPhone: property.landlord?.phone || '',
-            landlordAddress: property.landlord?.address || '',
-            landlordIdNumber: property.landlord?.idNumber || '',
-            commissionFee: property.commissionFee || 0,
-            imageFile: null,
-            accountNo: property.accountNo || '',
-            accountName: property.accountName || '',
-            bank: property.bank || '',
-            branch: property.branch || '',
-            branchCode: property.branchCode || '',
-          });
-          
-          if (property.image) {
-            setImagePreview(property.image);
-          }
-        }
-      } else {
-        // Creating new property - try to load draft
-        loadDraft();
-      }
-    }, [property, canViewLandlordsForAssignment, isAdmin, isManager, canCreateProperty]);
 
-    const handleChange = (
-      e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
-    ) => {
-      const { name, value, type } = e.target;
-      let newFormData = { ...formData };
-      
-      // Special handling for phone number fields
-      if (name === 'landlordPhone' || name === 'accountNo') {
-        const numericValue = value.replace(/[^0-9]/g, '');
-        const maxLength = name === 'accountNo' ? 20 : 10;
-        if (numericValue.length <= maxLength) {
-          newFormData = { ...newFormData, [name]: numericValue };
+        try {
+          const savedDraft = localStorage.getItem(draftKey)
+          if (savedDraft) {
+            const parsed = JSON.parse(savedDraft) as Partial<PropertyFormData> & { landlordMode?: LandlordMode }
+            const base = property ? propertyValues(property) : emptyFormData()
+            setFormData({ ...base, ...parsed, imageFile: null })
+            setLandlordMode(parsed.landlordMode || (property?.landlordId ? 'existing' : 'new'))
+            setImagePreview(property?.image || null)
+            setHasDraft(true)
+            return
+          }
+        } catch (draftError) {
+          console.error('Error loading draft:', draftError)
         }
-      } else if (type === 'number') {
-        newFormData = { ...newFormData, [name]: value === '' ? 0 : parseFloat(value) };
-      } else {
-        newFormData = { ...newFormData, [name]: value };
+
+        if (property) {
+          setFormData(propertyValues(property))
+          setLandlordMode(property.landlordId ? 'existing' : 'new')
+          setImagePreview(property.image || null)
+        }
+      })
+      return () => window.cancelAnimationFrame(frame)
+    }, [canCreateProperty, canViewLandlordsForAssignment, draftKey, isAdmin, isManager, property])
+
+    const updateForm = (patch: Partial<PropertyFormData>) => {
+      const next = { ...formData, ...patch }
+      setFormData(next)
+      saveDraft(next, landlordMode)
+      setHasDraft(true)
+    }
+
+    const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+      const { name, value, type } = event.target
+      if (name === 'landlordPhone' || name === 'accountNo') {
+        const numericValue = value.replace(/[^0-9]/g, '')
+        const maxLength = name === 'accountNo' ? 20 : 10
+        if (numericValue.length <= maxLength) updateForm({ [name]: numericValue })
+        return
       }
-      
-      setFormData(newFormData);
-      
-      // Auto-save draft on every change
-      saveDraft(newFormData, landlordMode, imagePreview);
-      
-      // Mark as having draft data
-      if (!hasDraft) {
-        setHasDraft(true);
-      }
-    };
+      updateForm({ [name]: type === 'number' ? (value === '' ? 0 : Number.parseFloat(value)) : value })
+    }
 
     const handleFileChange = (file: File | null) => {
       if (!file) {
-        removeImage();
-        return;
+        const next = { ...formData, imageFile: null }
+        setFormData(next)
+        setImagePreview(null)
+        saveDraft(next, landlordMode)
+        return
       }
 
-      // Validate file type
-      const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
+      const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif']
       if (!validTypes.includes(file.type)) {
-        setError('Please select a valid image file (JPEG, PNG, WebP, GIF).');
-        return;
+        setError('Please select a valid image file (JPEG, PNG, WebP, or GIF).')
+        return
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        setError('Image size should be less than 5MB.')
+        return
       }
 
-      // Validate file size (max 5MB)
-      const maxSize = 5 * 1024 * 1024; // 5MB
-      if (file.size > maxSize) {
-        setError('Image size should be less than 5MB.');
-        return;
-      }
-
-      // Update form data
-      const newFormData = {
-        ...formData,
-        imageFile: file
-      };
-      setFormData(newFormData);
-
-      // Create preview
-      const reader = new FileReader();
+      const next = { ...formData, imageFile: file }
+      setFormData(next)
+      setError('')
+      setHasDraft(true)
+      const reader = new FileReader()
       reader.onloadend = () => {
-        const previewUrl = reader.result as string;
-        setImagePreview(previewUrl);
-        
-        // Save draft with new image preview
-        saveDraft(newFormData, landlordMode, previewUrl);
-      };
-      reader.readAsDataURL(file);
-
-      // Clear any previous errors
-      setError('');
-      
-      // Mark as having draft data
-      if (!hasDraft) {
-        setHasDraft(true);
+        const previewUrl = reader.result as string
+        setImagePreview(previewUrl)
+        saveDraft(next, landlordMode)
       }
-    };
+      reader.readAsDataURL(file)
+    }
 
-    const removeImage = () => {
-      const newFormData = {
-        ...formData,
-        imageFile: null
-      };
-      setFormData(newFormData);
-      setImagePreview(null);
-      
-      // Save draft without image
-      saveDraft(newFormData, landlordMode, null);
-    };
+    const handleLandlordModeChange = (value: string) => {
+      const mode = value as LandlordMode
+      setLandlordMode(mode)
+      saveDraft(formData, mode)
+    }
 
-    const handleLandlordModeChange = (mode: 'existing' | 'new') => {
-      setLandlordMode(mode);
-      // Save draft with new mode
-      saveDraft(formData, mode, imagePreview);
-    };
-
-    const handleSubmit = async (e: React.FormEvent) => {
-      e.preventDefault();
-      setLoading(true);
-      setError('');
+    const handleSubmit = async (event: React.FormEvent) => {
+      event.preventDefault()
+      setLoading(true)
+      setError('')
 
       if (!formData.name.trim() || !formData.address.trim()) {
-        setError('Property name and address are required.');
-        setLoading(false);
-        return;
+        setError('Property name and address are required.')
+        setLoading(false)
+        return
       }
-
       if (landlordMode === 'existing' && !formData.landlordId) {
-        setError('Please select a landlord.');
-        setLoading(false);
-        return;
+        setError('Please select a landlord.')
+        setLoading(false)
+        return
       }
-
       if (landlordMode === 'new' && !formData.landlordName.trim()) {
-        setError('Landlord name is required.');
-        setLoading(false);
-        return;
+        setError('Landlord name is required.')
+        setLoading(false)
+        return
       }
-
-      // Check if user has permission to create new landlord
       if (!property && !canCreateNewLandlord && landlordMode === 'new') {
-        setError('You do not have permission to create new landlords. Please select an existing landlord.');
-        setLoading(false);
-        return;
+        setError('You do not have permission to create new landlords. Please select an existing landlord.')
+        setLoading(false)
+        return
       }
 
       try {
-        // Create FormData for file upload
-        const formDataToSend = new FormData();
-        
-        // Add text fields
-        formDataToSend.append('name', formData.name);
-        formDataToSend.append('address', formData.address);
-        if (formData.lrNumber) formDataToSend.append('lrNumber', formData.lrNumber);
-        formDataToSend.append('form', formData.form);
-        formDataToSend.append('usage', formData.usage);
-        if (formData.commissionFee) formDataToSend.append('commissionFee', formData.commissionFee.toString());
-        
-        // Add bank details
-        if (formData.accountNo) formDataToSend.append('accountNo', formData.accountNo);
-        if (formData.accountName) formDataToSend.append('accountName', formData.accountName);
-        if (formData.bank) formDataToSend.append('bank', formData.bank);
-        if (formData.branch) formDataToSend.append('branch', formData.branch);
-        if (formData.branchCode) formDataToSend.append('branchCode', formData.branchCode);
+        const payload = new FormData()
+        payload.append('name', formData.name)
+        payload.append('address', formData.address)
+        if (formData.lrNumber) payload.append('lrNumber', formData.lrNumber)
+        payload.append('form', formData.form)
+        payload.append('usage', formData.usage)
+        if (formData.commissionFee) payload.append('commissionFee', formData.commissionFee.toString())
+        if (formData.accountNo) payload.append('accountNo', formData.accountNo)
+        if (formData.accountName) payload.append('accountName', formData.accountName)
+        if (formData.bank) payload.append('bank', formData.bank)
+        if (formData.branch) payload.append('branch', formData.branch)
+        if (formData.branchCode) payload.append('branchCode', formData.branchCode)
+        if (formData.imageFile) payload.append('image', formData.imageFile)
 
-        // Add image file if selected
-        if (formData.imageFile) {
-          formDataToSend.append('image', formData.imageFile);
-        }
-
-        // Add landlord data
         if (landlordMode === 'existing') {
-          formDataToSend.append('landlordId', formData.landlordId);
+          payload.append('landlordId', formData.landlordId)
         } else {
-          const landlordData = {
+          payload.append('landlord', JSON.stringify({
             name: formData.landlordName.trim(),
             email: formData.landlordEmail.trim() || null,
             phone: formData.landlordPhone.trim() || null,
             address: formData.landlordAddress.trim() || null,
             idNumber: formData.landlordIdNumber.trim() || null,
-          };
-          formDataToSend.append('landlord', JSON.stringify(landlordData));
+          }))
         }
 
-        if (property) {
-          await propertiesAPI.update(property.id, formDataToSend);
-        } else {
-          await propertiesAPI.create(formDataToSend);
-        }
-
-        // Clear draft after successful submission
-        clearDraft();
-        
-        onSuccess?.();
-      } catch (err: any) {
-        const message =
-          err.response?.data?.message ||
-          err.message ||
-          'Failed to save property. Please try again.';
-        setError(message);
+        if (property) await propertiesAPI.update(property.id, payload)
+        else await propertiesAPI.create(payload)
+        clearDraft()
+        onSuccess?.()
+      } catch (submitError: unknown) {
+        const responseMessage = typeof submitError === 'object' && submitError && 'response' in submitError
+          ? (submitError as { response?: { data?: { message?: string } } }).response?.data?.message
+          : undefined
+        setError(responseMessage || (submitError instanceof Error ? submitError.message : 'Failed to save property. Please try again.'))
       } finally {
-        setLoading(false);
+        setLoading(false)
       }
-    };
+    }
 
-    const handleClearDraft = () => {
-      if (confirm('Are you sure you want to clear the saved draft? This action cannot be undone.')) {
-        if (property) {
-          // Reset to original property data
-          setFormData({
-            name: property.name || '',
-            address: property.address || '',
-            lrNumber: property.lrNumber || '',
-            form: property.form || 'APARTMENT',
-            usage: property.usage || 'RESIDENTIAL',
-            landlordId: property.landlordId || '',
-            landlordName: property.landlord?.name || '',
-            landlordEmail: property.landlord?.email || '',
-            landlordPhone: property.landlord?.phone || '',
-            landlordAddress: property.landlord?.address || '',
-            landlordIdNumber: property.landlord?.idNumber || '',
-            commissionFee: property.commissionFee || 0,
-            imageFile: null,
-            accountNo: property.accountNo || '',
-            accountName: property.accountName || '',
-            bank: property.bank || '',
-            branch: property.branch || '',
-            branchCode: property.branchCode || '',
-          });
-          setLandlordMode(property.landlordId ? 'existing' : 'new');
-          setImagePreview(property.image || null);
-        } else {
-          // Clear form for new property
-          setFormData({
-            name: '',
-            address: '',
-            lrNumber: '',
-            form: 'APARTMENT',
-            usage: 'RESIDENTIAL',
-            landlordId: '',
-            landlordName: '',
-            landlordEmail: '',
-            landlordPhone: '',
-            landlordAddress: '',
-            landlordIdNumber: '',
-            commissionFee: 0,
-            imageFile: null,
-            accountNo: '',
-            accountName: '',
-            bank: '',
-            branch: '',
-            branchCode: '',
-          });
-          setLandlordMode('existing');
-          setImagePreview(null);
-        }
-        clearDraft();
+    const resetDraft = () => {
+      if (property) {
+        setFormData(propertyValues(property))
+        setLandlordMode(property.landlordId ? 'existing' : 'new')
+        setImagePreview(property.image || null)
+      } else {
+        setFormData(emptyFormData())
+        setLandlordMode('existing')
+        setImagePreview(null)
       }
-    };
-
-    // Determine if user can select existing landlords
-    // User can select existing landlords if they have permission to view landlords OR can create properties
-    const canSelectExistingLandlords = canViewLandlordsForAssignment || isAdmin || isManager;
-    
-    // Determine if user can create new landlords
-    // User can create new landlords if they have permission to create landlords OR can create properties
-    const canAddNewLandlord = canCreateNewLandlord || isAdmin || isManager;
+      clearDraft()
+      setClearDraftOpen(false)
+      setError('')
+    }
 
     return (
-      <form
-        ref={ref}
-        onSubmit={handleSubmit}
-        className="space-y-5"
-        noValidate
-        encType="multipart/form-data"
-      >
-        {/* Draft Banner */}
-        {hasDraft && (
-          <div className="bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 rounded flex justify-between items-center">
-            <span className="flex items-center gap-2">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              <span>Draft saved - Your changes are being automatically saved</span>
-            </span>
-            <button
-              type="button"
-              onClick={handleClearDraft}
-              className="text-sm text-blue-600 hover:text-blue-800 underline"
-            >
-              Clear Draft
-            </button>
-          </div>
-        )}
-
-        {/* Error Banner */}
-        {error && (
-          <div className="p-3 rounded-md bg-red-50 border border-red-200 text-red-700 text-sm">
-            <strong>❌ Error:</strong> {error}
-          </div>
-        )}
-
-        {/* Permission Info Banner for Managed Users */}
-        {isManagedUser && !canSelectExistingLandlords && canAddNewLandlord && (
-          <div className="p-3 rounded-md bg-blue-50 border border-blue-200 text-blue-700 text-sm">
-            <strong>ℹ️ Info:</strong> You will need to create a new landlord for this property since you don't have access to view existing ones.
-          </div>
-        )}
-
-        {!canAssignLandlord && (
-          <div className="p-3 rounded-md bg-red-50 border border-red-200 text-red-700 text-sm">
-            <strong>❌ Error:</strong> You don't have permission to assign a landlord to this property. Please contact your administrator.
-          </div>
-        )}
-
-        {/* Property Name */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Property Name *
-          </label>
-          <input
-            type="text"
-            name="name"
-            value={formData.name}
-            onChange={handleChange}
-            required
-            placeholder="e.g. InterPark Heights"
-            disabled={loading}
-            className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary placeholder:text-black placeholder:opacity-70 text-black"
-          />
-        </div>
-
-        {/* Address */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Address *
-          </label>
-          <input
-            type="text"
-            name="address"
-            value={formData.address}
-            onChange={handleChange}
-            required
-            placeholder="Street, City, County"
-            disabled={loading}
-            className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary placeholder:text-black placeholder:opacity-70 text-black"
-          />
-        </div>
-
-        {/* LR Number */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            LR Number (Optional)
-          </label>
-          <input
-            type="text"
-            name="lrNumber"
-            value={formData.lrNumber}
-            onChange={handleChange}
-            placeholder="e.g. LR/12345/2020"
-            disabled={loading}
-            className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary placeholder:text-black placeholder:opacity-70 text-black"
-          />
-        </div>
-
-        {/* Property Form (Building Type) */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Property Form (Building Type) *
-          </label>
-          <select
-            name="form"
-            value={formData.form}
-            onChange={handleChange}
-            required
-            disabled={loading}
-            className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary text-black"
-          >
-            <option value="APARTMENT" className="text-black">Apartment</option>
-            <option value="BUNGALOW" className="text-black">Bungalow</option>
-            <option value="VILLA" className="text-black">Villa</option>
-            <option value="DUPLEX" className="text-black">Duplex</option>
-            <option value="TOWNHOUSE" className="text-black">Townhouse</option>
-            <option value="MAISONETTE" className="text-black">Maisonette</option>
-            <option value="OFFICE" className="text-black">Office</option>
-            <option value="SHOP" className="text-black">Shop</option>
-            <option value="WAREHOUSE" className="text-black">Warehouse</option>
-            <option value="INDUSTRIAL_BUILDING" className="text-black">Industrial Building</option>
-            <option value="RETAIL_CENTER" className="text-black">Retail Center</option>
-          </select>
-        </div>
-
-        {/* Usage Type */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Usage Type *
-          </label>
-          <select
-            name="usage"
-            value={formData.usage}
-            onChange={handleChange}
-            required
-            disabled={loading}
-            className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary text-black"
-          >
-            <option value="RESIDENTIAL" className="text-black">Residential</option>
-            <option value="COMMERCIAL" className="text-black">Commercial</option>
-            <option value="INDUSTRIAL" className="text-black">Industrial</option>
-            <option value="INSTITUTIONAL" className="text-black">Institutional</option>
-            <option value="MIXED_USE" className="text-black">Mixed Use</option>
-          </select>
-        </div>
-
-        {/* Commission Fee */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Commission Fee (%) (Optional)
-          </label>
-          <input
-            type="number"
-            name="commissionFee"
-            value={formData.commissionFee}
-            onChange={handleChange}
-            min="0"
-            max="100"
-            step="0.1"
-            placeholder="e.g., 5.0"
-            disabled={loading}
-            className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary placeholder:text-black placeholder:opacity-70 text-black"
-          />
-          <p className="mt-1 text-xs text-gray-500">
-            Manager's commission percentage for this property (0-100%)
-          </p>
-        </div>
-
-        {/* Image Upload */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Property Image (Optional)
-          </label>
-          
-          {/* Image Preview */}
-          {imagePreview && (
-            <div className="mb-3">
-              <div className="relative inline-block">
-                <img
-                  src={imagePreview}
-                  alt="Property preview"
-                  className="w-40 h-40 object-cover rounded-lg border border-gray-300"
-                />
-                <button
-                  type="button"
-                  onClick={removeImage}
-                  className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center hover:bg-red-600 transition-colors"
-                  title="Remove image"
-                >
-                  ×
-                </button>
+      <>
+        <form ref={ref} onSubmit={handleSubmit} className="mx-auto max-w-6xl space-y-5" noValidate encType="multipart/form-data">
+          {hasDraft && (
+            <Alert variant="info" className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex min-w-0 gap-3">
+                <FileClock className="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
+                <div>
+                  <AlertTitle>Draft saved</AlertTitle>
+                  <AlertDescription>Your text changes are saved on this device. Selected image files may need to be chosen again after a reload.</AlertDescription>
+                </div>
               </div>
-            </div>
+              <Button type="button" variant="ghost" size="sm" onClick={() => setClearDraftOpen(true)}>Clear draft</Button>
+            </Alert>
           )}
 
-          <FileUpload
-            id="imageFile"
-            value={formData.imageFile}
-            onValueChange={handleFileChange}
-            accept="image/jpeg,image/jpg,image/png,image/webp,image/gif"
-            maxSize={5 * 1024 * 1024}
-            disabled={loading}
-            title="Drop a property image here"
-            description="JPG, PNG, WebP, or GIF"
-            buttonLabel="Select image"
-          />
-          
-          {/* If editing and there's an existing image URL but no new file */}
-          {property?.image && !imagePreview && (
-            <div className="mt-2 p-2 bg-gray-50 rounded border border-gray-200">
-              <p className="text-xs text-gray-600">
-                <strong>Current image:</strong> Using previously uploaded image. 
-                Upload a new image to replace it.
-              </p>
-            </div>
-          )}
-        </div>
-
-        {/* BANK DETAILS SECTION */}
-        <div className="border-t pt-5">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Bank Details (Optional)</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Account Number */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Account Number
-              </label>
-              <input
-                type="text"
-                name="accountNo"
-                value={formData.accountNo}
-                onChange={handleChange}
-                placeholder="e.g. 1234567890"
-                disabled={loading}
-                className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary placeholder:text-black placeholder:opacity-70 text-black"
-              />
-            </div>
-
-            {/* Account Name */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Account Name
-              </label>
-              <input
-                type="text"
-                name="accountName"
-                value={formData.accountName}
-                onChange={handleChange}
-                placeholder="e.g. John Doe"
-                disabled={loading}
-                className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary placeholder:text-black placeholder:opacity-70 text-black"
-              />
-            </div>
-
-            {/* Bank Name */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Bank Name
-              </label>
-              <input
-                type="text"
-                name="bank"
-                value={formData.bank}
-                onChange={handleChange}
-                placeholder="e.g. Equity Bank"
-                disabled={loading}
-                className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary placeholder:text-black placeholder:opacity-70 text-black"
-              />
-            </div>
-
-            {/* Branch */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Branch
-              </label>
-              <input
-                type="text"
-                name="branch"
-                value={formData.branch}
-                onChange={handleChange}
-                placeholder="e.g. Westlands Branch"
-                disabled={loading}
-                className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary placeholder:text-black placeholder:opacity-70 text-black"
-              />
-            </div>
-
-            {/* Branch Code */}
-            <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Branch Code
-              </label>
-              <input
-                type="text"
-                name="branchCode"
-                value={formData.branchCode}
-                onChange={handleChange}
-                placeholder="e.g. 068"
-                disabled={loading}
-                className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary placeholder:text-black placeholder:opacity-70 text-black"
-              />
-            </div>
-          </div>
-          <p className="mt-2 text-xs text-gray-500">
-            Bank details for rent payments and financial transactions
-          </p>
-        </div>
-
-        {/* LANDLORD SELECTION MODE TOGGLE */}
-        <div className="border-t pt-5">
-          <label className="block text-sm font-medium text-gray-700 mb-3">
-            Landlord Assignment
-          </label>
-          
-          {/* Only show toggle buttons if user has both options available */}
-          {(canSelectExistingLandlords && canAddNewLandlord && canAssignLandlord) ? (
-            <div className="flex flex-wrap gap-3 mb-4">
-              <button
-                type="button"
-                onClick={() => handleLandlordModeChange('existing')}
-                className={`px-4 py-2 rounded-lg border font-medium transition-colors ${
-                  landlordMode === 'existing'
-                    ? 'bg-primary text-white border-primary'
-                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                }`}
-              >
-                ✅ Select Existing Landlord
-              </button>
-              <button
-                type="button"
-                onClick={() => handleLandlordModeChange('new')}
-                className={`px-4 py-2 rounded-lg border font-medium transition-colors ${
-                  landlordMode === 'new'
-                    ? 'bg-primary text-white border-primary'
-                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                }`}
-              >
-                ➕ Add New Landlord
-              </button>
-            </div>
-          ) : (canSelectExistingLandlords && canAssignLandlord) ? (
-            // User can only select existing landlords
-            <div className="mb-4">
-              <p className="text-sm text-gray-600 mb-2">Selecting existing landlord</p>
-            </div>
-          ) : (canAddNewLandlord && canAssignLandlord) ? (
-            // User can only create new landlord
-            <div className="mb-4">
-              <p className="text-sm text-gray-600 mb-2">Creating a new landlord</p>
-            </div>
-          ) : null}
-
-          {/* Existing Landlord */}
-          {(landlordMode === 'existing' && canSelectExistingLandlords && canAssignLandlord) && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Select Landlord *
-              </label>
-              <select
-                name="landlordId"
-                value={formData.landlordId}
-                onChange={handleChange}
-                required
-                disabled={loading || fetchingLandlords}
-                className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary text-black"
-              >
-                <option value="" className="text-black">— Choose a landlord —</option>
-                {landlords.map((landlord) => (
-                  <option key={landlord.id} value={landlord.id} className="text-black">
-                    {landlord.name} {landlord.phone ? `• ${landlord.phone}` : ''}
-                  </option>
-                ))}
-              </select>
-              {fetchingLandlords && (
-                <p className="mt-1 text-xs text-gray-500">Loading landlords...</p>
-              )}
-              {landlords.length === 0 && !fetchingLandlords && (
-                <p className="mt-1 text-xs text-amber-600">
-                  No landlords available. You can create a new landlord instead.
-                </p>
-              )}
-              <p className="mt-1 text-xs text-gray-500">
-                You can manage landlords in the <strong>Landlords</strong> section.
-              </p>
-            </div>
+          {error && (
+            <Alert variant="destructive">
+              <AlertTitle>Property could not be saved</AlertTitle>
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
           )}
 
-          {/* New Landlord */}
-          {(landlordMode === 'new' && canAddNewLandlord && canAssignLandlord) && (
-            <div className="space-y-3 p-4 bg-gray-50 rounded-lg border border-gray-200">
-              <h4 className="font-medium text-gray-800 mb-2">New Landlord Details</h4>
-              
-              {/* Landlord Name */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Landlord Name *
-                </label>
-                <input
-                  type="text"
-                  name="landlordName"
-                  value={formData.landlordName}
-                  onChange={handleChange}
-                  placeholder="Full name"
-                  disabled={loading}
-                  className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary placeholder:text-black placeholder:opacity-70 text-black"
-                />
-              </div>
+          {isManagedUser && !canSelectExistingLandlords && canAddNewLandlord && (
+            <Alert variant="info"><AlertTitle>Landlord assignment</AlertTitle><AlertDescription>Create a landlord below to associate it with this property.</AlertDescription></Alert>
+          )}
 
-              {/* Landlord ID Number */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  ID Number (Optional)
-                </label>
-                <input
-                  type="text"
-                  name="landlordIdNumber"
-                  value={formData.landlordIdNumber}
-                  onChange={handleChange}
-                  placeholder="National ID number"
-                  disabled={loading}
-                  className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary placeholder:text-black placeholder:opacity-70 text-black"
-                />
-              </div>
+          <FormSection title="Property details" description="Record the property's identity, location, building form, and management fee.">
+            <div className="grid gap-5 md:grid-cols-2">
+              <Input label="Property Name" name="name" value={formData.name} onChange={handleInputChange} placeholder="e.g. InterPark Heights" disabled={loading} required />
+              <Input label="Address" name="address" value={formData.address} onChange={handleInputChange} placeholder="Street, city, county" disabled={loading} required />
+              <Input label="LR Number" name="lrNumber" value={formData.lrNumber} onChange={handleInputChange} placeholder="e.g. LR/12345/2020" disabled={loading} helperText="Optional land reference number." />
 
-              {/* Landlord Email */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Email (Optional)
-                </label>
-                <input
-                  type="email"
-                  name="landlordEmail"
-                  value={formData.landlordEmail}
-                  onChange={handleChange}
-                  placeholder="name@example.com"
-                  disabled={loading}
-                  className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary placeholder:text-black placeholder:opacity-70 text-black"
-                />
-              </div>
+              <FormField label="Property Form" htmlFor="property-form" required>
+                <Select value={formData.form} onValueChange={(value) => updateForm({ form: value as PropertyFormType })} disabled={loading}>
+                  <SelectTrigger id="property-form"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="APARTMENT">Apartment</SelectItem><SelectItem value="BUNGALOW">Bungalow</SelectItem><SelectItem value="VILLA">Villa</SelectItem><SelectItem value="DUPLEX">Duplex</SelectItem><SelectItem value="TOWNHOUSE">Townhouse</SelectItem><SelectItem value="MAISONETTE">Maisonette</SelectItem><SelectItem value="OFFICE">Office</SelectItem><SelectItem value="SHOP">Shop</SelectItem><SelectItem value="WAREHOUSE">Warehouse</SelectItem><SelectItem value="INDUSTRIAL_BUILDING">Industrial Building</SelectItem><SelectItem value="RETAIL_CENTER">Retail Center</SelectItem>
+                  </SelectContent>
+                </Select>
+              </FormField>
 
-              {/* Landlord Phone */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Phone (Optional)
-                </label>
-                <input
-                  type="tel"
-                  name="landlordPhone"
-                  value={formData.landlordPhone}
-                  onChange={handleChange}
-                  placeholder="1234567890"
-                  disabled={loading}
-                  className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary placeholder:text-black placeholder:opacity-70 text-black"
-                  maxLength={10}
-                />
-                {formData.landlordPhone && formData.landlordPhone.length !== 10 && (
-                  <p className="mt-1 text-xs text-red-500">Phone number must be exactly 10 digits</p>
-                )}
-                <p className="mt-1 text-xs text-gray-700">Format: 10 digits without spaces or dashes</p>
-              </div>
+              <FormField label="Usage Type" htmlFor="property-usage" required>
+                <Select value={formData.usage} onValueChange={(value) => updateForm({ usage: value as UsageType })} disabled={loading}>
+                  <SelectTrigger id="property-usage"><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="RESIDENTIAL">Residential</SelectItem><SelectItem value="COMMERCIAL">Commercial</SelectItem><SelectItem value="INDUSTRIAL">Industrial</SelectItem><SelectItem value="INSTITUTIONAL">Institutional</SelectItem><SelectItem value="MIXED_USE">Mixed Use</SelectItem></SelectContent>
+                </Select>
+              </FormField>
 
-              {/* Landlord Address */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Address (Optional)
-                </label>
-                <input
-                  type="text"
-                  name="landlordAddress"
-                  value={formData.landlordAddress}
-                  onChange={handleChange}
-                  placeholder="Landlord's address"
-                  disabled={loading}
-                  className="w-full px-3.5 py-2.5 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary placeholder:text-black placeholder:opacity-70 text-black"
-                />
-              </div>
+              <Input label="Commission Fee (%)" name="commissionFee" type="number" min="0" max="100" step="0.1" value={formData.commissionFee} onChange={handleInputChange} disabled={loading} helperText="Optional manager commission percentage from 0 to 100%." />
             </div>
-          )}
-          
-          {/* No permission to assign landlords */}
-          {!canAssignLandlord && (
-            <div className="p-3 rounded-md bg-red-50 border border-red-200 text-red-700 text-sm">
-              <strong>❌ Error:</strong> You don't have permission to assign a landlord to this property. Please contact your administrator.
-            </div>
-          )}
-        </div>
+          </FormSection>
 
-        {/* Action Buttons */}
-        <div className="flex flex-col sm:flex-row sm:justify-end gap-3 pt-2">
-          {onCancel && (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={onCancel}
-              disabled={loading}
-              className="px-4 py-2.5"
-            >
-              Cancel
-            </Button>
-          )}
-          <Button
-            type="submit"
-            disabled={loading || !canAssignLandlord}
-            className="px-5 py-2.5 bg-primary text-white hover:bg-primary/90 shadow-sm hover:shadow transition-shadow"
-          >
-            {loading ? (
-              <span className="flex items-center">
-                <svg
-                  className="animate-spin -ml-1 mr-2 h-4 w-4 text-white"
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  ></circle>
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                  ></path>
-                </svg>
-                Saving...
-              </span>
-            ) : property ? (
-              'Update Property'
-            ) : (
-              '✅ Create Property'
+          <FormSection title="Property image" description="Add a clear image to help staff identify the property.">
+            {imagePreview && (
+              <div className="mb-5 flex items-start gap-4 rounded-lg border border-border bg-muted/20 p-3">
+                <Image src={imagePreview} alt="Property preview" width={144} height={144} unoptimized className="h-32 w-32 rounded-md border border-border object-cover" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-foreground">Image preview</p>
+                  <p className="mt-1 text-xs text-muted-foreground">This image will represent the property in its workspace.</p>
+                </div>
+                <Button type="button" variant="ghost" size="icon" onClick={() => handleFileChange(null)} disabled={loading} aria-label="Remove property image" title="Remove property image"><X className="h-4 w-4" /></Button>
+              </div>
             )}
-          </Button>
-        </div>
-      </form>
-    );
-  }
-);
+            <FileUpload id="imageFile" value={formData.imageFile} onValueChange={handleFileChange} accept="image/jpeg,image/jpg,image/png,image/webp,image/gif" maxSize={5 * 1024 * 1024} disabled={loading} title="Drop a property image here" description="JPG, PNG, WebP, or GIF" buttonLabel="Select image" />
+          </FormSection>
 
-PropertyForm.displayName = 'PropertyForm';
+          <FormSection title="Bank details" description="Optional payment account details used for rent and financial transactions.">
+            <div className="grid gap-5 md:grid-cols-2">
+              <Input label="Account Number" name="accountNo" value={formData.accountNo} onChange={handleInputChange} placeholder="e.g. 1234567890" disabled={loading} inputMode="numeric" />
+              <Input label="Account Name" name="accountName" value={formData.accountName} onChange={handleInputChange} placeholder="e.g. InterPark Heights Ltd" disabled={loading} />
+              <Input label="Bank Name" name="bank" value={formData.bank} onChange={handleInputChange} placeholder="e.g. Equity Bank" disabled={loading} />
+              <Input label="Branch" name="branch" value={formData.branch} onChange={handleInputChange} placeholder="e.g. Westlands Branch" disabled={loading} />
+              <Input label="Branch Code" name="branchCode" value={formData.branchCode} onChange={handleInputChange} placeholder="e.g. 068" disabled={loading} />
+            </div>
+          </FormSection>
 
-export default PropertyForm;
+          <FormSection
+            title="Landlord assignment"
+            description="Associate an existing landlord or create a landlord together with this property."
+            footer={(
+              <FormActions>
+                {onCancel && <Button type="button" variant="outline" onClick={onCancel} disabled={loading}>Cancel</Button>}
+                <Button type="submit" loading={loading} disabled={!canAssignLandlord}>
+                  {!loading && (property ? <Save className="h-4 w-4" aria-hidden="true" /> : <Building2 className="h-4 w-4" aria-hidden="true" />)}
+                  {loading ? 'Saving property...' : property ? 'Update Property' : 'Create Property'}
+                </Button>
+              </FormActions>
+            )}
+          >
+            {!canAssignLandlord ? (
+              <Alert variant="destructive"><AlertTitle>Landlord assignment unavailable</AlertTitle><AlertDescription>You do not have permission to assign a landlord to this property. Contact an administrator for access.</AlertDescription></Alert>
+            ) : canSelectExistingLandlords && canAddNewLandlord ? (
+              <Tabs value={landlordMode} onValueChange={handleLandlordModeChange}>
+                <TabsList className="max-w-full">
+                  <TabsTrigger value="existing"><UsersRound className="h-4 w-4" aria-hidden="true" />Select Existing Landlord</TabsTrigger>
+                  <TabsTrigger value="new"><Plus className="h-4 w-4" aria-hidden="true" />Add New Landlord</TabsTrigger>
+                </TabsList>
+                <TabsContent value="existing" className="pt-5"><ExistingLandlordField landlords={landlords} value={formData.landlordId} loading={loading} fetching={fetchingLandlords} onChange={(landlordId) => updateForm({ landlordId })} /></TabsContent>
+                <TabsContent value="new" className="pt-5"><NewLandlordFields data={formData} loading={loading} onChange={handleInputChange} /></TabsContent>
+              </Tabs>
+            ) : landlordMode === 'existing' && canSelectExistingLandlords ? (
+              <ExistingLandlordField landlords={landlords} value={formData.landlordId} loading={loading} fetching={fetchingLandlords} onChange={(landlordId) => updateForm({ landlordId })} />
+            ) : canAddNewLandlord ? (
+              <NewLandlordFields data={formData} loading={loading} onChange={handleInputChange} />
+            ) : (
+              <Alert variant="warning"><AlertTitle>No landlord options available</AlertTitle><AlertDescription>Your current access does not allow existing landlord selection or new landlord creation.</AlertDescription></Alert>
+            )}
+          </FormSection>
+        </form>
+
+        <Dialog open={clearDraftOpen} onOpenChange={setClearDraftOpen}>
+          <DialogContent>
+            <DialogHeader><DialogTitle>Clear saved draft?</DialogTitle><DialogDescription>This resets every property field and permanently removes the locally saved draft.</DialogDescription></DialogHeader>
+            <DialogFooter><Button type="button" variant="outline" onClick={() => setClearDraftOpen(false)}>Keep draft</Button><Button type="button" variant="destructive" onClick={resetDraft}>Clear draft</Button></DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </>
+    )
+  },
+)
+
+function ExistingLandlordField({ landlords, value, loading, fetching, onChange }: { landlords: Landlord[]; value: string; loading: boolean; fetching: boolean; onChange: (value: string) => void }) {
+  return (
+    <FormField label="Existing Landlord" htmlFor="property-landlord" required description={fetching ? 'Loading landlords…' : landlords.length === 0 ? 'No landlords are currently available.' : 'Choose the landlord who owns this property.'}>
+      <Select value={value || undefined} onValueChange={onChange} disabled={loading || fetching || landlords.length === 0}>
+        <SelectTrigger id="property-landlord"><SelectValue placeholder={fetching ? 'Loading landlords…' : 'Select a landlord'} /></SelectTrigger>
+        <SelectContent>{landlords.map(landlord => <SelectItem key={landlord.id} value={landlord.id}>{landlord.name}{landlord.phone ? ` · ${landlord.phone}` : ''}</SelectItem>)}</SelectContent>
+      </Select>
+    </FormField>
+  )
+}
+
+function NewLandlordFields({ data, loading, onChange }: { data: PropertyFormData; loading: boolean; onChange: (event: React.ChangeEvent<HTMLInputElement>) => void }) {
+  const phoneError = data.landlordPhone && data.landlordPhone.length !== 10 ? 'Phone number must be exactly 10 digits.' : undefined
+  return (
+    <div>
+      <div className="mb-5 flex items-center gap-3 rounded-lg border border-border bg-muted/25 p-4">
+        <div className="rounded-md bg-primary/10 p-2 text-primary"><UserRound className="h-4 w-4" aria-hidden="true" /></div>
+        <div><p className="text-sm font-medium text-foreground">New landlord details</p><p className="text-xs text-muted-foreground">The landlord will be created together with this property.</p></div>
+      </div>
+      <div className="grid gap-5 md:grid-cols-2">
+        <Input label="Landlord Name" name="landlordName" value={data.landlordName} onChange={onChange} placeholder="Full name or company" disabled={loading} required />
+        <Input label="ID Number" name="landlordIdNumber" value={data.landlordIdNumber} onChange={onChange} placeholder="National ID or registration number" disabled={loading} />
+        <Input label="Email" name="landlordEmail" type="email" value={data.landlordEmail} onChange={onChange} placeholder="name@example.com" disabled={loading} />
+        <Input label="Phone" name="landlordPhone" type="tel" value={data.landlordPhone} onChange={onChange} placeholder="0712345678" disabled={loading} inputMode="numeric" maxLength={10} error={phoneError} helperText="Enter 10 digits without spaces or dashes." />
+        <div className="md:col-span-2"><Input label="Address" name="landlordAddress" value={data.landlordAddress} onChange={onChange} placeholder="Landlord address" disabled={loading} /></div>
+      </div>
+    </div>
+  )
+}
+
+PropertyForm.displayName = 'PropertyForm'
+
+export default PropertyForm

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { Download, Eye, FileCheck2, Pencil, Plus, Trash2 } from 'lucide-react'
+import { toast } from 'sonner'
 import type { ActivationRequest } from '@/types'
 import { PermissionCode } from '@/types'
 import { activationsAPI } from '@/lib/api'
@@ -22,6 +23,7 @@ export function PropertyActivationsTab({ propertyId, propertyName }: PropertyAct
   const [showActivationForm, setShowActivationForm] = useState(false)
   const [editingActivation, setEditingActivation] = useState<ActivationRequest | null>(null)
   const [deletingActivationId, setDeletingActivationId] = useState<string | null>(null)
+  const [downloadingActivationId, setDownloadingActivationId] = useState<string | null>(null)
 
   const fetchActivations = useCallback(async () => {
     setActivationsLoading(true)
@@ -59,12 +61,17 @@ export function PropertyActivationsTab({ propertyId, propertyName }: PropertyAct
     }
   }
   const handleDownload = async (activationId: string, requestNumber: string) => {
+    if (downloadingActivationId) return
+    setDownloadingActivationId(activationId)
     try {
       const pdfBlob = await activationsAPI.downloadPDF(activationId)
       downloadBlob(pdfBlob, `activation-request-${requestNumber}.pdf`)
+      toast.success('Activation request download initiated.')
     } catch (error) {
       console.error('Error downloading activation:', error)
-      window.alert('Failed to download activation request')
+      toast.error(error instanceof Error ? error.message : 'Unable to download the activation request. Please try again.')
+    } finally {
+      setDownloadingActivationId(null)
     }
   }
   const handleDelete = async (activationId: string) => {
@@ -111,7 +118,7 @@ export function PropertyActivationsTab({ propertyId, propertyName }: PropertyAct
                 <div className="flex flex-wrap gap-2 border-t border-border pt-4">
                   <PermissionGuard permission={PermissionCode.EDIT_ACTIVATION_REQUEST}><Button size="sm" variant="outline" onClick={() => { setEditingActivation(activation); setShowActivationForm(true) }}><Pencil className="h-4 w-4" />Edit</Button></PermissionGuard>
                   {activation.documentUrl && <Button size="sm" variant="outline" onClick={() => handleView(activation.id)}><Eye className="h-4 w-4" />View</Button>}
-                  <Button size="sm" variant="outline" onClick={() => handleDownload(activation.id, activation.requestNumber)}><Download className="h-4 w-4" />Download</Button>
+                  <Button size="sm" variant="outline" loading={downloadingActivationId === activation.id} disabled={downloadingActivationId !== null} onClick={() => handleDownload(activation.id, activation.requestNumber)}>{downloadingActivationId !== activation.id && <Download className="h-4 w-4" />}Download</Button>
                   <PermissionGuard permission={PermissionCode.DELETE_ACTIVATION_REQUEST}><Button size="sm" variant="outline" className="text-destructive" loading={deletingActivationId === activation.id} onClick={() => handleDelete(activation.id)}><Trash2 className="h-4 w-4" />Delete</Button></PermissionGuard>
                 </div>
               </CardContent>

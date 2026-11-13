@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState, useMemo, JSX } from 'react';
+import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { motion, Variants } from 'framer-motion';
 import { Tenant, Invoice, InvoiceStatus, PaymentReport, PaymentPreview, CreatePaymentReportResponse, PaymentStatus, BillInvoice, PaymentPolicy, DemandLetter, CreatePaymentReportRequest } from '@/types';
@@ -1154,7 +1155,16 @@ const handleDownloadPaymentReport = async () => {
             <CardHeader><CardTitle>Unit information</CardTitle><CardDescription>The unit assigned to this tenant.</CardDescription></CardHeader>
             <CardContent>
               <DetailList>
-                <DetailItem label="Unit number">{tenant.unit.unitNo || '—'}</DetailItem>
+                <DetailItem label="Unit number">
+                  {tenant.unit.id ? (
+                    <Link
+                      href={`/properties/${tenant.unit.id}/unit-details`}
+                      className="inline-block max-w-full truncate underline-offset-4 hover:text-primary hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      {tenant.unit.unitNo || tenant.unit.type || 'Unit'}
+                    </Link>
+                  ) : tenant.unit.unitNo || tenant.unit.type || '—'}
+                </DetailItem>
                 <DetailItem label="Unit type">{tenant.unit.unitType || '—'}</DetailItem>
                 <DetailItem label="Floor">{tenant.unit.floor || '—'}</DetailItem>
                 <DetailItem label="Size">{tenant.unit.sizeSqFt ? `${tenant.unit.sizeSqFt.toLocaleString()} sq ft` : '—'}</DetailItem>

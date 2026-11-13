@@ -1,6 +1,7 @@
 'use client'
 
 import type { Dispatch, SetStateAction } from 'react'
+import Link from 'next/link'
 import { Download } from 'lucide-react'
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from 'recharts'
 import { PermissionGuard } from '@/components/auth/PermissionGuard'
@@ -246,7 +247,16 @@ export function BillsReportTab({
                   <TableBody>
                     {billsReportData.tenantOutstanding.map((tenant, idx: number) => (
                       <TableRow key={idx} className="border-b border-border hover:bg-muted/40">
-                        <TableCell className="py-3 px-4 font-medium text-foreground">{tenant.tenantName}</TableCell>
+                        <TableCell className="py-3 px-4 font-medium text-foreground">
+                          {tenant.tenantId ? (
+                            <Link
+                              href={`/properties/${tenant.tenantId}/tenant-details`}
+                              className="inline-block max-w-full truncate underline-offset-4 hover:text-primary hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            >
+                              {tenant.tenantName}
+                            </Link>
+                          ) : tenant.tenantName}
+                        </TableCell>
                         <TableCell className="py-3 px-4 text-foreground">{tenant.unitNo}</TableCell>
                         <TableCell className="py-3 px-4 text-right text-foreground">Ksh {tenant.water.total.toLocaleString()}</TableCell>
                         <TableCell className="py-3 px-4 text-right text-destructive font-semibold">Ksh {tenant.water.outstanding.toLocaleString()}</TableCell>

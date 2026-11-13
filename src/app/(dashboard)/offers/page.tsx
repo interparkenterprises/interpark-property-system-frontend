@@ -117,10 +117,10 @@ export default function OffersPage() {
     try {
       await offerLettersAPI.generatePDF(offerId)
       await fetchOffers()
-      toast.success('PDF generated successfully')
+      toast.success('Offer letter PDF generated successfully.')
     } catch (operationError) {
       console.error('Failed to generate PDF:', operationError)
-      toast.error(operationError instanceof Error ? operationError.message : 'Failed to generate PDF.')
+      toast.error(operationError instanceof Error ? operationError.message : 'Unable to generate the offer letter PDF. Please try again.')
     } finally {
       setGeneratingPdf(null)
     }
@@ -138,9 +138,10 @@ export default function OffersPage() {
       anchor.click()
       document.body.removeChild(anchor)
       window.URL.revokeObjectURL(url)
+      toast.success('Offer letter download initiated.')
     } catch (operationError) {
       console.error('Failed to download PDF:', operationError)
-      toast.error(operationError instanceof Error ? operationError.message : 'Failed to download PDF.')
+      toast.error(operationError instanceof Error ? operationError.message : 'Unable to download the offer letter PDF. Please try again.')
     } finally {
       setDownloadingPdf(null)
     }

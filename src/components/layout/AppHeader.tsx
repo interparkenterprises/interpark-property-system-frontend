@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { ArrowLeft, ChevronRight, Menu } from 'lucide-react'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import ThemeToggle from './ThemeToggle'
 import { useBreadcrumbState, type BreadcrumbOverride } from './BreadcrumbContext'
 
@@ -66,6 +66,7 @@ const entityLabels: Record<string, string> = {
 }
 
 const staticEntityChildren = new Set(['create', 'create-with-property', 'due'])
+const managedUserModes = new Set(['user', 'managed-user', 'create-user'])
 
 function isDynamicEntitySegment(segments: string[], index: number) {
   if (index === 1 && entityLabels[segments[0]] && !staticEntityChildren.has(segments[index])) {
@@ -98,12 +99,61 @@ function getBreadcrumbLabel(segments: string[], index: number) {
   return segmentLabels[segment] ?? formatSegment(segment)
 }
 
-function buildBreadcrumbs(pathname: string, overrides: Record<string, BreadcrumbOverride>, trail: BreadcrumbOverride[], trailRoot: string | null, action: string | null): BreadcrumbItem[] {
+function buildAdministrationBreadcrumbs(
+  segments: string[],
+  overrides: Record<string, BreadcrumbOverride>,
+  managedUserCreation: boolean,
+): BreadcrumbItem[] | null {
+  const area = segments[0]
+  if (area !== 'users' && area !== 'roles') return null
+
+  const breadcrumbs: BreadcrumbItem[] = [
+    { label: 'Dash', href: '/dashboard', path: '/dashboard' },
+    { label: 'User Settings', href: '/users', path: '/users#settings' },
+  ]
+
+  if (area === 'users') {
+    const userPath = segments[1] ? `/users/${segments[1]}` : null
+    breadcrumbs.push({ label: 'Users', href: userPath ? '/users' : undefined, path: '/users' })
+
+    if (userPath) {
+      breadcrumbs.push({
+        label: overrides[userPath]?.label || 'User access',
+        path: userPath,
+      })
+    }
+
+    return breadcrumbs
+  }
+
+  if (segments[1] && segments[1] !== 'create') {
+    const rolePath = `/roles/${segments[1]}`
+    breadcrumbs.push({ label: 'Role Management', href: '/roles', path: '/roles' })
+    breadcrumbs.push({
+      label: overrides[rolePath]?.label || 'Role details',
+      path: rolePath,
+    })
+    return breadcrumbs
+  }
+
+  breadcrumbs.push({
+    label: segments[1] === 'create'
+      ? managedUserCreation ? 'Create Managed User' : 'Create Roles'
+      : 'Role Management',
+    path: segments[1] === 'create' ? '/roles/create' : '/roles',
+  })
+  return breadcrumbs
+}
+
+function buildBreadcrumbs(pathname: string, overrides: Record<string, BreadcrumbOverride>, trail: BreadcrumbOverride[], trailRoot: string | null, action: string | null, managedUserCreation = false): BreadcrumbItem[] {
   const segments = pathname.split('/').filter(Boolean)
 
   if (segments.length === 0 || (segments.length === 1 && segments[0] === 'dashboard')) {
     return [{ label: 'Dashboard', path: '/dashboard' }]
   }
+
+  const administrationBreadcrumbs = buildAdministrationBreadcrumbs(segments, overrides, managedUserCreation)
+  if (administrationBreadcrumbs) return administrationBreadcrumbs
 
   const breadcrumbs: BreadcrumbItem[] = [{ label: 'Dashboard', href: '/dashboard', path: '/dashboard' }]
 
@@ -137,9 +187,12 @@ function buildBreadcrumbs(pathname: string, overrides: Record<string, Breadcrumb
 
 export default function AppHeader({ onMobileOpen, userName }: AppHeaderProps) {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const router = useRouter()
   const { overrides, trail, trailRoot, backHref, action } = useBreadcrumbState()
-  const breadcrumbs = buildBreadcrumbs(pathname, overrides, trail, trailRoot, action)
+  const creationMode = searchParams.get('mode') ?? searchParams.get('tab')
+  const managedUserCreation = creationMode ? managedUserModes.has(creationMode) : false
+  const breadcrumbs = buildBreadcrumbs(pathname, overrides, trail, trailRoot, action, managedUserCreation)
 
   return (
     <header className="flex h-16 shrink-0 items-center gap-2 border-b border-border bg-card px-3 text-card-foreground sm:gap-3 sm:px-4">
@@ -185,8 +238,10 @@ export default function AppHeader({ onMobileOpen, userName }: AppHeaderProps) {
                   </Link>
                 ) : (
                   <span
-                    className="max-w-48 truncate font-semibold text-foreground sm:max-w-64"
-                    aria-current="page"
+                    className={isCurrent
+                      ? 'max-w-48 truncate font-semibold text-foreground sm:max-w-64'
+                      : 'max-w-40 truncate text-muted-foreground'}
+                    aria-current={isCurrent ? 'page' : undefined}
                   >
                     {breadcrumb.label}
                   </span>

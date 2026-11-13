@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { ArrowLeft, Banknote, Building2, CalendarDays, Edit, FileText, Phone, Upload, X } from 'lucide-react'
 import { toast } from 'sonner'
@@ -333,7 +334,16 @@ export default function ServiceProviderDetailPage() {
                 </CardHeader>
                 <CardContent>
                   <DetailList className="md:grid md:grid-cols-2 md:gap-x-6 md:divide-y-0">
-                    <DetailItem label="Property Name">{provider.property.name}</DetailItem>
+                    <DetailItem label="Property Name">
+                      {provider.propertyId ? (
+                        <Link
+                          href={`/properties/${provider.propertyId}`}
+                          className="inline-block max-w-full truncate underline-offset-4 hover:text-primary hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                          {provider.property.name}
+                        </Link>
+                      ) : provider.property.name}
+                    </DetailItem>
                     <DetailItem label="Address">{provider.property.address}</DetailItem>
                     <DetailItem label="Property Type">{formatEnumLabel(provider.property.form)}</DetailItem>
                     <DetailItem label="Usage Type">{formatEnumLabel(provider.property.usage)}</DetailItem>

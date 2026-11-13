@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Eye, Pencil, Plus, Trash2, Wrench } from 'lucide-react'
 import type { ServiceProvider } from '@/types'
@@ -60,7 +61,18 @@ export function PropertyServiceProvidersTab({ propertyId, serviceProviders, onPr
         <div className="grid gap-4 lg:grid-cols-2">
           {serviceProviders.map((provider) => (
             <Card key={provider.id}>
-              <CardHeader className="border-b border-border"><h3 className="font-semibold text-foreground">{provider.name}</h3></CardHeader>
+              <CardHeader className="border-b border-border">
+                <h3 className="font-semibold text-foreground">
+                  {provider.id ? (
+                    <Link
+                      href={`/properties/${provider.id}/service-provider-detail`}
+                      className="inline-block max-w-full truncate underline-offset-4 hover:text-primary hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      {provider.name}
+                    </Link>
+                  ) : provider.name}
+                </h3>
+              </CardHeader>
               <CardContent className="space-y-4 pt-5">
                 <div className="grid gap-3 text-sm sm:grid-cols-2">
                   <ProviderDetail label="Contact" value={provider.contact || 'N/A'} />

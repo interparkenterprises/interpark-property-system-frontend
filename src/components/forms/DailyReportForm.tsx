@@ -3,11 +3,12 @@
 import { useEffect, useState } from 'react'
 import type { FieldErrors } from 'react-hook-form'
 import { FormProvider, useForm, useWatch } from 'react-hook-form'
-import { Banknote, Building2, ChevronLeft, ChevronRight, ClipboardList, Eye, FileText, ShieldCheck, Sparkles, Users, Wrench } from 'lucide-react'
+import { Banknote, Building2, ClipboardList, Eye, FileText, ShieldCheck, Sparkles, Users, Wrench } from 'lucide-react'
 import { dailyReportsAPI } from '@/lib/api'
 import type { CreateDailyReportRequest, DailyReport, UpdateDailyReportRequest } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { FormSectionFooter } from '@/components/ui/form-section-footer'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
@@ -20,6 +21,7 @@ import {
   SecuritySection,
   TenantIssuesSection,
 } from './daily-report/DailyReportSections'
+import { persistAndSubmitDailyReport, persistDailyReportDraft } from './daily-report/persistence'
 import type { DailyReportFormValues, DailyReportSectionId, RepairEntry, TenantIssueEntry } from './daily-report/types'
 
 interface DailyReportFormProps {
@@ -56,6 +58,7 @@ export default function DailyReportForm({ propertyId, propertyName, report, onSu
   const [loading, setLoading] = useState(false)
   const [activeSection, setActiveSection] = useState<DailyReportSectionId>('overview')
   const [submitting, setSubmitting] = useState(false)
+  const [createdReportId, setCreatedReportId] = useState<string | null>(null)
   const [repairs, setRepairs] = useState<RepairEntry[]>(report?.maintenance?.repairs || [{ description: '', status: 'PENDING', cost: 0, notes: '' }])
   const [tenantIssues, setTenantIssues] = useState<TenantIssueEntry[]>(report?.tenantIssues?.issues || [{ tenantName: '', unit: '', issue: '', status: 'PENDING', dateReported: today() }])
 
@@ -86,12 +89,20 @@ export default function DailyReportForm({ propertyId, propertyName, report, onSu
     setTenantIssues((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, [field]: value } : item))
   }
 
-  const onSubmit = async (data: DailyReportFormValues) => {
+  const rememberPersistedReport = (persistedReport: DailyReport) => {
+    if (!report) setCreatedReportId(persistedReport.id)
+  }
+
+  const onSaveDraft = async (data: DailyReportFormValues) => {
     try {
       setLoading(true)
       const reportData = createReportPayload(propertyId, data, repairs, tenantIssues)
-      if (report) await dailyReportsAPI.update(report.id, reportData)
-      else await dailyReportsAPI.create(reportData as CreateDailyReportRequest)
+      const persistedReport = await persistDailyReportDraft(
+        dailyReportsAPI,
+        report?.id ?? createdReportId,
+        reportData,
+      )
+      rememberPersistedReport(persistedReport)
       onSuccess()
     } catch (error) {
       console.error('Error saving daily report:', error)
@@ -104,8 +115,13 @@ export default function DailyReportForm({ propertyId, propertyName, report, onSu
   const handleSubmitReport = async (data: DailyReportFormValues) => {
     try {
       setSubmitting(true)
-      await onSubmit(data)
-      if (report) await dailyReportsAPI.submit(report.id)
+      const reportData = createReportPayload(propertyId, data, repairs, tenantIssues)
+      await persistAndSubmitDailyReport(
+        dailyReportsAPI,
+        report?.id ?? createdReportId,
+        reportData,
+        rememberPersistedReport,
+      )
       window.alert('Report submitted successfully!')
       onSuccess()
     } catch (error) {
@@ -124,14 +140,12 @@ export default function DailyReportForm({ propertyId, propertyName, report, onSu
     window.setTimeout(() => setFocus(firstField), 0)
   }
 
-  const activeIndex = sections.findIndex((section) => section.id === activeSection)
-  const previousSection = activeIndex > 0 ? sections[activeIndex - 1] : null
-  const nextSection = activeIndex < sections.length - 1 ? sections[activeIndex + 1] : null
+  const sectionIds = sections.map((section) => section.id)
   const canEditDraft = !report || report.status === 'DRAFT'
 
   return (
     <FormProvider {...form}>
-      <form className="min-w-0 space-y-4" onSubmit={handleSubmit(onSubmit, handleInvalid)} noValidate>
+      <form className="min-w-0 space-y-4" onSubmit={handleSubmit(onSaveDraft, handleInvalid)} noValidate>
         <Card>
           <CardHeader className="gap-4 border-b border-border sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
@@ -158,23 +172,25 @@ export default function DailyReportForm({ propertyId, propertyName, report, onSu
                 <TabsContent value="cleanliness"><CleanlinessSection /></TabsContent>
                 <TabsContent value="tenantIssues"><TenantIssuesSection issues={tenantIssues} onAdd={addTenantIssue} onRemove={removeTenantIssue} onUpdate={updateTenantIssue} /></TabsContent>
                 <TabsContent value="observations"><OtherObservationsSection /></TabsContent>
-                <div className="mt-4 flex items-center justify-between gap-3">
-                  <Button type="button" variant="outline" disabled={!previousSection} onClick={() => previousSection && setActiveSection(previousSection.id)}><ChevronLeft className="size-4" />Previous</Button>
-                  <span className="text-xs text-muted-foreground">Section {activeIndex + 1} of {sections.length}</span>
-                  <Button type="button" variant="outline" disabled={!nextSection} onClick={() => nextSection && setActiveSection(nextSection.id)}>Next<ChevronRight className="size-4" /></Button>
-                </div>
               </div>
             </Tabs>
           </CardContent>
-
-          <div className="flex flex-col-reverse gap-2 border-t border-border bg-muted/20 px-4 py-4 sm:flex-row sm:flex-wrap sm:justify-end sm:px-5">
-            <Button type="button" variant="outline" onClick={onCancel} disabled={loading || submitting}>Cancel</Button>
-            {canEditDraft && <>
-              <Button type="button" variant="secondary" loading={loading} disabled={submitting} onClick={handleSubmit(onSubmit, handleInvalid)}>{report ? 'Update Draft' : 'Save as Draft'}</Button>
-              <Button type="button" loading={submitting} disabled={loading} onClick={handleSubmit(handleSubmitReport, handleInvalid)}>{report ? 'Submit Report' : 'Create & Submit'}</Button>
-            </>}
-          </div>
         </Card>
+
+        <FormSectionFooter
+          sections={sectionIds}
+          activeSection={activeSection}
+          onSectionChange={setActiveSection}
+          onCancel={onCancel}
+          onSaveDraft={canEditDraft ? handleSubmit(onSaveDraft, handleInvalid) : undefined}
+          disabled={loading || submitting}
+          draftLoading={loading}
+          finalAction={canEditDraft ? (
+            <Button type="button" loading={submitting} disabled={loading} onClick={handleSubmit(handleSubmitReport, handleInvalid)}>
+              {report ? 'Submit Report' : 'Create & Submit'}
+            </Button>
+          ) : null}
+        />
       </form>
     </FormProvider>
   )

@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import {
   ArrowLeft,
@@ -210,7 +211,16 @@ export default function UnitDetailPage() {
             </CardHeader>
             <CardContent>
               <DetailList>
-                <DetailItem label="Tenant Name">{unit.tenant.fullName}</DetailItem>
+                <DetailItem label="Tenant Name">
+                  {unit.tenant.id ? (
+                    <Link
+                      href={`/properties/${unit.tenant.id}/tenant-details`}
+                      className="inline-block max-w-full truncate underline-offset-4 hover:text-primary hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      {unit.tenant.fullName}
+                    </Link>
+                  ) : unit.tenant.fullName}
+                </DetailItem>
                 <DetailItem label="Contact">{unit.tenant.contact || 'N/A'}</DetailItem>
                 <DetailItem label="Email">{unit.tenant.email || 'N/A'}</DetailItem>
                 <DetailItem label="Lease Term">{unit.tenant.leaseTerm || 'N/A'}</DetailItem>
@@ -232,7 +242,16 @@ export default function UnitDetailPage() {
             </CardHeader>
             <CardContent>
               <DetailList>
-                <DetailItem label="Property Name">{unit.property.name}</DetailItem>
+                <DetailItem label="Property Name">
+                  {unit.propertyId ? (
+                    <Link
+                      href={`/properties/${unit.propertyId}`}
+                      className="inline-block max-w-full truncate underline-offset-4 hover:text-primary hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      {unit.property.name}
+                    </Link>
+                  ) : unit.property.name}
+                </DetailItem>
                 <DetailItem label="Address">{unit.property.address}</DetailItem>
                 <DetailItem label="Property Type"><Badge variant="secondary">{formatEnumLabel(unit.property.form)}</Badge></DetailItem>
                 <DetailItem label="Usage Type">{formatEnumLabel(unit.property.usage)}</DetailItem>

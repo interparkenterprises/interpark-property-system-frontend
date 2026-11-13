@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Eye, Pencil, Plus, UserRoundX, Users } from 'lucide-react'
 import type { Tenant, TenantLeftReason } from '@/types'
@@ -130,7 +131,18 @@ export function PropertyTenantsTab({ propertyId, canManageTenants, onPropertyCha
         <div className="grid gap-4 lg:grid-cols-2">
           {tenants.map((tenant) => (
             <Card key={tenant.id}>
-              <CardHeader className="border-b border-border"><h3 className="font-semibold text-foreground">{tenant.fullName}</h3></CardHeader>
+              <CardHeader className="border-b border-border">
+                <h3 className="font-semibold text-foreground">
+                  {tenant.id ? (
+                    <Link
+                      href={`/properties/${tenant.id}/tenant-details`}
+                      className="inline-block max-w-full truncate underline-offset-4 hover:text-primary hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      {tenant.fullName}
+                    </Link>
+                  ) : tenant.fullName}
+                </h3>
+              </CardHeader>
               <CardContent className="space-y-4 pt-5">
                 <div className="grid gap-3 text-sm sm:grid-cols-2">
                   <TenantDetail label="Contact" value={tenant.contact || 'N/A'} />

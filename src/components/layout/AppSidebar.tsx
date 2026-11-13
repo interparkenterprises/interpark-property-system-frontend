@@ -16,10 +16,7 @@ import {
   Newspaper,
   PanelLeftClose,
   PanelLeftOpen,
-  ShieldCheck,
-  UserRoundPlus,
   UserRoundSearch,
-  Users,
   UsersRound,
   X,
 } from 'lucide-react'
@@ -35,6 +32,7 @@ interface MenuItem {
   requiredPermissions?: string[]
   requiredRole?: string[]
   hideForManagedUser?: boolean
+  activePrefixes?: string[]
 }
 
 interface AppSidebarProps {
@@ -58,9 +56,15 @@ const mainItems: MenuItem[] = [
 ]
 
 const administrationItems: MenuItem[] = [
-  { name: 'User Management', href: '/users', icon: Users, requiredPermissions: ['MANAGE_USERS'], requiredRole: ['ADMIN', 'MANAGER'], hideForManagedUser: true },
-  { name: 'Create Custom Role & User', href: '/roles/create', icon: UserRoundPlus, requiredPermissions: ['MANAGE_ROLES', 'MANAGE_USERS'], requiredRole: ['ADMIN', 'MANAGER'], hideForManagedUser: true },
-  { name: 'Role Management', href: '/roles', icon: ShieldCheck, requiredPermissions: ['MANAGE_ROLES'], requiredRole: ['ADMIN', 'MANAGER'], hideForManagedUser: true },
+  {
+    name: 'User Settings',
+    href: '/users',
+    icon: UsersRound,
+    requiredPermissions: ['MANAGE_USERS', 'MANAGE_ROLES'],
+    requiredRole: ['ADMIN', 'MANAGER'],
+    hideForManagedUser: true,
+    activePrefixes: ['/users', '/roles'],
+  },
 ]
 
 export default function AppSidebar({ collapsed, mobileOpen, onDesktopToggle, onMobileClose }: AppSidebarProps) {
@@ -95,8 +99,8 @@ export default function AppSidebar({ collapsed, mobileOpen, onDesktopToggle, onM
         if (!hasRequiredRole) return false
       }
 
-      if ((isAdmin || isManager) && administrationItems.some(({ name }) => name === item.name)) {
-        return true
+      if (administrationItems.some(({ name }) => name === item.name)) {
+        return canManageUsers || canManageRoles
       }
 
       if (!item.requiredPermissions?.length) return true
@@ -167,7 +171,8 @@ export default function AppSidebar({ collapsed, mobileOpen, onDesktopToggle, onM
         : user?.role || 'User'
 
   const renderItems = (items: MenuItem[]) => items.map((item) => {
-    const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`)
+    const activePrefixes = item.activePrefixes ?? [item.href]
+    const isActive = activePrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))
     const Icon = item.icon
 
     return (

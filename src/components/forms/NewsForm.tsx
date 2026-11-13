@@ -3,11 +3,11 @@
 import { useState } from 'react'
 import type { News } from '@/types'
 import { newsAPI } from '@/lib/api'
+import { NewsRichTextEditor } from '@/components/news/NewsRichTextEditor'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { FormSection } from '@/components/ui/form-section'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
 
 interface NewsFormProps {
   news?: News
@@ -20,11 +20,17 @@ export default function NewsForm({ news, onSuccess, onCancel }: NewsFormProps) {
   const [content, setContent] = useState(news?.content ?? '')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [contentError, setContentError] = useState('')
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
+    if (!content) {
+      setContentError('Content is required.')
+      return
+    }
     setLoading(true)
     setError('')
+    setContentError('')
     try {
       const payload = { title, content }
       if (news) await newsAPI.update(news.id, payload)
@@ -44,7 +50,7 @@ export default function NewsForm({ news, onSuccess, onCancel }: NewsFormProps) {
       <FormSection title="Announcement content" description="Write a clear title and the complete announcement text.">
         <div className="space-y-5">
           <Input label="Title" required value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Announcement title" />
-          <Textarea label="Content" required rows={14} value={content} onChange={(event) => setContent(event.target.value)} placeholder="Write the announcement" />
+          <NewsRichTextEditor value={content} onChange={(nextContent) => { setContent(nextContent); if (nextContent) setContentError('') }} error={contentError} />
         </div>
       </FormSection>
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">

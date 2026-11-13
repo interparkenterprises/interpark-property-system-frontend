@@ -1,87 +1,43 @@
-'use client';
+'use client'
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { motion } from 'framer-motion';
-import PropertyForm from '@/components/forms/PropertyForm';
-import { Button } from '@/components/ui/button';
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { Building2, CheckCircle2 } from 'lucide-react'
+import PropertyForm from '@/components/forms/PropertyForm'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { PageHeader } from '@/components/ui/page-header'
 
 export default function CreatePropertyPage() {
-  const router = useRouter();
-  const [success, setSuccess] = useState(false);
+  const router = useRouter()
+  const [success, setSuccess] = useState(false)
 
   const handleSuccess = () => {
-    setSuccess(true);
-    setTimeout(() => {
-      router.push('/properties');
-    }, 2000);
-  };
-
-  const handleCancel = () => {
-    router.back();
-  };
+    setSuccess(true)
+    window.setTimeout(() => router.push('/properties'), 2000)
+  }
 
   if (success) {
     return (
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="flex flex-col items-center justify-center py-20 text-center space-y-4"
-      >
-        <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center">
-          <svg
-            className="w-8 h-8 text-green-600"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="2"
-              d="M5 13l4 4L19 7"
-            ></path>
-          </svg>
-        </div>
-        <h2 className="text-xl font-bold text-heading-color">Property created!</h2>
-        <p className="text-gray-600">Redirecting to properties list…</p>
-      </motion.div>
-    );
+      <div className="mx-auto max-w-3xl py-10">
+        <Alert variant="success" className="items-start">
+          <CheckCircle2 className="mt-0.5 h-5 w-5" aria-hidden="true" />
+          <div>
+            <AlertTitle>Property created</AlertTitle>
+            <AlertDescription>The property was saved successfully. Redirecting to the properties list…</AlertDescription>
+          </div>
+        </Alert>
+      </div>
+    )
   }
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.4 }}
-      className="space-y-6"
-    >
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <h1 className="text-2xl font-bold text-heading-color">Create New Property</h1>
-        <Button
-          variant="secondary"
-          onClick={handleCancel}
-          className="border-gray-300 text-gray-700 px-5 py-2 hover:bg-gray-50 transition-colors duration-200"
-        >
-          ← Cancel
-        </Button>
-      </div>
-
-      <motion.div
-        initial={{ y: 30, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ delay: 0.1, duration: 0.4 }}
-        className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"
-      >
-        <div className="bg-linear-to-r from-primary to-primary/80 px-6 py-4">
-          <h2 className="text-lg font-semibold text-blue-600">Property Details</h2>
-          <p className="text-primary-100 text-sm">Fill in the fields below to register a new property.</p>
-        </div>
-        <div className="p-6">
-          <PropertyForm onSuccess={handleSuccess} onCancel={handleCancel} />
-        </div>
-      </motion.div>
-    </motion.div>
-  );
+    <div className="min-w-0 space-y-6 pb-6">
+      <PageHeader
+        title="Create New Property"
+        description="Register the property, payment details, image, and landlord relationship."
+        leading={<div className="rounded-lg bg-primary/10 p-2 text-primary"><Building2 className="h-5 w-5" aria-hidden="true" /></div>}
+      />
+      <PropertyForm onSuccess={handleSuccess} onCancel={() => router.back()} />
+    </div>
+  )
 }

@@ -1,6 +1,7 @@
 'use client'
 
 import type { Dispatch, SetStateAction } from 'react'
+import Link from 'next/link'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Banknote, ChevronDown, LockKeyhole } from 'lucide-react'
 import { PermissionGuard } from '@/components/auth/PermissionGuard'
@@ -32,18 +33,21 @@ export function IncomeDetailsTab({ groupedIncome, expandedTenantId, onExpandedTe
         <CardContent>
           {groupedIncome.length > 0 ? (
             <div className="space-y-3">
-              {groupedIncome.map((group) => {
+              {groupedIncome.map((group, groupIndex) => {
                 const expanded = expandedTenantId === group.tenantId
+                const contentId = `income-details-${groupIndex}`
                 return (
                   <div key={group.tenantId} className="overflow-hidden rounded-lg border border-border">
-                    <button
-                      type="button"
-                      aria-expanded={expanded}
-                      onClick={() => onExpandedTenantChange(expanded ? null : group.tenantId)}
-                      className="flex w-full min-w-0 items-center justify-between gap-4 bg-muted/20 p-4 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                    >
+                    <div className="flex w-full min-w-0 items-center justify-between gap-4 bg-muted/20 p-4">
                       <div className="min-w-0">
-                        <p className="truncate font-semibold text-foreground">{group.tenantName}</p>
+                        {group.tenantId ? (
+                          <Link
+                            href={`/properties/${group.tenantId}/tenant-details`}
+                            className="inline-block max-w-full truncate font-semibold text-foreground underline-offset-4 hover:text-primary hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          >
+                            {group.tenantName}
+                          </Link>
+                        ) : <p className="truncate font-semibold text-foreground">{group.tenantName}</p>}
                         <p className="mt-1 text-sm text-muted-foreground">{group.unitName} · {group.incomes.length} payment{group.incomes.length === 1 ? '' : 's'}</p>
                       </div>
                       <div className="flex shrink-0 items-center gap-3">
@@ -51,12 +55,21 @@ export function IncomeDetailsTab({ groupedIncome, expandedTenantId, onExpandedTe
                           <p className="text-xs text-muted-foreground">Total paid</p>
                           <p className="font-semibold tabular-nums text-foreground" title={formatExactKes(group.totalAmount)}>{formatExactKes(group.totalAmount)}</p>
                         </div>
-                        <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${expanded ? 'rotate-180' : ''}`} aria-hidden="true" />
+                        <button
+                          type="button"
+                          aria-controls={contentId}
+                          aria-expanded={expanded}
+                          aria-label={`${expanded ? 'Collapse' : 'Expand'} income details for ${group.tenantName}`}
+                          onClick={() => onExpandedTenantChange(expanded ? null : group.tenantId)}
+                          className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                          <ChevronDown className={`h-4 w-4 transition-transform ${expanded ? 'rotate-180' : ''}`} aria-hidden="true" />
+                        </button>
                       </div>
-                    </button>
+                    </div>
                     <AnimatePresence initial={false}>
                       {expanded && (
-                        <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden border-t border-border">
+                        <motion.div id={contentId} initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden border-t border-border">
                           <div className="p-4">
                             <Table>
                               <TableHead>

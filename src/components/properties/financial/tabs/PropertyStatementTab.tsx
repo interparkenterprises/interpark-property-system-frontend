@@ -1,6 +1,7 @@
 'use client'
 
 import type { Dispatch, SetStateAction } from 'react'
+import Link from 'next/link'
 import { Download } from 'lucide-react'
 import { PermissionGuard } from '@/components/auth/PermissionGuard'
 import { Badge } from '@/components/ui/badge'
@@ -219,13 +220,31 @@ export function PropertyStatementTab({
                         className="border-b border-border hover:bg-muted/40"
                       >
                         <TableCell className="py-3 px-4">
-                          <div className="font-medium text-foreground">{unit.unitNo || 'N/A'}</div>
+                          <div className="font-medium text-foreground">
+                            {unit.unitId ? (
+                              <Link
+                                href={`/properties/${unit.unitId}/unit-details`}
+                                className="inline-block max-w-full truncate underline-offset-4 hover:text-primary hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              >
+                                {unit.unitNo || 'Unit'}
+                              </Link>
+                            ) : unit.unitNo || 'N/A'}
+                          </div>
                           <div className="text-xs text-muted-foreground">{unit.unitType}</div>
                         </TableCell>
                         <TableCell className="py-3 px-4">
                           {unit.tenant ? (
                             <div>
-                              <div className="font-medium text-foreground">{unit.tenant.fullName}</div>
+                              <div className="font-medium text-foreground">
+                                {unit.tenant.id ? (
+                                  <Link
+                                    href={`/properties/${unit.tenant.id}/tenant-details`}
+                                    className="inline-block max-w-full truncate underline-offset-4 hover:text-primary hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                  >
+                                    {unit.tenant.fullName}
+                                  </Link>
+                                ) : unit.tenant.fullName}
+                              </div>
                               <div className="text-xs text-muted-foreground">{unit.tenant.contact}</div>
                             </div>
                           ) : (
@@ -292,7 +311,16 @@ export function PropertyStatementTab({
                         key={provider.id}
                         className="border-b border-border hover:bg-muted/40"
                       >
-                        <TableCell className="py-3 px-4 font-medium text-foreground">{provider.name}</TableCell>
+                        <TableCell className="py-3 px-4 font-medium text-foreground">
+                          {provider.id ? (
+                            <Link
+                              href={`/properties/${provider.id}/service-provider-detail`}
+                              className="inline-block max-w-full truncate underline-offset-4 hover:text-primary hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            >
+                              {provider.name}
+                            </Link>
+                          ) : provider.name}
+                        </TableCell>
                         <TableCell className="py-3 px-4 text-muted-foreground">{provider.contact || '-'}</TableCell>
                         <TableCell className="py-3 px-4 text-muted-foreground">{provider.serviceContract || '-'}</TableCell>
                         <TableCell className="py-3 px-4 text-right font-semibold text-destructive">

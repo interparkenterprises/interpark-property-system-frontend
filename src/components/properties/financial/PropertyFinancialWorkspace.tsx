@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { Building2, LockKeyhole } from 'lucide-react';
+import { toast } from 'sonner';
 import {
   Property,
   ArrearsResponse,
@@ -51,6 +52,12 @@ import {
   groupPropertyIncomeByTenant,
 } from './utils/financialPresentation';
 import { useFinancialTabState } from './hooks/useFinancialTabState';
+import {
+  getPropertyStatementSectionAvailability,
+  getSelectedPropertyStatementSectionIds,
+  normalizePropertyStatementSections,
+  toggleAllPropertyStatementSections,
+} from './utils/propertyStatementExport';
 
 type TabType = PropertyFinancialTab;
 
@@ -307,7 +314,7 @@ export function PropertyFinancialWorkspace() {
       setRentReportData(response.data);
     } catch (error) {
       console.error('Error fetching rent report:', error);
-      alert('Failed to fetch rent report');
+      toast.error(error instanceof Error ? error.message : 'Unable to load the rent report. Please try again.');
     } finally {
       setRentReportLoading(false);
     }
@@ -341,7 +348,7 @@ export function PropertyFinancialWorkspace() {
       setBillsReportData(response.data);
     } catch (error) {
       console.error('Error fetching bills report:', error);
-      alert('Failed to fetch bills report');
+      toast.error(error instanceof Error ? error.message : 'Unable to load the bills report. Please try again.');
     } finally {
       setBillsReportLoading(false);
     }
@@ -350,7 +357,7 @@ export function PropertyFinancialWorkspace() {
   // Update the handleExportRentReport function
   const handleExportRentReport = async () => {
     if (!rentReportData) {
-      alert('No rent report data to export');
+      toast.error('No data available for export.');
       return;
     }
     
@@ -389,10 +396,10 @@ export function PropertyFinancialWorkspace() {
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
       
-      alert('Rent report exported successfully!');
+      toast.success('Rent report export initiated.');
     } catch (error) {
       console.error('Error exporting rent report:', error);
-      alert('Failed to export rent report');
+      toast.error(error instanceof Error ? error.message : 'Unable to export the rent report. Please try again.');
     } finally {
       setExportingRentReport(false);
     }
@@ -402,7 +409,7 @@ export function PropertyFinancialWorkspace() {
   // Export Bills Report to Excel
   const handleExportBillsReport = async () => {
     if (!billsReportData) {
-      alert('No bills report data to export');
+      toast.error('No data available for export.');
       return;
     }
     
@@ -428,10 +435,10 @@ export function PropertyFinancialWorkspace() {
       link.click();
       window.URL.revokeObjectURL(url);
       
-      alert('Bills report exported successfully!');
+      toast.success('Bills report export initiated.');
     } catch (error) {
       console.error('Error exporting bills report:', error);
-      alert('Failed to export bills report');
+      toast.error(error instanceof Error ? error.message : 'Unable to export the bills report. Please try again.');
     } finally {
       setExportingBillsReport(false);
     }
@@ -439,7 +446,7 @@ export function PropertyFinancialWorkspace() {
   // Update the handleExportUpcomingPayments function to accept date range
   const handleExportUpcomingPayments = async () => {
     if (!nextPaymentsData || !property) {
-      alert('No upcoming payments data to export');
+      toast.error('No data available for export.');
       return;
     }
 
@@ -472,10 +479,10 @@ export function PropertyFinancialWorkspace() {
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
 
-      alert('Upcoming payments report exported successfully!');
+      toast.success('Upcoming payments report export initiated.');
     } catch (error) {
       console.error('Error exporting upcoming payments:', error);
-      alert('Failed to export upcoming payments report. Please try again.');
+      toast.error(error instanceof Error ? error.message : 'Unable to export the upcoming payments report. Please try again.');
     } finally {
       setExportingUpcomingPayments(false);
     }
@@ -608,6 +615,7 @@ export function PropertyFinancialWorkspace() {
 
   // Toggle individual section
   const toggleSection = (sectionId: string) => {
+    if (!property || !getPropertyStatementSectionAvailability(sectionId, property).available) return;
     setExportSections((prev) =>
       prev.map((section) =>
         section.id === sectionId ? { ...section, selected: !section.selected } : section
@@ -617,16 +625,20 @@ export function PropertyFinancialWorkspace() {
 
   // Toggle all sections
   const toggleAllSections = () => {
-    const allSelected = exportSections.every((s) => s.selected);
-    setExportSections((prev) => prev.map((section) => ({ ...section, selected: !allSelected })));
+    if (!property) return;
+    setExportSections((current) => toggleAllPropertyStatementSections(current, property));
   };
 
   // Check if all sections are selected
-  const allSectionsSelected = exportSections.every((s) => s.selected);
+  const availableExportSections = property
+    ? exportSections.filter((section) => getPropertyStatementSectionAvailability(section.id, property).available)
+    : [];
+  const allSectionsSelected = availableExportSections.length > 0 && availableExportSections.every((section) => section.selected);
 
   // Get selected sections
   const getSelectedSections = () => {
-    return exportSections.filter((s) => s.selected).map((s) => s.id);
+    if (!property) return [];
+    return getSelectedPropertyStatementSectionIds(exportSections, property);
   };
 
   // Open export modal
@@ -634,6 +646,9 @@ export function PropertyFinancialWorkspace() {
     // Ensure we have fresh data
     if (!collectionStatement || collectionDateFrom || collectionDateTo) {
       await fetchCollectionStatement();
+    }
+    if (property) {
+      setExportSections((current) => normalizePropertyStatementSections(current, property));
     }
     setShowExportModal(true);
   };
@@ -652,7 +667,7 @@ export function PropertyFinancialWorkspace() {
     const hasOverdues = overdueData?.tenants && overdueData.tenants.length > 0;
     
     if (!hasArrears && !hasOverdues) {
-      alert('No arrears or overdue data to export.');
+      toast.error('No data available for export.');
       return;
     }
 
@@ -671,10 +686,10 @@ export function PropertyFinancialWorkspace() {
         filteredOverdueTenants
       );
       
-      alert('Combined arrears report exported successfully!');
+      toast.success('Combined arrears report export initiated.');
     } catch (error) {
       console.error('Error exporting combined arrears report:', error);
-      alert('Failed to export report. Please try again.');
+      toast.error(error instanceof Error ? error.message : 'Unable to export the combined arrears report. Please try again.');
     } finally {
       setExportingCombinedArrears(false);
     }
@@ -688,12 +703,11 @@ export function PropertyFinancialWorkspace() {
     const selectedSections = getSelectedSections();
 
     if (selectedSections.length === 0) {
-      alert('Please select at least one section to export.');
+      toast.error('Select at least one section to export.');
       return;
     }
 
     setExporting(true);
-    setShowExportModal(false);
 
     try {
       // Use collection statement data if available, otherwise fallback to property data
@@ -716,10 +730,11 @@ export function PropertyFinancialWorkspace() {
       link.click();
       window.URL.revokeObjectURL(url);
 
-      alert('Property collection statement exported successfully!');
+      setShowExportModal(false);
+      toast.success('Collection statement export initiated.');
     } catch (error) {
       console.error('Error exporting to Excel:', error);
-      alert('Failed to export report. Please try again.');
+      toast.error(error instanceof Error ? error.message : 'Unable to export the report. Please try again.');
     } finally {
       setExporting(false);
     }

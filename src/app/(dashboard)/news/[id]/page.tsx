@@ -8,6 +8,7 @@ import { newsAPI } from '@/lib/api'
 import { useAuth } from '@/context/AuthContext'
 import { useBreadcrumbAction, useBreadcrumbOverride } from '@/components/layout/BreadcrumbContext'
 import NewsForm from '@/components/forms/NewsForm'
+import { NewsContent } from '@/components/news/NewsContent'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -120,7 +121,7 @@ export default function NewsDetailPage() {
 
       <Card>
         <CardContent className="px-5 py-6 sm:px-8 sm:py-8">
-          <article className="whitespace-pre-wrap text-base leading-7 text-foreground">{news.content}</article>
+          <article><NewsContent content={news.content} /></article>
           <div className="mt-8 border-t border-border pt-4 text-sm text-muted-foreground">Published {formatPublishedDate(news.publishedAt)}</div>
         </CardContent>
       </Card>

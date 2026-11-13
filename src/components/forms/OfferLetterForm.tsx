@@ -30,7 +30,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { EmptyState } from '@/components/ui/empty-state'
-import { FormActions } from '@/components/ui/form-actions'
+import { FormSectionFooter } from '@/components/ui/form-section-footer'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 interface OfferLetterFormProps {
@@ -59,6 +59,7 @@ export default function OfferLetterForm({ offerId, onSuccess, onCancel }: OfferL
   const [activeTab, setActiveTab] = useState<OfferFormSection>('basic')
   const [isMixedUse, setIsMixedUse] = useState(false)
   const [hasDraft, setHasDraft] = useState(false)
+  const [draftSavedManually, setDraftSavedManually] = useState(false)
   const [loading, setLoading] = useState(false)
   const [optionsLoading, setOptionsLoading] = useState(true)
   const [unitsLoading, setUnitsLoading] = useState(false)
@@ -71,8 +72,10 @@ export default function OfferLetterForm({ offerId, onSuccess, onCancel }: OfferL
   const saveDraft = useCallback((data: OfferFormData) => {
     try {
       localStorage.setItem(draftKey, JSON.stringify(data))
+      return true
     } catch (error) {
       console.error('Error saving draft:', error)
+      return false
     }
   }, [draftKey])
 
@@ -80,6 +83,7 @@ export default function OfferLetterForm({ offerId, onSuccess, onCancel }: OfferL
     try {
       localStorage.removeItem(draftKey)
       setHasDraft(false)
+      setDraftSavedManually(false)
     } catch (error) {
       console.error('Error clearing draft:', error)
     }
@@ -216,6 +220,17 @@ export default function OfferLetterForm({ offerId, onSuccess, onCancel }: OfferL
     setFormData(next)
     saveDraft(next)
     setHasDraft(true)
+    setDraftSavedManually(false)
+    setFormError('')
+  }
+
+  const handleSaveDraft = () => {
+    if (!saveDraft(formData)) {
+      setFormError('Your draft could not be saved in this browser. Please try again.')
+      return
+    }
+    setHasDraft(true)
+    setDraftSavedManually(true)
     setFormError('')
   }
 
@@ -299,6 +314,14 @@ export default function OfferLetterForm({ offerId, onSuccess, onCancel }: OfferL
     clearDraft()
   }
 
+  const sections: OfferFormSection[] = [
+    'basic',
+    'financial',
+    ...(showCommercial ? ['commercial' as const] : []),
+    'lease',
+    'additional',
+  ]
+
   if (!canViewProperties || !canViewLeads) {
     return <EmptyState icon={ShieldX} title="Access denied" description="You don't have permission to select the properties or leads required to create an offer letter." className="min-h-64" />
   }
@@ -309,7 +332,7 @@ export default function OfferLetterForm({ offerId, onSuccess, onCancel }: OfferL
         <Alert variant="info" className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 gap-3">
             <FileClock className="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
-            <div><AlertTitle>Draft saved</AlertTitle><AlertDescription>Your changes are being automatically saved.</AlertDescription></div>
+            <div><AlertTitle>Draft saved</AlertTitle><AlertDescription>{draftSavedManually ? 'Your draft was saved in this browser.' : 'Your changes are being automatically saved.'}</AlertDescription></div>
           </div>
           <Button type="button" variant="ghost" size="sm" onClick={() => setClearDraftOpen(true)}>Clear draft</Button>
         </Alert>
@@ -334,12 +357,15 @@ export default function OfferLetterForm({ offerId, onSuccess, onCancel }: OfferL
         </div>
       </Tabs>
 
-      <div className="rounded-lg border border-border bg-card px-5 py-4">
-        <FormActions>
-          {onCancel && <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>}
-          <Button type="submit" loading={loading}>{loading ? 'Creating offer...' : 'Create Offer Letter'}</Button>
-        </FormActions>
-      </div>
+      <FormSectionFooter
+        sections={sections}
+        activeSection={activeTab}
+        onSectionChange={setActiveTab}
+        onCancel={onCancel}
+        onSaveDraft={handleSaveDraft}
+        disabled={loading}
+        finalAction={<Button type="submit" loading={loading}>{loading ? 'Creating offer...' : 'Create Offer Letter'}</Button>}
+      />
 
       <Dialog open={clearDraftOpen} onOpenChange={setClearDraftOpen}>
         <DialogContent>

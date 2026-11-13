@@ -1,6 +1,7 @@
 'use client'
 
 import type { Dispatch, SetStateAction } from 'react'
+import Link from 'next/link'
 import { Download } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, LabelList, XAxis, YAxis } from 'recharts'
 import { PermissionGuard } from '@/components/auth/PermissionGuard'
@@ -189,10 +190,17 @@ export function ArrearsOverduesTab({
                   >
                     {groupedArrears.map((group) => (
                       <AccordionItem key={group.tenantId} value={group.tenantId}>
-                        <AccordionTrigger className="py-5 hover:no-underline">
-                          <div className="flex min-w-0 flex-col gap-3 pr-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex min-w-0 items-center gap-3 py-5">
+                          <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                             <div className="min-w-0">
-                              <p className="truncate text-base font-semibold text-foreground">{group.tenantName}</p>
+                              {group.tenantId ? (
+                                <Link
+                                  href={`/properties/${group.tenantId}/tenant-details`}
+                                  className="inline-block max-w-full truncate text-base font-semibold text-foreground underline-offset-4 hover:text-primary hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                >
+                                  {group.tenantName}
+                                </Link>
+                              ) : <p className="truncate text-base font-semibold text-foreground">{group.tenantName}</p>}
                               <p className="mt-1 text-sm font-normal text-muted-foreground">
                                 {group.unitName} <span aria-hidden="true" className="px-1.5">•</span>
                                 {group.items.length} outstanding {group.items.length !== 1 ? 'invoices' : 'invoice'}
@@ -209,7 +217,13 @@ export function ArrearsOverduesTab({
                               </div>
                             </div>
                           </div>
-                        </AccordionTrigger>
+                          <AccordionTrigger
+                            className="flex-none rounded-md p-2 hover:bg-muted hover:no-underline"
+                            aria-label={`${expandedArrearsTenant === group.tenantId ? 'Collapse' : 'Expand'} arrears details for ${group.tenantName}`}
+                          >
+                            <span className="sr-only">{expandedArrearsTenant === group.tenantId ? 'Collapse' : 'Expand'} arrears details</span>
+                          </AccordionTrigger>
+                        </div>
 
                         <AccordionContent className="pb-5">
                               <div className="pt-1">
@@ -364,10 +378,17 @@ export function ArrearsOverduesTab({
 
                       return (
                         <AccordionItem key={tenant.id} value={tenant.id}>
-                          <AccordionTrigger className="py-5 hover:no-underline">
-                            <div className="flex min-w-0 flex-col gap-3 pr-2 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="flex min-w-0 items-center gap-3 py-5">
+                            <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                               <div className="min-w-0">
-                                <p className="truncate text-base font-semibold text-foreground">{tenant.fullName}</p>
+                                {tenant.id ? (
+                                  <Link
+                                    href={`/properties/${tenant.id}/tenant-details`}
+                                    className="inline-block max-w-full truncate text-base font-semibold text-foreground underline-offset-4 hover:text-primary hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                  >
+                                    {tenant.fullName}
+                                  </Link>
+                                ) : <p className="truncate text-base font-semibold text-foreground">{tenant.fullName}</p>}
                                 <div className="mt-1 flex flex-wrap items-center gap-2 text-sm font-normal text-muted-foreground">
                                   <span>{unitLabel}</span>
                                   <span aria-hidden="true">•</span>
@@ -386,7 +407,13 @@ export function ArrearsOverduesTab({
                                 </div>
                               </div>
                             </div>
-                          </AccordionTrigger>
+                            <AccordionTrigger
+                              className="flex-none rounded-md p-2 hover:bg-muted hover:no-underline"
+                              aria-label={`${expandedOverdueTenant === tenant.id ? 'Collapse' : 'Expand'} overdue details for ${tenant.fullName}`}
+                            >
+                              <span className="sr-only">{expandedOverdueTenant === tenant.id ? 'Collapse' : 'Expand'} overdue details</span>
+                            </AccordionTrigger>
+                          </div>
                           <AccordionContent className="pb-5">
                             <DetailList>
                               <DetailItem label="Payment status">

@@ -1,6 +1,7 @@
 'use client'
 
 import type { Dispatch, SetStateAction } from 'react'
+import Link from 'next/link'
 import { Download, FileText, LockKeyhole } from 'lucide-react'
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from 'recharts'
 import { PermissionGuard } from '@/components/auth/PermissionGuard'
@@ -180,7 +181,7 @@ export function RentReportTab({
                       <TableHeader>Tenant</TableHeader><TableHeader>Unit</TableHeader><TableHeader className="text-right">Expected</TableHeader><TableHeader className="text-right">Paid</TableHeader><TableHeader className="text-right">Outstanding</TableHeader><TableHeader>Status</TableHeader>
                     </TableHead>
                     <TableBody>
-                      {rentReportData.tenantOutstanding.map((tenant, index) => <TableRow key={index}><TableCell className="font-medium">{tenant.tenantName}</TableCell><TableCell>{tenant.unitNo}</TableCell><TableCell className="text-right tabular-nums">{formatExactKes(tenant.expectedTotal)}</TableCell><TableCell className="text-right tabular-nums">{formatExactKes(tenant.paidTotal)}</TableCell><TableCell className="text-right font-medium tabular-nums">{formatExactKes(tenant.outstandingBalance)}</TableCell><TableCell><StatusBadge status={tenant.paymentStatus} appearance={paymentAppearance(tenant.paymentStatus)} /></TableCell></TableRow>)}
+                      {rentReportData.tenantOutstanding.map((tenant, index) => <TableRow key={index}><TableCell className="font-medium">{tenant.tenantId ? <Link href={`/properties/${tenant.tenantId}/tenant-details`} className="inline-block max-w-full truncate underline-offset-4 hover:text-primary hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{tenant.tenantName}</Link> : tenant.tenantName}</TableCell><TableCell>{tenant.unitNo}</TableCell><TableCell className="text-right tabular-nums">{formatExactKes(tenant.expectedTotal)}</TableCell><TableCell className="text-right tabular-nums">{formatExactKes(tenant.paidTotal)}</TableCell><TableCell className="text-right font-medium tabular-nums">{formatExactKes(tenant.outstandingBalance)}</TableCell><TableCell><StatusBadge status={tenant.paymentStatus} appearance={paymentAppearance(tenant.paymentStatus)} /></TableCell></TableRow>)}
                     </TableBody>
                   </Table>
                 </section>

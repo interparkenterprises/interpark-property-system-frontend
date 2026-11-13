@@ -5,6 +5,9 @@ import { Tenant, Unit, VATType, EscalationFrequency } from '@/types';
 import { tenantsAPI, unitsAPI } from '@/lib/api';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { FormDatePicker } from '@/components/ui/form-date-picker';
+import { FormField } from '@/components/ui/form-field';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 interface TenantFormProps {
   tenant?: Tenant;
@@ -290,8 +293,7 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
     }
   };
 
-  const handleUnitChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const unitId = e.target.value;
+  const handleUnitChange = (unitId: string) => {
     
     // Check if this is a unit transfer (editing tenant and changing unit)
     const isUnitTransfer = tenant && originalUnitId && unitId !== originalUnitId;
@@ -349,23 +351,16 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
     }
   };
 
+  const updateFormField = <Key extends keyof TenantFormData>(name: Key, value: TenantFormData[Key]) => {
+    const newFormData = { ...formData, [name]: value };
+    setFormData(newFormData);
+    saveDraft(newFormData);
+    if (!hasDraft) setHasDraft(true);
+  };
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
-    
-    const newFormData = {
-      ...formData,
-      [name]: type === 'number' ? (parseFloat(value) || 0) : value
-    };
-    
-    setFormData(newFormData);
-    
-    // Auto-save draft on every change
-    saveDraft(newFormData);
-    
-    // Mark as having draft data
-    if (!hasDraft) {
-      setHasDraft(true);
-    }
+    updateFormField(name as keyof TenantFormData, (type === 'number' ? (parseFloat(value) || 0) : value) as TenantFormData[keyof TenantFormData]);
   };
 
   // ========== WITHHOLDING TAX HANDLERS ==========
@@ -399,12 +394,15 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
 
   const handleServiceChargeChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
-    
+    updateServiceChargeField(name as keyof ServiceChargeFormData, (type === 'number' ? (parseFloat(value) || 0) : value) as ServiceChargeFormData[keyof ServiceChargeFormData]);
+  };
+
+  const updateServiceChargeField = <Key extends keyof ServiceChargeFormData>(name: Key, value: ServiceChargeFormData[Key]) => {
     const newFormData = {
       ...formData,
       serviceCharge: {
         ...formData.serviceCharge!,
-        [name]: type === 'number' ? (parseFloat(value) || 0) : value
+        [name]: value
       }
     };
     
@@ -416,10 +414,7 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
     }
   };
 
-  const handleServiceChargeTypeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const { value } = e.target;
-    const serviceChargeType = value as 'FIXED' | 'PERCENTAGE' | 'PER_SQ_FT';
-    
+  const handleServiceChargeTypeChange = (serviceChargeType: ServiceChargeFormData['type']) => {
     let newFormData: TenantFormData;
     
     // Initialize service charge if it doesn't exist
@@ -472,7 +467,7 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
   };
 
   const handleAddServiceCharge = () => {
-    handleServiceChargeTypeChange({ target: { value: 'FIXED' } } as any);
+    handleServiceChargeTypeChange('FIXED');
   };
 
   const hasServiceChargeValue = (): boolean => {
@@ -877,61 +872,41 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
         disabled={loading}
       />
 
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Unit <span className="text-red-500">*</span>
-        </label>
-        <select
-          name="unitId"
-          value={formData.unitId}
-          onChange={handleUnitChange}
+      <FormField label="Unit" htmlFor="tenant-unit" required>
+        <Select
+          value={formData.unitId || '__select_unit__'}
+          onValueChange={(value) => handleUnitChange(value === '__select_unit__' ? '' : value)}
           required
           disabled={loading || fetchingUnits}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 text-gray-900 disabled:bg-gray-100 disabled:cursor-not-allowed"
         >
-          <option value="" className="text-gray-500">Select Unit</option>
-          
-          {fetchingUnits ? (
-            <option value="" disabled className="text-gray-500">
-              Loading units for this property...
-            </option>
-          ) : units.length === 0 ? (
-            <option value="" disabled className="text-gray-500">
-              {tenant 
-                ? 'No units available in this property'
-                : 'No vacant units available in this property. Please add units first.'
-              }
-            </option>
-          ) : (
-            units.map(unit => {
-              // For editing tenant: show all units, but mark occupied ones as disabled
-              // For new tenant: only show vacant units
-              const isDisabled = !tenant && unit.status !== 'VACANT';
+          <SelectTrigger id="tenant-unit" aria-required="true">
+            <SelectValue placeholder={fetchingUnits ? 'Loading units for this property…' : 'Select Unit'} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__select_unit__">Select Unit</SelectItem>
+            {fetchingUnits && <SelectItem value="__loading_units__" disabled>Loading units for this property…</SelectItem>}
+            {!fetchingUnits && units.length === 0 && (
+              <SelectItem value="__no_units__" disabled>
+                {tenant ? 'No units available in this property' : 'No vacant units available in this property. Please add units first.'}
+              </SelectItem>
+            )}
+            {units.map(unit => {
               const isCurrentUnit = tenant && unit.id === originalUnitId;
               const isOccupied = unit.status === 'OCCUPIED';
-              
-              // For editing: allow selecting the current unit (even if occupied) and vacant units
-              // For new: only vacant units
+              const isDisabled = unit.status !== 'VACANT' && !isCurrentUnit;
               const shouldShow = tenant ? true : unit.status === 'VACANT';
-              
               if (!shouldShow) return null;
-              
               return (
-                <option 
-                  key={unit.id} 
-                  value={unit.id} 
-                  className="text-gray-900"
-                  disabled={isDisabled}
-                >
+                <SelectItem key={unit.id} value={unit.id} disabled={isDisabled}>
                   {getUnitDisplayName(unit)}
                   {isCurrentUnit && ' (Current Unit)'}
                   {isOccupied && !isCurrentUnit && ' (Occupied - Not Available)'}
                   {unit.status === 'VACANT' && ' (Vacant)'}
-                </option>
+                </SelectItem>
               );
-            })
-          )}
-        </select>
+            })}
+          </SelectContent>
+        </Select>
         
         {!fetchingUnits && units.length === 0 && !tenant && (
           <p className="mt-1 text-sm text-gray-500">
@@ -969,7 +944,7 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
             )}
           </div>
         )}
-      </div>
+      </FormField>
 
       <Input
         label="Lease Term"
@@ -1019,51 +994,43 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
       </div>
 
       {formData.escalationRate > 0 && (
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Escalation Frequency <span className="text-red-500">*</span>
-          </label>
-          <select
-            name="escalationFrequency"
-            value={formData.escalationFrequency}
-            onChange={handleChange}
-            required={formData.escalationRate > 0}
+        <FormField label="Escalation Frequency" htmlFor="tenant-escalation-frequency" required>
+          <Select
+            value={formData.escalationFrequency || '__select_frequency__'}
+            onValueChange={(value) => updateFormField('escalationFrequency', value === '__select_frequency__' ? undefined : value as EscalationFrequency)}
+            required
             disabled={loading}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 text-gray-900 disabled:bg-gray-100 disabled:cursor-not-allowed"
           >
-            <option value="" className="text-gray-500">Select Frequency</option>
-            <option value="ANNUALLY" className="text-gray-900">Annually</option>
-            <option value="BI_ANNUALLY" className="text-gray-900">Bi-Annually (Every 6 months)</option>
-            <option value="BI_ENNIAL" className="text-gray-900">Bi-Ennial (Every 2 years)</option>
-          </select>
+            <SelectTrigger id="tenant-escalation-frequency" aria-required="true"><SelectValue placeholder="Select Frequency" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__select_frequency__">Select Frequency</SelectItem>
+              <SelectItem value="ANNUALLY">Annually</SelectItem>
+              <SelectItem value="BI_ANNUALLY">Bi-Annually (Every 6 months)</SelectItem>
+              <SelectItem value="BI_ENNIAL">Bi-Ennial (Every 2 years)</SelectItem>
+            </SelectContent>
+          </Select>
           {formData.escalationFrequency === 'BI_ENNIAL' && (
-            <p className="mt-1 text-xs text-blue-600">
+            <p className="text-xs text-primary">
               Rent will escalate every 2 years at {formData.escalationRate}%
             </p>
           )}
-        </div>
+        </FormField>
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Input
+        <FormDatePicker
           label="Lease Start Date"
-          name="termStart"
-          type="date"
           value={formData.termStart}
-          onChange={handleChange}
+          onChange={(value) => updateFormField('termStart', value)}
           required
-          className="text-gray-900"
           disabled={loading}
         />
 
-        <Input
+        <FormDatePicker
           label="Rent Start Date"
-          name="rentStart"
-          type="date"
           value={formData.rentStart}
-          onChange={handleChange}
+          onChange={(value) => updateFormField('rentStart', value)}
           required
-          className="text-gray-900"
           disabled={loading}
         />
       </div>
@@ -1087,23 +1054,16 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
         <h3 className="text-lg font-medium text-gray-900 mb-4">VAT Configuration</h3>
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              VAT Type <span className="text-red-500">*</span>
-            </label>
-            <select
-              name="vatType"
-              value={formData.vatType}
-              onChange={handleChange}
-              required
-              disabled={loading}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 text-gray-900 disabled:bg-gray-100 disabled:cursor-not-allowed"
-            >
-              <option value="NOT_APPLICABLE">Not Applicable</option>
-              <option value="INCLUSIVE">VAT Inclusive</option>
-              <option value="EXCLUSIVE">VAT Exclusive</option>
-            </select>
-          </div>
+          <FormField label="VAT Type" htmlFor="tenant-vat-type" required>
+            <Select value={formData.vatType} onValueChange={(value) => updateFormField('vatType', value as VATType)} required disabled={loading}>
+              <SelectTrigger id="tenant-vat-type" aria-required="true"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="NOT_APPLICABLE">Not Applicable</SelectItem>
+                <SelectItem value="INCLUSIVE">VAT Inclusive</SelectItem>
+                <SelectItem value="EXCLUSIVE">VAT Exclusive</SelectItem>
+              </SelectContent>
+            </Select>
+          </FormField>
 
           {(formData.vatType === 'INCLUSIVE' || formData.vatType === 'EXCLUSIVE') && (
             <Input
@@ -1230,23 +1190,16 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
       </div>
       {/* ============================================ */}
 
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Payment Policy <span className="text-red-500">*</span>
-        </label>
-        <select
-          name="paymentPolicy"
-          value={formData.paymentPolicy}
-          onChange={handleChange}
-          required
-          disabled={loading}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 text-gray-900 disabled:bg-gray-100 disabled:cursor-not-allowed"
-        >
-          <option value="MONTHLY">Monthly</option>
-          <option value="QUARTERLY">Quarterly</option>
-          <option value="ANNUAL">Annual</option>
-        </select>
-      </div>
+      <FormField label="Payment Policy" htmlFor="tenant-payment-policy" required>
+        <Select value={formData.paymentPolicy} onValueChange={(value) => updateFormField('paymentPolicy', value as TenantFormData['paymentPolicy'])} required disabled={loading}>
+          <SelectTrigger id="tenant-payment-policy" aria-required="true"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="MONTHLY">Monthly</SelectItem>
+            <SelectItem value="QUARTERLY">Quarterly</SelectItem>
+            <SelectItem value="ANNUAL">Annual</SelectItem>
+          </SelectContent>
+        </Select>
+      </FormField>
 
       {/* Service Charge Section - UPDATED with VAT support */}
       <div className="border-t pt-4 mt-4">
@@ -1279,27 +1232,21 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
           </div>
         ) : (
           <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Service Charge Type
-              </label>
-              <select
-                name="serviceChargeType"
-                value={formData.serviceCharge.type}
-                onChange={handleServiceChargeTypeChange}
-                disabled={loading}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 text-gray-900 disabled:bg-gray-100 disabled:cursor-not-allowed"
-              >
-                <option value="FIXED">Fixed Amount</option>
-                <option value="PERCENTAGE">Percentage of Rent (based on rent only)</option>
-                <option value="PER_SQ_FT">Per Square Foot</option>
-              </select>
+            <FormField label="Service Charge Type" htmlFor="tenant-service-charge-type">
+              <Select value={formData.serviceCharge.type} onValueChange={(value) => handleServiceChargeTypeChange(value as ServiceChargeFormData['type'])} disabled={loading}>
+                <SelectTrigger id="tenant-service-charge-type"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="FIXED">Fixed Amount</SelectItem>
+                  <SelectItem value="PERCENTAGE">Percentage of Rent (based on rent only)</SelectItem>
+                  <SelectItem value="PER_SQ_FT">Per Square Foot</SelectItem>
+                </SelectContent>
+              </Select>
               {formData.serviceCharge.type === 'PERCENTAGE' && (
-                <p className="mt-1 text-xs text-blue-600">
+                <p className="text-xs text-primary">
                   Service charge percentage is calculated based on the rent amount only (excluding VAT)
                 </p>
               )}
-            </div>
+            </FormField>
 
             {formData.serviceCharge.type === 'FIXED' && (
               <Input
@@ -1351,22 +1298,16 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
             <div className="border-t border-gray-200 pt-4 mt-4">
               <h4 className="text-sm font-medium text-gray-700 mb-3">Service Charge VAT Configuration</h4>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Service Charge VAT Type
-                  </label>
-                  <select
-                    name="vatType"
-                    value={formData.serviceCharge.vatType || 'NOT_APPLICABLE'}
-                    onChange={handleServiceChargeChange}
-                    disabled={loading}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 text-gray-900 disabled:bg-gray-100 disabled:cursor-not-allowed"
-                  >
-                    <option value="NOT_APPLICABLE">Not Applicable</option>
-                    <option value="INCLUSIVE">VAT Inclusive</option>
-                    <option value="EXCLUSIVE">VAT Exclusive</option>
-                  </select>
-                </div>
+                <FormField label="Service Charge VAT Type" htmlFor="tenant-service-charge-vat-type">
+                  <Select value={formData.serviceCharge.vatType || 'NOT_APPLICABLE'} onValueChange={(value) => updateServiceChargeField('vatType', value as VATType)} disabled={loading}>
+                    <SelectTrigger id="tenant-service-charge-vat-type"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="NOT_APPLICABLE">Not Applicable</SelectItem>
+                      <SelectItem value="INCLUSIVE">VAT Inclusive</SelectItem>
+                      <SelectItem value="EXCLUSIVE">VAT Exclusive</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </FormField>
 
                 {(formData.serviceCharge.vatType === 'INCLUSIVE' || formData.serviceCharge.vatType === 'EXCLUSIVE') && (
                   <Input

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { Download, FileText, RefreshCw } from 'lucide-react'
+import { toast } from 'sonner'
 import { useAuth } from '@/context/AuthContext'
 import { GenerateCommissionInvoiceDialog, type CommissionInvoiceFormData } from '@/components/my-income/GenerateCommissionInvoiceDialog'
 import { CommissionPerformancePanel } from '@/components/my-income/IncomeAnalyticalPanels'
@@ -98,11 +99,11 @@ export default function MyIncomePage() {
     try {
       const request: GenerateCommissionInvoiceRequest = { ...invoiceFormData, branch: invoiceFormData.branch || undefined, bankCode: invoiceFormData.bankCode || undefined, swiftCode: invoiceFormData.swiftCode || undefined }
       await commissionsAPI.generateCommissionInvoice(selectedCommissionForInvoice, request)
-      alert('Invoice generated successfully!')
+      toast.success('Commission invoice generated successfully.')
       setShowInvoiceModal(false); setSelectedCommissionForInvoice(null)
       await fetchIncomeData(false)
     } catch (invoiceError) {
-      alert(invoiceError instanceof Error ? invoiceError.message : 'Failed to generate invoice')
+      toast.error(invoiceError instanceof Error ? invoiceError.message : 'Unable to generate the commission invoice. Please try again.')
     } finally { setGeneratingInvoice(null) }
   }
 
@@ -119,7 +120,8 @@ export default function MyIncomePage() {
       const blob = await commissionsAPI.downloadCommissionInvoice(id)
       const url = URL.createObjectURL(blob); const link = document.createElement('a')
       link.href = url; link.download = `commission-invoice-${id}.pdf`; document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url)
-    } catch (downloadError) { alert(downloadError instanceof Error ? downloadError.message : 'Failed to download invoice') }
+      toast.success('Commission invoice download initiated.')
+    } catch (downloadError) { toast.error(downloadError instanceof Error ? downloadError.message : 'Unable to download the commission invoice. Please try again.') }
     finally { setDownloadingInvoice(null) }
   }
 

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { CircleCheck, Download, Eye, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { toast } from 'sonner'
 import { useAuth } from '@/context/AuthContext'
 import IncomeFormModal from '@/components/forms/IncomeFormModal'
 import { OtherIncomeOverviewPanel } from '@/components/my-income/IncomeAnalyticalPanels'
@@ -81,8 +82,8 @@ export default function OtherIncomePage() {
   }
   const downloadPdf = async (id: string) => {
     setDownloading(id)
-    try { const blob = await otherIncomeAPI.downloadInvoice(id); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = `other-income-invoice-${id}.pdf`; document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url) }
-    catch (downloadError) { alert(downloadError instanceof Error ? downloadError.message : 'Failed to download invoice') }
+    try { const blob = await otherIncomeAPI.downloadInvoice(id); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = `other-income-invoice-${id}.pdf`; document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url); toast.success('Invoice download initiated.') }
+    catch (downloadError) { toast.error(downloadError instanceof Error ? downloadError.message : 'Unable to download the invoice PDF. Please try again.') }
     finally { setDownloading(null) }
   }
   const markPaid = async (id: string) => {

@@ -1,12 +1,13 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Banknote, Building2, CalendarDays, ChevronLeft, ChevronRight, CreditCard, FileCheck2, Percent, UserRound } from 'lucide-react'
+import { Banknote, Building2, CalendarDays, CreditCard, FileCheck2, FileClock, Percent, UserRound } from 'lucide-react'
 import type { ActivationRequest, CreateActivationRequest, UpdateActivationRequest } from '@/types'
 import { activationsAPI } from '@/lib/api'
-import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { FormSectionFooter } from '@/components/ui/form-section-footer'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   ActivationDetailsSection,
@@ -16,7 +17,7 @@ import {
   PaymentDetailsSection,
   VatInformationSection,
 } from './activation/ActivationFormSections'
-import type { ActivationChangeHandler, ActivationFormData, ActivationSectionId } from './activation/types'
+import type { ActivationChangeHandler, ActivationFormData, ActivationManualOverrides, ActivationSectionId } from './activation/types'
 
 interface ActivationFormProps {
   propertyId: string
@@ -36,13 +37,23 @@ const fieldSections: Partial<Record<keyof ActivationFormData, ActivationSectionI
   managerName: 'manager', managerDesignation: 'manager',
 }
 
+interface StoredActivationDraft {
+  formData: ActivationFormData
+  manualOverrides: ActivationManualOverrides
+}
+
+const getDraftKey = (propertyId: string, activationId?: string) =>
+  activationId ? `activation_form_draft_${activationId}` : `activation_form_draft_property_${propertyId}`
+
 export default function ActivationForm({ propertyId, propertyName, activation, onSuccess, onCancel }: ActivationFormProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [draftMessage, setDraftMessage] = useState<string | null>(null)
   const [activeSection, setActiveSection] = useState<ActivationSectionId>('company')
-  const [manualOverrides, setManualOverrides] = useState({ numberOfDays: false, proposedBudget: false })
+  const [manualOverrides, setManualOverrides] = useState<ActivationManualOverrides>({ numberOfDays: false, proposedBudget: false })
   const [formData, setFormData] = useState<ActivationFormData>(() => createInitialData(activation))
   const showManagerInformation = !activation || activation.status === 'DRAFT'
+  const draftKey = getDraftKey(propertyId, activation?.id)
 
   const sections = useMemo(() => {
     const values: Array<{ id: ActivationSectionId; title: string; icon: React.ComponentType<{ className?: string }> }> = [
@@ -55,6 +66,30 @@ export default function ActivationForm({ propertyId, propertyName, activation, o
     if (showManagerInformation) values.push({ id: 'manager', title: 'Manager Information', icon: UserRound })
     return values
   }, [showManagerInformation])
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      try {
+        const savedDraft = localStorage.getItem(draftKey)
+        if (!savedDraft) return
+
+        const parsed = JSON.parse(savedDraft) as Partial<StoredActivationDraft>
+        if (!parsed.formData || typeof parsed.formData !== 'object') return
+
+        setFormData({ ...createInitialData(activation), ...parsed.formData })
+        if (parsed.manualOverrides) {
+          setManualOverrides({
+            numberOfDays: parsed.manualOverrides.numberOfDays ?? false,
+            proposedBudget: parsed.manualOverrides.proposedBudget ?? false,
+          })
+        }
+        setDraftMessage('A saved draft was restored from this browser.')
+      } catch (draftError) {
+        console.error('Error loading activation draft:', draftError)
+      }
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [activation, draftKey])
 
   useEffect(() => {
     if (manualOverrides.numberOfDays || !formData.startDate || !formData.endDate) return
@@ -81,6 +116,27 @@ export default function ActivationForm({ propertyId, propertyName, activation, o
     const { name, value, type } = event.target
     if (name === 'numberOfDays' || name === 'proposedBudget') setManualOverrides((current) => ({ ...current, [name]: true }))
     setFormData((current) => ({ ...current, [name]: type === 'checkbox' ? (event.target as HTMLInputElement).checked : value }))
+  }
+
+  const handleSaveDraft = () => {
+    try {
+      const draft: StoredActivationDraft = { formData, manualOverrides }
+      localStorage.setItem(draftKey, JSON.stringify(draft))
+      setDraftMessage('Your draft was saved in this browser.')
+      setError(null)
+    } catch (draftError) {
+      console.error('Error saving activation draft:', draftError)
+      setError('Your draft could not be saved in this browser. Please try again.')
+    }
+  }
+
+  const clearDraft = () => {
+    try {
+      localStorage.removeItem(draftKey)
+      setDraftMessage(null)
+    } catch (draftError) {
+      console.error('Error clearing activation draft:', draftError)
+    }
   }
 
   const resetOverride = (field: 'numberOfDays' | 'proposedBudget') => setManualOverrides((current) => ({ ...current, [field]: false }))
@@ -133,6 +189,7 @@ export default function ActivationForm({ propertyId, propertyName, activation, o
       const data = createPayload(formData, vatValue)
       if (activation) await activationsAPI.update(activation.id, data)
       else await activationsAPI.create({ ...data, propertyId } as CreateActivationRequest)
+      clearDraft()
       onSuccess()
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Failed to save activation request')
@@ -142,12 +199,21 @@ export default function ActivationForm({ propertyId, propertyName, activation, o
     }
   }
 
-  const activeIndex = sections.findIndex((section) => section.id === activeSection)
-  const previousSection = activeIndex > 0 ? sections[activeIndex - 1] : null
-  const nextSection = activeIndex < sections.length - 1 ? sections[activeIndex + 1] : null
+  const sectionIds = sections.map((section) => section.id)
+  const currentSection = sectionIds.includes(activeSection) ? activeSection : sectionIds[0]
 
   return (
-    <form onSubmit={handleSubmit} className="min-w-0" noValidate>
+    <form onSubmit={handleSubmit} className="min-w-0 space-y-4" noValidate>
+      {draftMessage && (
+        <Alert variant="info" className="flex gap-3">
+          <FileClock className="mt-0.5 size-5 shrink-0 text-primary" aria-hidden="true" />
+          <div>
+            <AlertTitle>Draft saved</AlertTitle>
+            <AlertDescription>{draftMessage}</AlertDescription>
+          </div>
+        </Alert>
+      )}
+
       <Card>
         <CardHeader className="border-b border-border">
           <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground"><FileCheck2 className="size-4" aria-hidden="true" />Activation Forms</div>
@@ -158,7 +224,7 @@ export default function ActivationForm({ propertyId, propertyName, activation, o
         {error && <div className="px-4 pt-4 sm:px-5"><Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert></div>}
 
         <CardContent className="p-4 sm:p-5">
-          <Tabs orientation="vertical" value={activeSection} onValueChange={(value) => setActiveSection(value as ActivationSectionId)} className="flex-col gap-4 md:flex-row md:gap-6">
+          <Tabs orientation="vertical" value={currentSection} onValueChange={(value) => setActiveSection(value as ActivationSectionId)} className="flex-col gap-4 md:flex-row md:gap-6">
             <TabsList aria-label="Activation request sections" className="max-h-52 w-full overflow-y-auto md:max-h-none md:w-60 md:overflow-visible">
               {sections.map(({ id, title, icon: Icon }) => <TabsTrigger key={id} value={id} className="min-h-9 justify-start gap-2 px-3"><Icon className="size-4" aria-hidden="true" />{title}</TabsTrigger>)}
             </TabsList>
@@ -170,21 +236,20 @@ export default function ActivationForm({ propertyId, propertyName, activation, o
               <TabsContent value="vat"><VatInformationSection data={formData} onChange={handleChange} details={vatDetails} /></TabsContent>
               <TabsContent value="payment"><PaymentDetailsSection data={formData} onChange={handleChange} /></TabsContent>
               {showManagerInformation && <TabsContent value="manager"><ManagerInformationSection data={formData} onChange={handleChange} /></TabsContent>}
-
-              <div className="mt-4 flex items-center justify-between gap-3">
-                <Button type="button" variant="outline" disabled={!previousSection} onClick={() => previousSection && setActiveSection(previousSection.id)}><ChevronLeft className="size-4" />Previous</Button>
-                <span className="text-xs text-muted-foreground">Section {activeIndex + 1} of {sections.length}</span>
-                <Button type="button" variant="outline" disabled={!nextSection} onClick={() => nextSection && setActiveSection(nextSection.id)}>Next<ChevronRight className="size-4" /></Button>
-              </div>
             </div>
           </Tabs>
         </CardContent>
-
-        <div className="flex flex-col-reverse gap-2 border-t border-border bg-muted/20 px-4 py-4 sm:flex-row sm:justify-end sm:px-5">
-          <Button type="button" variant="outline" onClick={onCancel} disabled={loading}>Cancel</Button>
-          <Button type="submit" loading={loading}>{activation ? 'Update Activation Request' : 'Create Activation Request'}</Button>
-        </div>
       </Card>
+
+      <FormSectionFooter
+        sections={sectionIds}
+        activeSection={currentSection}
+        onSectionChange={setActiveSection}
+        onCancel={onCancel}
+        onSaveDraft={handleSaveDraft}
+        disabled={loading}
+        finalAction={<Button type="submit" loading={loading}>{activation ? 'Update Activation Request' : 'Create Activation Request'}</Button>}
+      />
     </form>
   )
 }
