@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import type { AnalyticsFilters, AnalyticsGrain } from '@/types/analytics'
 
@@ -32,7 +32,10 @@ export function useSharedAnalyticsFilters(defaultFilters: () => AnalyticsFilters
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const search = searchParams.toString()
-  const urlFilters = readFilters(new URLSearchParams(search), defaultFilters())
+  const urlFilters = useMemo(
+    () => readFilters(new URLSearchParams(search), defaultFilters()),
+    [defaultFilters, search],
+  )
   const [draftState, setDraftState] = useState(() => ({ source: search, value: urlFilters }))
   const [appliedState, setAppliedState] = useState(() => ({ source: search, value: urlFilters }))
   const draftFilters = draftState.source === search ? draftState.value : urlFilters

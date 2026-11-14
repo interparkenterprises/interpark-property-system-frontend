@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { propertiesAPI } from '@/lib/api'
 import { analyticsAPI, toAnalyticsApiFailure } from '@/lib/analyticsApi'
@@ -33,6 +33,7 @@ export function useAnalyticsData(mode: AnalyticsMode) {
   const [data, setData] = useState<AnalyticsDashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<AnalyticsApiFailure | null>(null)
+  const hasLoadedOverview = useRef(false)
 
   const canPayments = auth.isAdmin || auth.isManager || auth.hasPermission('VIEW_PAYMENT_REPORTS')
   const canArrears = auth.isAdmin || auth.isManager || auth.hasPermission('VIEW_ARREARS')
@@ -86,9 +87,11 @@ export function useAnalyticsData(mode: AnalyticsMode) {
         ])
         setData({ occupancy: occupancy.data, tenants: tenants.data, meta: [occupancy.meta, tenants.meta] })
       } else if (mode === 'overview') {
-        setOverviewLoading({ ...overviewAccess })
+        const isInitialLoad = !hasLoadedOverview.current
+
+        if (isInitialLoad) setOverviewLoading({ ...overviewAccess })
         setOverviewErrors({})
-        setData({ meta: [] })
+        if (isInitialLoad) setData({ meta: [] })
 
         const failure = (result: PromiseSettledResult<unknown> | undefined) =>
           result?.status === 'rejected' ? toAnalyticsApiFailure(result.reason) : undefined
@@ -154,6 +157,7 @@ export function useAnalyticsData(mode: AnalyticsMode) {
         }
 
         await Promise.all(requests)
+        hasLoadedOverview.current = true
       } else {
         const [rent, collections, receivablesTrend, status, revenue, cohortCash, occupancyResult, tenantsResult] = await Promise.all([
           analyticsAPI.getRentInvoiceAnalytics(filters),
