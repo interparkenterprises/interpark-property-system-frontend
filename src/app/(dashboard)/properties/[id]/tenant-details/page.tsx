@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { motion, Variants } from 'framer-motion';
 import { Tenant, Invoice, InvoiceStatus, PaymentReport, PaymentPreview, CreatePaymentReportResponse, PaymentStatus, BillInvoice, PaymentPolicy, DemandLetter, CreatePaymentReportRequest } from '@/types';
-import { tenantsAPI, invoicesAPI, paymentsAPI, billInvoicesAPI, demandLettersAPI } from '@/lib/api';
+import { tenantsAPI, invoicesAPI, paymentsAPI, billInvoicesAPI, demandLettersAPI, tenantReportsAPI } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Dialog,  DialogContent,  DialogDescription,  DialogFooter,  DialogHeader,  DialogTitle,} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -12,8 +12,6 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/Switch';
 import { toast } from 'sonner';
-import { useWhatsApp } from '@/hooks/useWhatsApp';
-import { generateBillInvoiceReportPDF, generateComprehensiveReportPDF } from '@/lib/pdfGenerator';
 import { formatDateToOrdinal } from '@/lib/dateUtils';
 import { useGlobalPermissions } from '@/app/providers/PermissionsProvider';
 import { PermissionCode } from '@/types';
@@ -25,6 +23,21 @@ import { DetailItem, DetailList } from '@/components/ui/detail-list';
 import { PageHeader } from '@/components/ui/page-header';
 import { formatExactKes } from '@/lib/numberFormat';
 import { ChevronRight } from 'lucide-react';
+import { TenantFreezePanel } from '@/components/tenant/TenantFreezePanel';
+import { FormDatePicker } from '@/components/ui/form-date-picker';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { buildBillingPeriods, normalizePaymentPeriod } from '@/lib/paymentPeriods';
+
+function saveBlob(blob: Blob, filename: string) {
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+}
 
 export default function TenantDetailPage() {
   const params = useParams();
@@ -56,6 +69,9 @@ export default function TenantDetailPage() {
     PermissionCode.SEND_DEMAND_LETTERS,
     PermissionCode.AUTO_GENERATE_DEMAND_LETTER,
     PermissionCode.DOWNLOAD_DEMAND_LETTER,
+    PermissionCode.DOWNLOAD_PAYMENT_REPORT,
+    PermissionCode.DOWNLOAD_BILL_REPORT,
+    PermissionCode.DOWNLOAD_COMPREHENSIVE_REPORT,
   ], []);
 
   const canAccessTenantDetailsPage = useMemo(() => {
@@ -89,10 +105,10 @@ export default function TenantDetailPage() {
     hasPermission(PermissionCode.RECORD_PAYMENTS);
     
   const canCreatePayments = isAdmin || isManager || hasPermission(PermissionCode.RECORD_PAYMENTS);
-  const canDownloadPaymentReports = isAdmin || isManager || hasPermission(PermissionCode.VIEW_PAYMENT_REPORTS);
+  const canDownloadPaymentReports = isAdmin || isManager || hasPermission(PermissionCode.DOWNLOAD_PAYMENT_REPORT);
   
   const canViewBillInvoices = isAdmin || isManager || hasPermission(PermissionCode.VIEW_BILL_INVOICES);
-  const canDownloadBillInvoices = isAdmin || isManager || hasPermission(PermissionCode.DOWNLOAD_BILL_INVOICE);
+  const canDownloadBillInvoices = isAdmin || isManager || hasPermission(PermissionCode.DOWNLOAD_BILL_REPORT);
   
   const canViewDemandLetters = isAdmin || isManager ||
     hasPermission(PermissionCode.VIEW_DEMAND_LETTERS) ||
@@ -106,7 +122,7 @@ export default function TenantDetailPage() {
   
   const canViewOverdueInvoices = isAdmin || isManager || hasPermission(PermissionCode.VIEW_OVERDUE_INVOICES);
   
-  const canViewComprehensiveReport = isAdmin || isManager;
+  const canViewComprehensiveReport = isAdmin || isManager || hasPermission(PermissionCode.DOWNLOAD_COMPREHENSIVE_REPORT);
   
   // State declarations
   const [tenant, setTenant] = useState<Tenant | null>(null);
@@ -144,6 +160,7 @@ export default function TenantDetailPage() {
   const [, setCalculatingPreview] = useState(false);
 
   const [invoiceForm, setInvoiceForm] = useState({
+    billingStartDate: '',
     dueDate: '',
     notes: '',
   });
@@ -162,6 +179,15 @@ export default function TenantDetailPage() {
   });
 
   const tenantId = params.id as string;
+  const billingPeriods = useMemo(() => {
+    if (!tenant?.rentStart) return [];
+    const start = new Date(`${tenant.rentStart.slice(0, 10)}T00:00:00`);
+    const now = new Date();
+    const elapsedMonths = Math.max(0, (now.getFullYear() - start.getFullYear()) * 12 + now.getMonth() - start.getMonth());
+    const cycleMonths = tenant.paymentPolicy === 'ANNUAL' ? 12 : tenant.paymentPolicy === 'QUARTERLY' ? 3 : 1;
+    const count = Math.min(240, Math.max(12, Math.floor(elapsedMonths / cycleMonths) + 7));
+    return buildBillingPeriods(tenant.paymentPolicy, tenant.rentStart, count);
+  }, [tenant]);
   const tenantWorkspaceHref = tenant?.unit?.propertyId ? `/properties/${tenant.unit.propertyId}?tab=tenants` : '/properties';
   useBreadcrumbOverride(`/properties/${tenantId}`, loading ? 'Loading…' : tenant?.unit?.property?.name ?? 'Property details', tenant?.unit?.propertyId ? `/properties/${tenant.unit.propertyId}` : '/properties');
   useBreadcrumbRouteTrail([
@@ -172,14 +198,15 @@ export default function TenantDetailPage() {
   // Fetch payment preview when amount changes
   useEffect(() => {
     const fetchPreview = async () => {
-      if (!tenantId || !paymentForm.amountPaid || parseFloat(paymentForm.amountPaid) <= 0) {
+      if (!tenantId || !tenant || !paymentForm.paymentPeriod || !paymentForm.amountPaid || parseFloat(paymentForm.amountPaid) <= 0) {
         setPaymentPreview(null);
         return;
       }
 
       try {
         setCalculatingPreview(true);
-        const preview = await paymentsAPI.previewPayment(tenantId);
+        const paymentPeriod = normalizePaymentPeriod(paymentForm.paymentPeriod, tenant.paymentPolicy, tenant.rentStart);
+        const preview = await paymentsAPI.previewPayment(tenantId, { includeCredit: true, paymentPeriod });
         setPaymentPreview(preview);
       } catch (error) {
         console.error('Error fetching payment preview:', error);
@@ -190,7 +217,7 @@ export default function TenantDetailPage() {
 
     const timeoutId = setTimeout(fetchPreview, 500);
     return () => clearTimeout(timeoutId);
-  }, [paymentForm.amountPaid, tenantId]);
+  }, [paymentForm.amountPaid, paymentForm.paymentPeriod, tenant, tenantId]);
 
   // Helper functions for payment period handling based on tenant's start date
   const getQuarterPeriods = (tenantStartDate: string, numQuarters: number = 8) => {
@@ -245,29 +272,6 @@ export default function TenantDetailPage() {
     }
     
     return periods;
-  };
-
-  const getCurrentPeriod = (tenantStartDate: string, paymentPolicy: string) => {
-    const now = new Date();
-    const startDate = new Date(tenantStartDate);
-    
-    if (paymentPolicy === 'MONTHLY') {
-      return now.toISOString().slice(0, 7); // YYYY-MM
-    } else if (paymentPolicy === 'QUARTERLY') {
-      const monthsDiff = (now.getFullYear() - startDate.getFullYear()) * 12 + 
-                        (now.getMonth() - startDate.getMonth());
-      const quarterIndex = Math.floor(monthsDiff / 3);
-      const yearOffset = Math.floor((startDate.getMonth() + quarterIndex * 3) / 12);
-      const year = startDate.getFullYear() + yearOffset;
-      return `${year}-Q${quarterIndex + 1}`;
-    } else if (paymentPolicy === 'ANNUAL') {
-      // Check if we're past the anniversary date this year
-      const currentYearAnniversary = new Date(now.getFullYear(), startDate.getMonth(), startDate.getDate());
-      const yearOffset = now >= currentYearAnniversary ? 0 : 1;
-      return (now.getFullYear() - yearOffset).toString();
-    }
-    
-    return '';
   };
 
   const fetchTenant = async () => {
@@ -525,11 +529,17 @@ export default function TenantDetailPage() {
     try {
       setCreatingPayment(true);
       
+      if (!tenant) throw new Error('Tenant information not available');
+      if (paymentPreview?.freeze && !paymentPreview.freeze.canRecordPayment) {
+        toast.error(paymentPreview.freeze.warning || 'Payments cannot be recorded for the selected frozen period');
+        return;
+      }
+      const normalizedPeriod = normalizePaymentPeriod(paymentForm.paymentPeriod, tenant.paymentPolicy, tenant.rentStart);
       const paymentData: CreatePaymentReportRequest = {
         tenantId: tenantId!,
         amountPaid,
         notes: paymentForm.notes || undefined,
-        paymentPeriod: paymentForm.paymentPeriod,
+        paymentPeriod: normalizedPeriod,
         invoiceIds: selectedInvoiceIds,
         createMissingInvoices,
         updateExistingInvoices,
@@ -569,21 +579,23 @@ export default function TenantDetailPage() {
       setUpdateExistingInvoices(true);
       setPaymentPreview(null);
       
-      fetchPaymentReports();
-      fetchInvoices();
-      fetchOutstandingInvoices();
+      void fetchPaymentReports();
+      void fetchInvoices();
+      void fetchOutstandingInvoices();
+      void fetchTenant();
       
     } catch (error) {
       console.error('Error creating payment report:', error);
       toast.error(error instanceof Error ? error.message : 'Failed to create payment report');
+      void fetchTenant();
     } finally {
       setCreatingPayment(false);
     }
   };
 
   const handleGenerateInvoice = async () => {
-    if (!invoiceForm.dueDate) {
-      toast.error('Please select a due date');
+    if (!invoiceForm.dueDate || !invoiceForm.billingStartDate) {
+      toast.error('Please select the billing period and due date');
       return;
     }
 
@@ -603,6 +615,7 @@ export default function TenantDetailPage() {
       
       await invoicesAPI.generateInvoice({
         tenantId,
+        billingStartDate: invoiceForm.billingStartDate,
         dueDate: invoiceForm.dueDate,
         notes: invoiceForm.notes || `${tenant.paymentPolicy} rent invoice for ${tenant.fullName}`,
       });
@@ -610,7 +623,7 @@ export default function TenantDetailPage() {
       toast.dismiss();
       toast.success(`${tenant.paymentPolicy} invoice generated successfully!`);
       setShowInvoiceDialog(false);
-      setInvoiceForm({ dueDate: '', notes: '' });
+      setInvoiceForm({ billingStartDate: '', dueDate: '', notes: '' });
       fetchInvoices();
       fetchOutstandingInvoices();
     } catch (error) {
@@ -657,8 +670,6 @@ export default function TenantDetailPage() {
     }
   };
 
-const { downloadAllPaymentReports } = useWhatsApp();
-
 const handleDownloadPaymentReport = async () => {
   if (!tenant) return;
 
@@ -670,13 +681,9 @@ const handleDownloadPaymentReport = async () => {
   try {
     setGeneratingPDF(true);
     toast.loading('Generating payment report PDF...');
-    const result = await downloadAllPaymentReports(tenant.id, tenant.fullName);
+    saveBlob(await tenantReportsAPI.downloadPaymentReport(tenant.id), `Payment_Reports_${tenant.fullName.replace(/\s+/g, '_')}.pdf`);
     toast.dismiss();
-    if (result.success) {
-      toast.success('Payment report downloaded successfully!');
-    } else {
-      toast.error(result.message || 'Failed to download payment report');
-    }
+    toast.success('Payment report downloaded successfully!');
   } catch (error) {
     console.error('Error downloading payment report:', error);
     toast.dismiss();
@@ -697,7 +704,7 @@ const handleDownloadPaymentReport = async () => {
     try {
       setGeneratingBillPDF(true);
       toast.loading('Generating bill payment report PDF...');
-      await generateBillInvoiceReportPDF(tenant, billInvoices);
+      saveBlob(await tenantReportsAPI.downloadBillReport(tenant.id), `Bill_Report_${tenant.fullName.replace(/\s+/g, '_')}.pdf`);
       toast.dismiss();
       toast.success('Bill payment report downloaded successfully!');
     } catch (error) {
@@ -721,14 +728,7 @@ const handleDownloadPaymentReport = async () => {
       setGeneratingComprehensivePDF(true);
       toast.loading('Generating comprehensive report PDF...');
       
-      const invoicesResponse = await invoicesAPI.getInvoicesByTenant(tenantId);
-      
-      await generateComprehensiveReportPDF(
-        tenant, 
-        paymentReports, 
-        billInvoices,
-        invoicesResponse.data
-      );
+      saveBlob(await tenantReportsAPI.downloadComprehensiveReport(tenant.id), `Comprehensive_Report_${tenant.fullName.replace(/\s+/g, '_')}.pdf`);
       
       toast.dismiss();
       toast.success('Comprehensive report downloaded successfully!');
@@ -857,11 +857,16 @@ const handleDownloadPaymentReport = async () => {
         </svg>
       ),
       onClick: () => {
+        const todayKey = new Date().toISOString().slice(0, 10);
+        const currentBillingPeriod = billingPeriods.find((period) => period.startDate <= todayKey && period.endDate >= todayKey)?.startDate ?? billingPeriods[0]?.startDate ?? '';
         if (tenant.paymentSummary?.nextPayment?.dueDate) {
           setInvoiceForm(previous => ({
             ...previous,
+            billingStartDate: currentBillingPeriod,
             dueDate: new Date(tenant.paymentSummary!.nextPayment.dueDate).toISOString().split('T')[0],
           }));
+        } else {
+          setInvoiceForm(previous => ({ ...previous, billingStartDate: currentBillingPeriod }));
         }
         setShowInvoiceDialog(true);
       },
@@ -897,7 +902,8 @@ const handleDownloadPaymentReport = async () => {
       ),
       onClick: () => {
         if (!paymentForm.paymentPeriod) {
-          const currentPeriod = getCurrentPeriod(tenant.rentStart || '', tenant.paymentPolicy);
+          const todayKey = new Date().toISOString().slice(0, 10);
+          const currentPeriod = billingPeriods.find((period) => period.startDate <= todayKey && period.endDate >= todayKey)?.startDate ?? billingPeriods[0]?.startDate;
           if (currentPeriod) setPaymentForm(previous => ({ ...previous, paymentPeriod: currentPeriod }));
         }
         setShowCreatePaymentDialog(true);
@@ -1054,6 +1060,15 @@ const handleDownloadPaymentReport = async () => {
         </Card>
       </div>
 
+      <TenantFreezePanel
+        tenant={tenant}
+        canManage={isAdmin || isManager}
+        onTenantChange={setTenant}
+        onFinancialRefresh={async () => {
+          await Promise.all([fetchInvoices(), fetchPaymentReports(), fetchOutstandingInvoices()]);
+        }}
+      />
+
       <Card>
         <CardHeader>
           <CardTitle>Financial records</CardTitle>
@@ -1191,8 +1206,6 @@ const handleDownloadPaymentReport = async () => {
         tenantId={tenantId}
         isAdmin={isAdmin}
         isManager={isManager}
-        canEdit={canCreateInvoices || canCreatePayments}
-        canDelete={isAdmin || isManager}
       />
 
       {/* Generate Invoice Dialog */}
@@ -1231,16 +1244,12 @@ const handleDownloadPaymentReport = async () => {
                   <h3 id="invoice-details-heading" className="text-sm font-semibold text-foreground">Invoice details</h3>
                   <p className="mt-1 text-xs text-muted-foreground">Confirm the due date and add any information that should appear with this invoice.</p>
                 </div>
+                <Select value={invoiceForm.billingStartDate} onValueChange={(billingStartDate) => setInvoiceForm({ ...invoiceForm, billingStartDate })}>
+                  <SelectTrigger aria-label="Billing period"><SelectValue placeholder="Select billing period" /></SelectTrigger>
+                  <SelectContent>{billingPeriods.map((period) => <SelectItem key={period.value} value={period.startDate}>{period.label}</SelectItem>)}</SelectContent>
+                </Select>
                 <div className="space-y-2">
-                  <Label htmlFor="dueDate">Due Date <span className="text-destructive">*</span></Label>
-                  <Input
-                    id="dueDate"
-                    type="date"
-                    value={invoiceForm.dueDate}
-                    onChange={(event) => setInvoiceForm({ ...invoiceForm, dueDate: event.target.value })}
-                    className="w-full"
-                  />
-                  <p className="text-xs text-muted-foreground">The next payment due date is used as the existing default.</p>
+                  <FormDatePicker id="dueDate" label="Due date" required value={invoiceForm.dueDate} onChange={(dueDate) => setInvoiceForm({ ...invoiceForm, dueDate })} helperText="The next payment due date is used as the existing default." />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="notes">Notes (Optional)</Label>
@@ -1258,7 +1267,7 @@ const handleDownloadPaymentReport = async () => {
 
           <DialogFooter className="shrink-0 border-t border-border bg-muted/20 px-5 py-4 sm:px-6">
             <Button variant="outline" onClick={() => setShowInvoiceDialog(false)} disabled={generating}>Cancel</Button>
-            <Button onClick={handleGenerateInvoice} disabled={generating || !invoiceForm.dueDate} loading={generating}>
+            <Button onClick={handleGenerateInvoice} disabled={generating || !invoiceForm.billingStartDate || !invoiceForm.dueDate} loading={generating}>
               {generating ? 'Generating…' : 'Generate Invoice'}
             </Button>
           </DialogFooter>
@@ -1391,10 +1400,17 @@ const handleDownloadPaymentReport = async () => {
                     {/* Total Due Card */}
                     <div className="rounded-md border border-primary/20 bg-primary/10 p-3">
                       <p className="text-primary font-medium text-xs">
-                        Total {tenant.paymentPolicy === 'MONTHLY' ? 'Monthly' : tenant.paymentPolicy === 'QUARTERLY' ? 'Quarterly' : 'Annual'} Due
+                        Payment preview total · {tenant.paymentPolicy === 'MONTHLY' ? 'Monthly' : tenant.paymentPolicy === 'QUARTERLY' ? 'Quarterly' : 'Annual'}
                       </p>
                       <p className="text-primary font-bold text-lg">Ksh {paymentPreview.totalDue.toLocaleString()}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">This is a payment preview, not the gross total of an issued invoice.</p>
                     </div>
+                    {paymentPreview.withholdingTaxSummary && (
+                      <div className="rounded-md border border-border bg-muted/20 p-3">
+                        <p className="text-xs font-medium text-muted-foreground">Withholding shown separately</p>
+                        <p className="font-semibold text-foreground">{formatExactKes(paymentPreview.withholdingTaxSummary.totalWithheld)}</p>
+                      </div>
+                    )}
                   </div>
 
                   {/* Credit Information */}
@@ -1682,132 +1698,16 @@ const handleDownloadPaymentReport = async () => {
                     </div>
                   )}
                   
-                  {/* Monthly - Month picker */}
-                  {tenant.paymentPolicy === 'MONTHLY' && (
-                    <div>
-                      <Input
-                        id="paymentPeriod"
-                        type="month"
-                        value={paymentForm.paymentPeriod}
-                        onChange={(e) => setPaymentForm({ ...paymentForm, paymentPeriod: e.target.value })}
-                        className="w-full text-foreground"
-                        required
-                      />
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Select the month for this payment
-                      </p>
-                    </div>
-                  )}
-                  
-                  {/* Quarterly - Quarter selection based on tenant's start date */}
-                  {tenant.paymentPolicy === 'QUARTERLY' && tenant.rentStart && (
-                    <div>
-                      <div className="grid grid-cols-2 gap-3 mb-3">
-                        <div>
-                          <Label className="text-xs text-muted-foreground">
-                            Year
-                          </Label>
-                          <select
-                            value={paymentForm.paymentPeriod ? paymentForm.paymentPeriod.split('-')[0] : ''}
-                            onChange={(e) => {
-                              const year = e.target.value;
-                              const currentQuarter = paymentForm.paymentPeriod?.split('-')[1] || 'Q1';
-                              setPaymentForm({ ...paymentForm, paymentPeriod: `${year}-${currentQuarter}` });
-                            }}
-                            className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                          >
-                            {getQuarterPeriods(tenant.rentStart, 8).map((period, index) => (
-                              <option key={index} value={period.startYear}>
-                                {period.startYear} ({period.display})
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          <Label className="text-xs text-muted-foreground">
-                            Quarter
-                          </Label>
-                          <select
-                            value={paymentForm.paymentPeriod?.split('-')[1] || 'Q1'}
-                            onChange={(e) => {
-                              const quarter = e.target.value;
-                              const currentYear = paymentForm.paymentPeriod?.split('-')[0] || new Date().getFullYear().toString();
-                              setPaymentForm({ ...paymentForm, paymentPeriod: `${currentYear}-${quarter}` });
-                            }}
-                            className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                          >
-                            {getQuarterPeriods(tenant.rentStart, 8).map((period, index) => (
-                              <option key={index} value={period.quarter}>
-                                {period.quarter} ({period.display})
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-                      
-                      {/* Quick quarter buttons based on tenant's start date */}
-                      <div className="flex gap-2 flex-wrap">
-                        {getQuarterPeriods(tenant.rentStart, 4).map((period, index) => (
-                          <button
-                            key={index}
-                            type="button"
-                            onClick={() => setPaymentForm({ ...paymentForm, paymentPeriod: period.value })}
-                            className={`px-3 py-1 text-xs rounded-full border transition-all ${
-                              paymentForm.paymentPeriod === period.value
-                                ? 'border-primary bg-primary text-primary-foreground'
-                                : 'border-border bg-background text-foreground hover:bg-muted'
-                            }`}
-                          >
-                            {period.quarter} ({period.display})
-                          </button>
-                        ))}
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-2">
-                        Quarters are calculated from rent start date: {new Date(tenant.rentStart).toLocaleDateString()}
-                      </p>
-                    </div>
-                  )}
-                  
-                  {/* Annual - Year selection based on tenant's start date */}
-                  {tenant.paymentPolicy === 'ANNUAL' && tenant.rentStart && (
-                    <div>
-                      <div>
-                        <Label className="text-xs text-muted-foreground">
-                          Year
-                        </Label>
-                        <select
-                          value={paymentForm.paymentPeriod}
-                          onChange={(e) => setPaymentForm({ ...paymentForm, paymentPeriod: e.target.value })}
-                          className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                        >
-                          {getAnnualPeriods(tenant.rentStart, 5).map((period, index) => (
-                            <option key={index} value={period.value}>
-                              {period.display}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      
-                      {/* Quick year buttons based on tenant's start date */}
-                      <div className="flex gap-2 flex-wrap mt-3">
-                        {getAnnualPeriods(tenant.rentStart, 5).map((period, index) => (
-                          <button
-                            key={index}
-                            type="button"
-                            onClick={() => setPaymentForm({ ...paymentForm, paymentPeriod: period.value })}
-                            className={`px-3 py-1 text-xs rounded-full border transition-all ${
-                              paymentForm.paymentPeriod === period.value
-                                ? 'border-primary bg-primary text-primary-foreground'
-                                : 'border-border bg-background text-foreground hover:bg-muted'
-                            }`}
-                          >
-                            {period.display}
-                          </button>
-                        ))}
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-2">
-                        Years are calculated from rent start date: {new Date(tenant.rentStart).toLocaleDateString()}
-                      </p>
+                  <Select value={paymentForm.paymentPeriod} onValueChange={(paymentPeriod) => setPaymentForm({ ...paymentForm, paymentPeriod })}>
+                    <SelectTrigger id="paymentPeriod" aria-label="Payment period"><SelectValue placeholder="Select payment period" /></SelectTrigger>
+                    <SelectContent>
+                      {billingPeriods.map((period) => <SelectItem key={period.value} value={period.startDate}>{period.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">Periods follow the tenant&apos;s {tenant.paymentPolicy.toLowerCase()} billing cycle beginning {new Date(`${tenant.rentStart.slice(0, 10)}T00:00:00`).toLocaleDateString()}.</p>
+                  {paymentPreview?.freeze?.warning && (
+                    <div className={`rounded-md border p-3 text-sm ${paymentPreview.freeze.canRecordPayment ? 'border-warning/30 bg-warning/10 text-warning' : 'border-destructive/30 bg-destructive/10 text-destructive'}`}>
+                      {paymentPreview.freeze.warning}
                     </div>
                   )}
                 </div>
@@ -1906,7 +1806,7 @@ const handleDownloadPaymentReport = async () => {
             </Button>
             <Button
               onClick={handleCreatePayment}
-              disabled={creatingPayment || !paymentForm.paymentPeriod || !paymentForm.amountPaid}
+              disabled={creatingPayment || !paymentForm.paymentPeriod || !paymentForm.amountPaid || paymentPreview?.freeze?.canRecordPayment === false}
               loading={creatingPayment}
               className="min-w-24"
             >

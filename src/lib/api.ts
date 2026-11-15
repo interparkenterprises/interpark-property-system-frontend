@@ -115,6 +115,11 @@ import {
   RestoreTenantResponse,
   TenantLeftReason,
   TenantStatsResponse,
+  FreezeTenantRequest,
+  FreezeTenantResponse,
+  UnfreezeTenantRequest,
+  UnfreezeTenantResponse,
+  TenantFreezeHistoryResponse,
 } from '@/types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ;
@@ -122,30 +127,6 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ;
 const api = axios.create({
   baseURL: API_BASE_URL,
 });
-
-// Helper function to format date for API
-const formatDateForAPI = (date: string | Date | undefined): string | undefined => {
-  if (!date) return undefined;
-  
-  try {
-    const dateObj = typeof date === 'string' ? new Date(date) : date;
-    
-    // Validate the date
-    if (isNaN(dateObj.getTime())) {
-      console.warn('Invalid date provided:', date);
-      return undefined;
-    }
-    
-    // Format as YYYY-MM-DD
-    const year = dateObj.getFullYear();
-    const month = String(dateObj.getMonth() + 1).padStart(2, '0');
-    const day = String(dateObj.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  } catch (error) {
-    console.error('Error formatting date:', error);
-    return undefined;
-  }
-};
 
 // Add token to requests
 api.interceptors.request.use((config) => {
@@ -829,17 +810,23 @@ export const tenantsAPI = {
     }
   },
 
-  previewAttachment: async (attachmentId: string): Promise<void> => {
+  previewAttachment: async (attachmentId: string): Promise<Blob> => {
     try {
-      window.open(`/api/tenants/attachments/${attachmentId}/preview`, '_blank');
+      const response = await api.get(`/tenants/attachments/${attachmentId}/preview`, {
+        responseType: 'blob',
+      });
+      return response.data;
     } catch (error) {
       return handleApiError(error);
     }
   },
 
-  downloadAttachment: async (attachmentId: string): Promise<void> => {
+  downloadAttachment: async (attachmentId: string): Promise<Blob> => {
     try {
-      window.open(`/api/tenants/attachments/${attachmentId}/download`, '_blank');
+      const response = await api.get(`/tenants/attachments/${attachmentId}/download`, {
+        responseType: 'blob',
+      });
+      return response.data;
     } catch (error) {
       return handleApiError(error);
     }
@@ -860,6 +847,33 @@ export const tenantsAPI = {
   deleteAttachment: async (attachmentId: string): Promise<DeleteAttachmentResponse> => {
     try {
       const response = await api.delete(`/tenants/attachments/${attachmentId}`);
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  freeze: async (id: string, data: FreezeTenantRequest): Promise<FreezeTenantResponse> => {
+    try {
+      const response = await api.patch(`/tenants/${id}/freeze`, data);
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  unfreeze: async (id: string, data: UnfreezeTenantRequest): Promise<UnfreezeTenantResponse> => {
+    try {
+      const response = await api.patch(`/tenants/${id}/unfreeze`, data);
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  getFreezeHistory: async (id: string): Promise<TenantFreezeHistoryResponse> => {
+    try {
+      const response = await api.get(`/tenants/${id}/freeze-history`);
       return response.data;
     } catch (error) {
       return handleApiError(error);
@@ -911,10 +925,13 @@ export const paymentsAPI = {
     }
   },
 
-  previewPayment: async (tenantId: string, includeCredit: boolean = true): Promise<PaymentPreview> => {
+  previewPayment: async (tenantId: string, options: { includeCredit?: boolean; paymentPeriod?: string } = {}): Promise<PaymentPreview> => {
     try {
       const response = await api.get(`/payments/preview/${tenantId}`, {
-        params: { includeCredit }
+        params: {
+          includeCredit: options.includeCredit ?? true,
+          ...(options.paymentPeriod ? { paymentPeriod: options.paymentPeriod } : {}),
+        }
       });
       
       // Extract data from response structure
@@ -966,15 +983,10 @@ export const paymentsAPI = {
 
   createPaymentReport: async (data: CreatePaymentReportRequest): Promise<CreatePaymentReportResponse> => {
     try {
-      // Format the paymentPeriod if it exists
-      const formattedPaymentPeriod = data.paymentPeriod 
-        ? formatDateForAPI(data.paymentPeriod) 
-        : undefined;
-      
       // Build the request data
       const requestData = {
         ...data,
-        paymentPeriod: formattedPaymentPeriod,
+        paymentPeriod: data.paymentPeriod,
         // Set defaults to match backend behavior
         handleOverpayment: data.handleOverpayment ?? true,
         updateExistingInvoices: data.updateExistingInvoices ?? true,
@@ -1242,6 +1254,21 @@ export const paymentsAPI = {
     }
   },
 
+};
+
+export const tenantReportsAPI = {
+  downloadPaymentReport: async (tenantId: string): Promise<Blob> => {
+    const response = await api.get(`/whatsapp/payment-reports/${tenantId}/download`, { responseType: 'blob' });
+    return response.data;
+  },
+  downloadBillReport: async (tenantId: string): Promise<Blob> => {
+    const response = await api.get(`/whatsapp/bill-report/${tenantId}/download`, { responseType: 'blob' });
+    return response.data;
+  },
+  downloadComprehensiveReport: async (tenantId: string): Promise<Blob> => {
+    const response = await api.get(`/whatsapp/comprehensive-report/${tenantId}/download`, { responseType: 'blob' });
+    return response.data;
+  },
 };
 
 // Invoice API functions

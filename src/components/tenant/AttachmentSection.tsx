@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Attachment } from '@/types';
 import { tenantsAPI } from '@/lib/api';
@@ -19,7 +20,6 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import {
-  FileIcon,
   FileImage,
   FileText,
   FileSpreadsheet,
@@ -30,7 +30,6 @@ import {
   Download,
   Pencil,
   Trash2,
-  X,
   Loader2,
   FolderOpen,
 } from 'lucide-react';
@@ -39,16 +38,12 @@ interface AttachmentSectionProps {
   tenantId: string;
   isAdmin?: boolean;
   isManager?: boolean;
-  canEdit?: boolean;
-  canDelete?: boolean;
 }
 
 export function AttachmentSection({ 
   tenantId, 
   isAdmin = false, 
   isManager = false,
-  canEdit = false,
-  canDelete = false 
 }: AttachmentSectionProps) {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,25 +56,59 @@ export function AttachmentSection({
   const [previewingId, setPreviewingId] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [selectedUpload, setSelectedUpload] = useState<File | null>(null);
+  const [thumbnailUrls, setThumbnailUrls] = useState<Record<string, string>>({});
 
-  const canUpload = isAdmin || isManager || canEdit;
+  const canUpload = isAdmin || isManager;
+  const errorMessage = (error: unknown, fallback: string) => error instanceof Error ? error.message : fallback;
 
   const fetchAttachments = useCallback(async () => {
     try {
       setLoading(true);
       const response = await tenantsAPI.getAttachments(tenantId);
       setAttachments(response.data || []);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error fetching attachments:', error);
-      toast.error(error.message || 'Failed to load attachments');
+      toast.error(errorMessage(error, 'Failed to load attachments'));
     } finally {
       setLoading(false);
     }
   }, [tenantId]);
 
   useEffect(() => {
-    fetchAttachments();
+    const timer = window.setTimeout(() => void fetchAttachments(), 0);
+    return () => window.clearTimeout(timer);
   }, [fetchAttachments]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const objectUrls: string[] = [];
+
+    const loadThumbnails = async () => {
+      const imageAttachments = attachments.filter((attachment) => attachment.mimeType?.startsWith('image/'));
+      const entries = await Promise.all(imageAttachments.map(async (attachment) => {
+        try {
+          const blob = await tenantsAPI.previewAttachment(attachment.id);
+          if (cancelled) return null;
+          const url = window.URL.createObjectURL(blob);
+          objectUrls.push(url);
+          return [attachment.id, url] as const;
+        } catch (error) {
+          console.error('Error loading attachment thumbnail:', error);
+          return null;
+        }
+      }));
+
+      if (!cancelled) {
+        setThumbnailUrls(Object.fromEntries(entries.filter((entry): entry is readonly [string, string] => entry !== null)));
+      }
+    };
+
+    void loadThumbnails();
+    return () => {
+      cancelled = true;
+      objectUrls.forEach((url) => window.URL.revokeObjectURL(url));
+    };
+  }, [attachments]);
 
   const handleSelectedUpload = (file: File | null) => {
     if (!file) {
@@ -126,9 +155,9 @@ export function AttachmentSection({
       toast.success('File uploaded successfully!');
       setSelectedUpload(null);
       await fetchAttachments();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error uploading file:', error);
-      toast.error(error.message || 'Failed to upload file');
+      toast.error(errorMessage(error, 'Failed to upload file'));
     } finally {
       setUploading(false);
     }
@@ -138,64 +167,47 @@ export function AttachmentSection({
     try {
       setDownloadingId(attachment.id);
       
-      const token = localStorage.getItem('token');
-      if (!token) {
-        toast.error('You must be logged in to download files');
-        return;
-      }
-
-      const downloadUrl = `/api/tenants/attachments/${attachment.id}/download?token=${encodeURIComponent(token)}`;
-      
-      const response = await fetch(downloadUrl, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-      
-      if (!response.ok) {
-        if (response.status === 401) {
-          toast.error('Authentication failed. Please log in again.');
-          return;
-        }
-        throw new Error(`Download failed: ${response.statusText}`);
-      }
-      
-      const blob = await response.blob();
+      const blob = await tenantsAPI.downloadAttachment(attachment.id);
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url;
-      a.download = attachment.name;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
+      try {
+        a.href = url;
+        a.download = attachment.name;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      } finally {
+        window.URL.revokeObjectURL(url);
+      }
       
       toast.success('Download started');
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error downloading attachment:', error);
-      toast.error(error.message || 'Failed to download file');
+      toast.error(errorMessage(error, 'Failed to download file'));
     } finally {
       setDownloadingId(null);
     }
   };
 
   const handlePreview = async (attachment: Attachment) => {
+    let previewWindow: Window | null = null;
     try {
       setPreviewingId(attachment.id);
-      
-      const token = localStorage.getItem('token');
-      if (!token) {
-        toast.error('You must be logged in to preview files');
+      previewWindow = window.open('', '_blank');
+      if (!previewWindow) {
+        toast.error('Allow pop-ups to preview this attachment');
         return;
       }
 
-      const previewUrl = `/api/tenants/attachments/${attachment.id}/preview?token=${encodeURIComponent(token)}`;
-      
-      window.open(previewUrl, '_blank');
+      const blob = await tenantsAPI.previewAttachment(attachment.id);
+      const previewUrl = window.URL.createObjectURL(blob);
+      previewWindow.location.href = previewUrl;
+      window.setTimeout(() => window.URL.revokeObjectURL(previewUrl), 60_000);
       toast.success('Preview opened in new tab');
-    } catch (error: any) {
+    } catch (error: unknown) {
+      previewWindow?.close();
       console.error('Error previewing attachment:', error);
-      toast.error(error.message || 'Failed to preview file');
+      toast.error(errorMessage(error, 'Failed to preview file'));
     } finally {
       setPreviewingId(null);
     }
@@ -216,9 +228,9 @@ export function AttachmentSection({
       await tenantsAPI.deleteAttachment(attachmentId);
       toast.success('Attachment deleted successfully');
       fetchAttachments();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error deleting attachment:', error);
-      toast.error(error.message || 'Failed to delete attachment');
+      toast.error(errorMessage(error, 'Failed to delete attachment'));
     } finally {
       setDeletingId(null);
     }
@@ -248,9 +260,9 @@ export function AttachmentSection({
       setShowRenameDialog(false);
       setSelectedAttachment(null);
       fetchAttachments();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error renaming attachment:', error);
-      toast.error(error.message || 'Failed to rename attachment');
+      toast.error(errorMessage(error, 'Failed to rename attachment'));
     } finally {
       setRenaming(false);
     }
@@ -348,11 +360,8 @@ export function AttachmentSection({
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           <AnimatePresence>
             {attachments.map((attachment) => {
-              const isImage = attachment.mimeType.startsWith('image/');
-              const token = localStorage.getItem('token');
-              const thumbnailUrl = isImage && token 
-                ? `/api/tenants/attachments/${attachment.id}/preview?token=${encodeURIComponent(token)}`
-                : null;
+              const isImage = attachment.mimeType?.startsWith('image/') ?? false;
+              const thumbnailUrl = isImage ? thumbnailUrls[attachment.id] : null;
               
               return (
                 <motion.div
@@ -367,9 +376,12 @@ export function AttachmentSection({
                   <div className="flex items-center gap-3 mb-3">
                     {isImage && thumbnailUrl ? (
                       <div className="w-14 h-14 rounded-lg overflow-hidden shrink-0 border border-gray-200 bg-gray-50">
-                        <img 
+                        <Image
                           src={thumbnailUrl} 
                           alt={attachment.name}
+                          width={56}
+                          height={56}
+                          unoptimized
                           className="w-full h-full object-cover"
                           onError={(e) => {
                             e.currentTarget.style.display = 'none';

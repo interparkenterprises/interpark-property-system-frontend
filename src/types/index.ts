@@ -462,6 +462,8 @@ export interface Tenant {
   billInvoices?: BillInvoice[];
   createdAt: string;
   updatedAt: string;
+  isFrozen?: boolean;
+  freezePeriods?: TenantFreezePeriod[];
 
   // ========== LIFECYCLE FIELDS (NEW) ==========
   status: TenantStatus;                       // 'ACTIVE' | 'LEFT'
@@ -485,6 +487,67 @@ export interface Tenant {
     rentOutstanding: number;
     billOutstanding: number;
     totalOutstanding: number;
+  };
+}
+
+export interface TenantFreezePeriod {
+  id: string;
+  startDate: string;
+  endDate: string | null;
+  reason: string | null;
+  frozenById: string;
+  unfrozenById?: string | null;
+  frozenBy?: { id: string; name: string; email: string };
+  unfrozenBy?: { id: string; name: string; email: string };
+}
+
+export interface FreezeTenantRequest {
+  freezeStartDate?: string;
+  freezeEndDate?: string;
+  reason?: string;
+}
+
+export interface UnfreezeTenantRequest {
+  unfreezeDate?: string;
+  reason?: string;
+}
+
+export interface FreezeTenantResponse {
+  success: boolean;
+  message: string;
+  data: { tenant: Tenant; freezePeriod: TenantFreezePeriod; lifecycle: TenantLifecycle };
+}
+
+export interface UnfreezeTenantResponse {
+  success: boolean;
+  message: string;
+  data: { tenant: Tenant; closedFreezePeriod: TenantFreezePeriod; lifecycle: TenantLifecycle };
+}
+
+export interface FreezeSummary {
+  id: string;
+  startDate: string;
+  endDate: string | null;
+  isOpen: boolean;
+  reason: string | null;
+  frozenBy?: { id: string; name: string; email: string };
+  unfrozenBy?: { id: string; name: string; email: string };
+  durationDays: number;
+  frozenMonthsCount: number;
+  frozenMonths: string[];
+  arrearsAtStart: number;
+  arrearsAtEnd: number;
+  collectedDuringFreeze: number;
+  arrearsDelta: number;
+}
+
+export interface TenantFreezeHistoryResponse {
+  success: boolean;
+  data: {
+    tenant: Pick<Tenant, 'id' | 'fullName' | 'status'> & { isFrozen: boolean };
+    currentArrears: number;
+    freezeSummaries: FreezeSummary[];
+    lifecycle: TenantLifecycle;
   };
 }
 
@@ -863,6 +926,23 @@ export interface PaymentPreview {
   existingCredit: number;
   netDueAfterCredit: number;
   totalAvailable: number;
+  withholdingTaxSummary?: {
+    totalWithheld: number;
+    monthlyWithheld: number;
+    isExempt: boolean;
+    rentRate: number;
+    vatRate: number;
+    rentWithheld: number;
+    vatWithheld: number;
+    note: string;
+  };
+  freeze?: {
+    isFrozen: boolean;
+    isFrozenFlag: boolean;
+    canRecordPayment: boolean;
+    freezePeriod?: Pick<TenantFreezePeriod, 'id' | 'startDate' | 'endDate' | 'reason'> | null;
+    warning?: string | null;
+  };
 }
 
 export interface CreatePaymentReportRequest {
@@ -1189,6 +1269,7 @@ export interface GenerateInvoiceRequest {
   paymentReportId?: string;
   dueDate: string;
   notes?: string;
+  billingStartDate?: string;
 }
 // Invoice Delete Request Interface - Updated to match backend
 export interface DeleteInvoiceRequest {
@@ -3267,6 +3348,9 @@ export enum PermissionCode {
   DOWNLOAD_PAYMENT_RECEIPT = 'DOWNLOAD_PAYMENT_RECEIPT',
   PREVIEW_PAYMENTS = 'PREVIEW_PAYMENTS',
   VIEW_ARREARS = 'VIEW_ARREARS',
+  DOWNLOAD_PAYMENT_REPORT = 'DOWNLOAD_PAYMENT_REPORT',
+  DOWNLOAD_BILL_REPORT = 'DOWNLOAD_BILL_REPORT',
+  DOWNLOAD_COMPREHENSIVE_REPORT = 'DOWNLOAD_COMPREHENSIVE_REPORT',
 
   // ==============================================
   // RECEIPT PERMISSIONS

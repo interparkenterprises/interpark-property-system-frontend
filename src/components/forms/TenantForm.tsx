@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { Tenant, Unit, VATType, EscalationFrequency } from '@/types';
 import { tenantsAPI, unitsAPI } from '@/lib/api';
 import { Input } from '@/components/ui/input';
@@ -8,6 +8,11 @@ import { Button } from '@/components/ui/button';
 import { FormDatePicker } from '@/components/ui/form-date-picker';
 import { FormField } from '@/components/ui/form-field';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { FormSectionFooter } from '@/components/ui/form-section-footer';
+import { Building2, FileClock, ReceiptText, UserRound } from 'lucide-react';
+import { toast } from 'sonner';
+import { useAuth } from '@/context/AuthContext';
 
 interface TenantFormProps {
   tenant?: Tenant;
@@ -50,41 +55,109 @@ interface TenantFormData {
   // ============================================
 }
 
-// Draft storage key generator
-const getDraftKey = (tenantId?: string, propertyId?: string) => {
-  if (tenantId) {
-    return `tenant_form_draft_${tenantId}`;
-  } else if (propertyId) {
-    return `tenant_form_draft_new_${propertyId}`;
+type TenantFormSection = 'tenant' | 'vat' | 'service';
+const tenantFormSections: readonly TenantFormSection[] = ['tenant', 'vat', 'service'];
+const tenantDraftVersion = 1;
+
+const createDefaultFormData = (): TenantFormData => ({
+  fullName: '',
+  contact: '',
+  email: '',
+  KRAPin: '',
+  POBox: '',
+  unitId: '',
+  leaseTerm: '',
+  rent: 0,
+  escalationRate: 0,
+  escalationFrequency: undefined,
+  termStart: '',
+  rentStart: '',
+  deposit: 0,
+  vatRate: 0,
+  vatType: 'NOT_APPLICABLE',
+  paymentPolicy: 'MONTHLY',
+  serviceCharge: undefined,
+  withholdingTaxRate: 0,
+  withholdingVatRate: 0,
+  isWithholdingTaxExempt: false,
+});
+
+const getDraftKey = (accountId: string | null, propertyId: string, tenantId?: string) => {
+  if (!accountId || !propertyId) return null;
+  const account = encodeURIComponent(accountId);
+  const property = encodeURIComponent(propertyId);
+  const context = tenantId ? `edit_${encodeURIComponent(tenantId)}` : 'create';
+  return `tenant_form_draft_v${tenantDraftVersion}_${account}_${property}_${context}`;
+};
+
+const clearUnscopedLegacyDrafts = (propertyId: string, tenantId?: string) => {
+  // Legacy keys cannot be attributed to an authenticated account safely.
+  localStorage.removeItem(tenantId ? `tenant_form_draft_${tenantId}` : `tenant_form_draft_new_${propertyId}`);
+  if (!tenantId) localStorage.removeItem('tenant_form_draft_new');
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+const stringValue = (value: unknown, fallback: string) => typeof value === 'string' ? value : fallback;
+const numberValue = (value: unknown, fallback: number) => typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+
+const restoreDraft = (savedValue: string, defaults: TenantFormData): TenantFormData | null => {
+  const parsed: unknown = JSON.parse(savedValue);
+  if (!isRecord(parsed)) return null;
+  const candidate = isRecord(parsed.data) ? parsed.data : parsed;
+  const vatTypes: VATType[] = ['NOT_APPLICABLE', 'INCLUSIVE', 'EXCLUSIVE'];
+  const paymentPolicies: TenantFormData['paymentPolicy'][] = ['MONTHLY', 'QUARTERLY', 'ANNUAL'];
+  const escalationFrequencies: EscalationFrequency[] = ['ANNUALLY', 'BI_ANNUALLY', 'BI_ENNIAL'];
+  const restored: TenantFormData = {
+    ...defaults,
+    fullName: stringValue(candidate.fullName, defaults.fullName),
+    contact: stringValue(candidate.contact, defaults.contact),
+    email: stringValue(candidate.email, defaults.email),
+    KRAPin: stringValue(candidate.KRAPin, defaults.KRAPin),
+    POBox: stringValue(candidate.POBox, defaults.POBox),
+    unitId: stringValue(candidate.unitId, defaults.unitId),
+    leaseTerm: stringValue(candidate.leaseTerm, defaults.leaseTerm),
+    rent: numberValue(candidate.rent, defaults.rent),
+    escalationRate: numberValue(candidate.escalationRate, defaults.escalationRate),
+    escalationFrequency: escalationFrequencies.includes(candidate.escalationFrequency as EscalationFrequency)
+      ? candidate.escalationFrequency as EscalationFrequency
+      : defaults.escalationFrequency,
+    termStart: stringValue(candidate.termStart, defaults.termStart),
+    rentStart: stringValue(candidate.rentStart, defaults.rentStart),
+    deposit: numberValue(candidate.deposit, defaults.deposit),
+    vatRate: numberValue(candidate.vatRate, defaults.vatRate),
+    vatType: vatTypes.includes(candidate.vatType as VATType) ? candidate.vatType as VATType : defaults.vatType,
+    paymentPolicy: paymentPolicies.includes(candidate.paymentPolicy as TenantFormData['paymentPolicy'])
+      ? candidate.paymentPolicy as TenantFormData['paymentPolicy']
+      : defaults.paymentPolicy,
+    withholdingTaxRate: numberValue(candidate.withholdingTaxRate, defaults.withholdingTaxRate),
+    withholdingVatRate: numberValue(candidate.withholdingVatRate, defaults.withholdingVatRate),
+    isWithholdingTaxExempt: typeof candidate.isWithholdingTaxExempt === 'boolean'
+      ? candidate.isWithholdingTaxExempt
+      : defaults.isWithholdingTaxExempt,
+  };
+
+  if (candidate.serviceCharge === null) restored.serviceCharge = undefined;
+  else if (isRecord(candidate.serviceCharge)) {
+    const type = candidate.serviceCharge.type;
+    const vatType = candidate.serviceCharge.vatType;
+    if (['FIXED', 'PERCENTAGE', 'PER_SQ_FT'].includes(String(type))) {
+      restored.serviceCharge = {
+        type: type as ServiceChargeFormData['type'],
+        fixedAmount: numberValue(candidate.serviceCharge.fixedAmount, defaults.serviceCharge?.fixedAmount ?? 0),
+        percentage: numberValue(candidate.serviceCharge.percentage, defaults.serviceCharge?.percentage ?? 0),
+        perSqFtRate: numberValue(candidate.serviceCharge.perSqFtRate, defaults.serviceCharge?.perSqFtRate ?? 0),
+        vatType: vatTypes.includes(vatType as VATType) ? vatType as VATType : defaults.serviceCharge?.vatType ?? 'NOT_APPLICABLE',
+        vatRate: numberValue(candidate.serviceCharge.vatRate, defaults.serviceCharge?.vatRate ?? 0),
+      };
+    }
   }
-  return 'tenant_form_draft_new';
+
+  return restored;
 };
 
 export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: TenantFormProps) {
-  const [formData, setFormData] = useState<TenantFormData>({
-    fullName: '',
-    contact: '',
-    email: '',
-    KRAPin: '',
-    POBox: '',
-    unitId: '',
-    leaseTerm: '',
-    rent: 0,
-    escalationRate: 0,
-    escalationFrequency: undefined,
-    termStart: '',
-    rentStart: '',
-    deposit: 0,
-    vatRate: 0,
-    vatType: 'NOT_APPLICABLE',
-    paymentPolicy: 'MONTHLY',
-    serviceCharge: undefined,
-    // ========== WITHHOLDING TAX DEFAULTS ==========
-    withholdingTaxRate: 0,
-    withholdingVatRate: 0,
-    isWithholdingTaxExempt: false,
-    // ============================================
-  });
+  const { userId } = useAuth();
+  const [formData, setFormData] = useState<TenantFormData>(createDefaultFormData);
   const [units, setUnits] = useState<Unit[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -92,20 +165,28 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
   const [fetchingUnits, setFetchingUnits] = useState(false);
   const [hasDraft, setHasDraft] = useState(false);
   const [originalUnitId, setOriginalUnitId] = useState<string | null>(null);
+  const [activeSection, setActiveSection] = useState<TenantFormSection>('tenant');
 
   // Load draft from localStorage
-  const loadDraft = () => {
+  const loadDraft = (defaults: TenantFormData) => {
     try {
-      const draftKey = getDraftKey(tenant?.id, propertyId);
+      const draftKey = getDraftKey(userId, propertyId, tenant?.id);
+      if (!draftKey) return false;
       const savedDraft = localStorage.getItem(draftKey);
       if (savedDraft) {
-        const parsedDraft = JSON.parse(savedDraft);
+        const parsedDraft = restoreDraft(savedDraft, defaults);
+        if (!parsedDraft) {
+          localStorage.removeItem(draftKey);
+          return false;
+        }
         setFormData(parsedDraft);
         setHasDraft(true);
         return true;
       }
     } catch (error) {
       console.error('Error loading draft:', error);
+      const draftKey = getDraftKey(userId, propertyId, tenant?.id);
+      if (draftKey) localStorage.removeItem(draftKey);
     }
     return false;
   };
@@ -113,8 +194,9 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
   // Save draft to localStorage
   const saveDraft = (data: TenantFormData) => {
     try {
-      const draftKey = getDraftKey(tenant?.id, propertyId);
-      localStorage.setItem(draftKey, JSON.stringify(data));
+      const draftKey = getDraftKey(userId, propertyId, tenant?.id);
+      if (!draftKey) return;
+      localStorage.setItem(draftKey, JSON.stringify({ version: tenantDraftVersion, data }));
     } catch (error) {
       console.error('Error saving draft:', error);
     }
@@ -123,67 +205,72 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
   // Clear draft from localStorage
   const clearDraft = () => {
     try {
-      const draftKey = getDraftKey(tenant?.id, propertyId);
-      localStorage.removeItem(draftKey);
+      const draftKey = getDraftKey(userId, propertyId, tenant?.id);
+      if (draftKey) localStorage.removeItem(draftKey);
       setHasDraft(false);
     } catch (error) {
       console.error('Error clearing draft:', error);
     }
   };
 
-  // Create stable dependency array to prevent useEffect warnings
-  const effectDependencies = useMemo(() => {
-    return [tenant?.id, propertyId];
-  }, [tenant?.id, propertyId]);
+  const handleSaveDraft = () => {
+    saveDraft(formData);
+    setHasDraft(true);
+    toast.success('Tenant draft saved in this browser');
+  };
 
   useEffect(() => {
     // Early return if no propertyId
     if (!propertyId) {
       console.warn('Property ID is required for TenantForm');
-      setError('Property ID is required to load units.');
-      setUnits([]);
-      return;
+      const timer = window.setTimeout(() => {
+        setError('Property ID is required to load units.');
+        setUnits([]);
+      }, 0);
+      return () => window.clearTimeout(timer);
     }
 
     const initializeForm = async () => {
       await fetchUnits();
+      setHasDraft(false);
+      clearUnscopedLegacyDrafts(propertyId, tenant?.id);
       
-      // Try to load draft first
-      const draftLoaded = loadDraft();
+      const defaults = tenant ? {
+        ...createDefaultFormData(),
+        fullName: tenant.fullName,
+        contact: tenant.contact,
+        email: tenant.email || '',
+        KRAPin: tenant.KRAPin,
+        POBox: tenant.POBox || '',
+        unitId: tenant.unitId,
+        leaseTerm: tenant.leaseTerm,
+        rent: tenant.rent,
+        escalationRate: tenant.escalationRate || 0,
+        escalationFrequency: tenant.escalationFrequency || undefined,
+        termStart: tenant.termStart.split('T')[0],
+        rentStart: tenant.rentStart.split('T')[0],
+        deposit: tenant.deposit,
+        vatRate: tenant.vatRate || 0,
+        vatType: tenant.vatType,
+        paymentPolicy: tenant.paymentPolicy,
+        serviceCharge: tenant.serviceCharge ? {
+          type: tenant.serviceCharge.type,
+          fixedAmount: tenant.serviceCharge.fixedAmount || 0,
+          percentage: tenant.serviceCharge.percentage || 0,
+          perSqFtRate: tenant.serviceCharge.perSqFtRate || 0,
+          vatType: tenant.serviceCharge.vatType || 'NOT_APPLICABLE',
+          vatRate: tenant.serviceCharge.vatRate || 0,
+        } : undefined,
+        withholdingTaxRate: tenant.withholdingTaxRate || 0,
+        withholdingVatRate: tenant.withholdingVatRate || 0,
+        isWithholdingTaxExempt: tenant.isWithholdingTaxExempt || false,
+      } satisfies TenantFormData : createDefaultFormData();
+
+      const draftLoaded = loadDraft(defaults);
       
       if (!draftLoaded && tenant) {
         // No draft found, use tenant data for editing
-        setFormData({
-          fullName: tenant.fullName,
-          contact: tenant.contact,
-          email: tenant.email || '',
-          KRAPin: tenant.KRAPin,
-          POBox: tenant.POBox || '',
-          unitId: tenant.unitId,
-          leaseTerm: tenant.leaseTerm,
-          rent: tenant.rent,
-          escalationRate: tenant.escalationRate || 0,
-          escalationFrequency: tenant.escalationFrequency || undefined,
-          termStart: tenant.termStart.split('T')[0],
-          rentStart: tenant.rentStart.split('T')[0],
-          deposit: tenant.deposit,
-          vatRate: tenant.vatRate || 0,
-          vatType: tenant.vatType,
-          paymentPolicy: tenant.paymentPolicy,
-          serviceCharge: tenant.serviceCharge ? {
-            type: tenant.serviceCharge.type,
-            fixedAmount: tenant.serviceCharge.fixedAmount || 0,
-            percentage: tenant.serviceCharge.percentage || 0,
-            perSqFtRate: tenant.serviceCharge.perSqFtRate || 0,
-            vatType: tenant.serviceCharge.vatType || 'NOT_APPLICABLE',
-            vatRate: tenant.serviceCharge.vatRate || 0
-          } : undefined,
-          // ========== LOAD WITHHOLDING TAX DATA ==========
-          withholdingTaxRate: tenant.withholdingTaxRate || 0,
-          withholdingVatRate: tenant.withholdingVatRate || 0,
-          isWithholdingTaxExempt: tenant.isWithholdingTaxExempt || false,
-          // ==============================================
-        });
+        setFormData(defaults);
         
         // Store original unit ID for tracking changes
         setOriginalUnitId(tenant.unitId);
@@ -199,37 +286,32 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
     };
 
     initializeForm();
-  }, effectDependencies);
+    // Tenant identity and property context are the intended reset boundary.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenant?.id, propertyId, userId]);
 
-  const resetForm = () => {
-    setFormData({
-      fullName: '',
-      contact: '',
-      email: '',
-      KRAPin: '',
-      POBox: '',
-      unitId: '',
-      leaseTerm: '',
-      rent: 0,
-      escalationRate: 0,
-      escalationFrequency: undefined,
-      termStart: '',
-      rentStart: '',
-      deposit: 0,
-      vatRate: 0,
-      vatType: 'NOT_APPLICABLE',
-      paymentPolicy: 'MONTHLY',
-      serviceCharge: undefined,
-      withholdingTaxRate: 0,
-      withholdingVatRate: 0,
-      isWithholdingTaxExempt: false,
-    });
+  useEffect(() => {
+    if (fetchingUnits) return;
+    const timer = window.setTimeout(() => {
+      if (!formData.unitId) {
+        setSelectedUnit(null);
+        return;
+      }
+      const restoredUnit = units.find((unit) => unit.id === formData.unitId) ?? null;
+      setSelectedUnit(restoredUnit);
+      if (!restoredUnit && !tenant) setFormData((current) => ({ ...current, unitId: '', rent: 0 }));
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [fetchingUnits, formData.unitId, tenant, units]);
+
+  function resetForm() {
+    setFormData(createDefaultFormData());
     setSelectedUnit(null);
     setOriginalUnitId(null);
     setError('');
-  };
+  }
 
-  const fetchUnits = async () => {
+  async function fetchUnits() {
     // Don't fetch if no propertyId
     if (!propertyId) {
       console.warn('Cannot fetch units without propertyId');
@@ -242,7 +324,7 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
       setError('');
       
       // Build params object - propertyId is always required
-      const params: any = {
+      const params: { propertyId: string; status?: 'VACANT' } = {
         propertyId: propertyId,
       };
       
@@ -291,7 +373,7 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
     } finally {
       setFetchingUnits(false);
     }
-  };
+  }
 
   const handleUnitChange = (unitId: string) => {
     
@@ -367,7 +449,7 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
   const handleWithholdingTaxChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
     
-    let parsedValue: any;
+    let parsedValue: string | number | boolean;
     if (type === 'checkbox') {
       // Handle checkbox for exemption
       const checkbox = e.target as HTMLInputElement;
@@ -539,6 +621,8 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
 
     try {
       // Prepare data for API call - use a flexible type for the request payload
+      // The API accepts the same tenant fields plus a nullable nested service charge.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const submitData: any = {
         fullName: formData.fullName,
         contact: formData.contact,
@@ -593,6 +677,9 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
       }
       if (!submitData.contact?.trim()) {
         throw new Error('Contact information is required');
+      }
+      if (!tenant && !submitData.email?.trim()) {
+        throw new Error('Email address is required when creating a tenant');
       }
       if (!submitData.KRAPin?.trim()) {
         throw new Error('KRA PIN is required');
@@ -706,22 +793,27 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
       clearDraft();
       
       onSuccess?.();
-    } catch (err: any) {
+    } catch (err: unknown) {
       // Enhanced error handling - let backend be the source of truth
       console.error('Error saving tenant:', err);
       
       // Get the error message from the backend response
       let errorMessage = 'Failed to save tenant';
       
+      const responseError = err as { response?: { data?: { message?: string; error?: string } } };
       if (err instanceof Error) {
         errorMessage = err.message;
-      } else if (err.response?.data?.message) {
-        errorMessage = err.response.data.message;
-      } else if (err.response?.data?.error) {
-        errorMessage = err.response.data.error;
+      } else if (responseError.response?.data?.message) {
+        errorMessage = responseError.response.data.message;
+      } else if (responseError.response?.data?.error) {
+        errorMessage = responseError.response.data.error;
       } else if (typeof err === 'string') {
         errorMessage = err;
       }
+      const normalizedError = errorMessage.toLowerCase();
+      if (normalizedError.includes('service charge')) setActiveSection('service');
+      else if (normalizedError.includes('vat') || normalizedError.includes('withholding')) setActiveSection('vat');
+      else setActiveSection('tenant');
       
       // Display the backend error message directly without custom mapping
       setError(errorMessage);
@@ -752,20 +844,6 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
     }).format(amount);
   };
 
-  // Helper function to get escalation frequency label
-  const getEscalationFrequencyLabel = (frequency: EscalationFrequency): string => {
-    switch (frequency) {
-      case 'ANNUALLY':
-        return 'Annually';
-      case 'BI_ANNUALLY':
-        return 'Bi-Annually (Every 6 months)';
-      case 'BI_ENNIAL':
-        return 'Bi-Ennial (Every 2 years)';
-      default:
-        return frequency;
-    }
-  };
-
   // Check if unit is being changed (for editing mode)
   const isUnitBeingChanged = tenant && originalUnitId && formData.unitId !== originalUnitId && formData.unitId !== '';
 
@@ -773,20 +851,12 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
     <form onSubmit={handleSubmit} className="space-y-4">
       {/* Draft Banner */}
       {hasDraft && (
-        <div className="bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 rounded flex justify-between items-center">
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-primary/20 bg-primary/10 px-4 py-3 text-primary">
           <span className="flex items-center gap-2">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
+            <FileClock className="size-5" aria-hidden="true" />
             <span>Draft saved - Your changes are being automatically saved</span>
           </span>
-          <button
-            type="button"
-            onClick={handleClearDraft}
-            className="text-sm text-blue-600 hover:text-blue-800 underline"
-          >
-            Clear Draft
-          </button>
+          <Button type="button" variant="ghost" size="sm" onClick={handleClearDraft}>Clear Draft</Button>
         </div>
       )}
 
@@ -818,6 +888,15 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
         </div>
       )}
 
+      <Tabs value={activeSection} onValueChange={(value) => setActiveSection(value as TenantFormSection)} orientation="vertical" className="flex-col gap-4 md:flex-row md:gap-6">
+        <TabsList aria-label="Tenant form sections" className="w-full md:w-60">
+          <TabsTrigger value="tenant" className="min-h-10 gap-2 px-3"><UserRound className="size-4" aria-hidden="true" />{tenant ? 'Tenant details' : 'Add tenant'}</TabsTrigger>
+          <TabsTrigger value="vat" className="min-h-10 gap-2 px-3"><ReceiptText className="size-4" aria-hidden="true" />VAT Configuration</TabsTrigger>
+          <TabsTrigger value="service" className="min-h-10 gap-2 px-3"><Building2 className="size-4" aria-hidden="true" />Service Charges</TabsTrigger>
+        </TabsList>
+
+        <div className="min-w-0 flex-1">
+          <TabsContent value="tenant" className="space-y-4">
       <Input
         label="Full Name"
         name="fullName"
@@ -841,12 +920,13 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
       />
 
       <Input
-        label="Email Address (Optional)"
+        label="Email Address"
         name="email"
         type="email"
         value={formData.email}
         onChange={handleChange}
         placeholder="john@example.com"
+        required={!tenant}
         className="text-gray-900 placeholder:text-gray-500"
         disabled={loading}
       />
@@ -935,7 +1015,7 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
               </p>
             ) : tenant && selectedUnit.id === originalUnitId ? (
               <p className="text-xs text-blue-600 mt-1">
-                ℹ This is the tenant's current unit. You can move them to a vacant unit.
+                ℹ This is the tenant&apos;s current unit. You can move them to a vacant unit.
               </p>
             ) : (
               <p className="text-xs text-amber-600 mt-1">
@@ -974,7 +1054,7 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
           />
           {selectedUnit && formData.rent !== selectedUnit.rentAmount && (
             <p className="mt-1 text-xs text-amber-600">
-              Note: This differs from the unit's listed rent ({formatCurrency(selectedUnit.rentAmount)})
+              Note: This differs from the unit&apos;s listed rent ({formatCurrency(selectedUnit.rentAmount)})
             </p>
           )}
         </div>
@@ -1049,9 +1129,23 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
         disabled={loading}
       />
 
+      <FormField label="Payment Policy" htmlFor="tenant-payment-policy" required>
+        <Select value={formData.paymentPolicy} onValueChange={(value) => updateFormField('paymentPolicy', value as TenantFormData['paymentPolicy'])} required disabled={loading}>
+          <SelectTrigger id="tenant-payment-policy" aria-required="true"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="MONTHLY">Monthly</SelectItem>
+            <SelectItem value="QUARTERLY">Quarterly</SelectItem>
+            <SelectItem value="ANNUAL">Annual</SelectItem>
+          </SelectContent>
+        </Select>
+      </FormField>
+          </TabsContent>
+
+          <TabsContent value="vat" className="space-y-4">
+
       {/* VAT Configuration Section */}
-      <div className="border-t pt-4">
-        <h3 className="text-lg font-medium text-gray-900 mb-4">VAT Configuration</h3>
+      <div>
+        <h3 className="mb-4 text-lg font-medium text-foreground">VAT Configuration</h3>
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <FormField label="VAT Type" htmlFor="tenant-vat-type" required>
@@ -1189,20 +1283,12 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
         )}
       </div>
       {/* ============================================ */}
+          </TabsContent>
 
-      <FormField label="Payment Policy" htmlFor="tenant-payment-policy" required>
-        <Select value={formData.paymentPolicy} onValueChange={(value) => updateFormField('paymentPolicy', value as TenantFormData['paymentPolicy'])} required disabled={loading}>
-          <SelectTrigger id="tenant-payment-policy" aria-required="true"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="MONTHLY">Monthly</SelectItem>
-            <SelectItem value="QUARTERLY">Quarterly</SelectItem>
-            <SelectItem value="ANNUAL">Annual</SelectItem>
-          </SelectContent>
-        </Select>
-      </FormField>
+          <TabsContent value="service" className="space-y-4">
 
       {/* Service Charge Section - UPDATED with VAT support */}
-      <div className="border-t pt-4 mt-4">
+      <div>
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-lg font-medium text-gray-900">Service Charge</h3>
           {formData.serviceCharge && (
@@ -1340,33 +1426,19 @@ export default function TenantForm({ tenant, onSuccess, onCancel, propertyId }: 
           </div>
         )}
       </div>
+          </TabsContent>
+        </div>
+      </Tabs>
 
-      <div className="flex justify-end space-x-3 pt-4">
-        {onCancel && (
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={onCancel}
-            disabled={loading}
-          >
-            Cancel
-          </Button>
-        )}
-        <Button
-          type="submit"
-          disabled={loading || fetchingUnits}
-          className="px-6 py-2"
-        >
-          {loading ? (
-            <span className="flex items-center gap-2">
-              <svg className="animate-spin w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              {tenant ? 'Updating...' : 'Creating...'}
-            </span>
-          ) : tenant ? 'Update Tenant' : 'Create Tenant'}
-        </Button>
-      </div>
+      <FormSectionFooter
+        sections={tenantFormSections}
+        activeSection={activeSection}
+        onSectionChange={setActiveSection}
+        onCancel={onCancel}
+        onSaveDraft={handleSaveDraft}
+        disabled={loading || fetchingUnits}
+        finalAction={<Button type="submit" loading={loading} disabled={loading || fetchingUnits}>{tenant ? 'Update Tenant' : 'Create Tenant'}</Button>}
+      />
     </form>
   );
 }

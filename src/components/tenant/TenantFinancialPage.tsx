@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, Download, FileText, ReceiptText, Trash2 } from 'lucide-react'
+import { ArrowLeft, Download, FileText, ReceiptText, RefreshCw, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { useGlobalPermissions } from '@/app/providers/PermissionsProvider'
@@ -19,10 +19,10 @@ import { PageHeader } from '@/components/ui/page-header'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
-import { billInvoicesAPI, demandLettersAPI, invoicesAPI, paymentsAPI, tenantsAPI } from '@/lib/api'
+import { FormDatePicker } from '@/components/ui/form-date-picker'
+import { billInvoicesAPI, demandLettersAPI, invoicesAPI, paymentsAPI, tenantReportsAPI, tenantsAPI } from '@/lib/api'
 import { formatExactKes } from '@/lib/numberFormat'
 import { BillInvoice, DemandLetter, Invoice, PaymentReport, PermissionCode, Tenant } from '@/types'
-import { useWhatsApp } from '@/hooks/useWhatsApp'
 
 export type TenantFinancialPageKind = 'invoices' | 'payment-reports' | 'bill-invoices' | 'demand-letters' | 'overdue-invoices'
 
@@ -50,6 +50,7 @@ function saveBlob(blob: Blob, filename: string) {
 function statusAppearance(status: string): 'neutral' | 'info' | 'success' | 'warning' | 'destructive' {
   if (status === 'PAID' || status === 'SETTLED' || status === 'ACKNOWLEDGED') return 'success'
   if (status === 'PARTIAL' || status === 'DRAFT') return 'warning'
+  if (status === 'PREPAID') return 'info'
   if (status === 'UNPAID' || status === 'OVERDUE' || status === 'ESCALATED') return 'destructive'
   if (status === 'GENERATED' || status === 'SENT') return 'info'
   return 'neutral'
@@ -62,7 +63,6 @@ export function TenantFinancialPage({ kind }: { kind: TenantFinancialPageKind })
   const tenantDetailsHref = `/properties/${tenantId}/tenant-details`
   const meta = pageMeta[kind]
   const { permissions, isAdmin, isManager, hasPermission } = useGlobalPermissions()
-  const { downloadAllPaymentReports } = useWhatsApp()
   const [tenant, setTenant] = useState<Tenant | null>(null)
   const [rows, setRows] = useState<Row[]>([])
   const [loading, setLoading] = useState(true)
@@ -96,11 +96,12 @@ export function TenantFinancialPage({ kind }: { kind: TenantFinancialPageKind })
   const canPayBillInvoices = isAdmin || isManager || permissions.billInvoices.canEdit
   const canDownload = isAdmin || isManager || ({
     invoices: hasPermission(PermissionCode.DOWNLOAD_INVOICES),
-    'payment-reports': hasPermission(PermissionCode.VIEW_PAYMENT_REPORTS),
+    'payment-reports': hasPermission(PermissionCode.DOWNLOAD_PAYMENT_RECEIPT),
     'bill-invoices': hasPermission(PermissionCode.DOWNLOAD_BILL_INVOICE),
     'demand-letters': hasPermission(PermissionCode.DOWNLOAD_DEMAND_LETTER),
     'overdue-invoices': hasPermission(PermissionCode.DOWNLOAD_INVOICES),
   } satisfies Record<TenantFinancialPageKind, boolean>)[kind]
+  const canDownloadAggregatePaymentReport = isAdmin || isManager || hasPermission(PermissionCode.DOWNLOAD_PAYMENT_REPORT)
 
   const tenantWorkspaceHref = tenant?.unit?.propertyId ? `/properties/${tenant.unit.propertyId}?tab=tenants` : '/properties'
   useBreadcrumbOverride(`/properties/${tenantId}`, loading ? 'Loading…' : tenant?.unit?.property?.name ?? 'Property details', tenant?.unit?.propertyId ? `/properties/${tenant.unit.propertyId}` : '/properties')
@@ -110,13 +111,15 @@ export function TenantFinancialPage({ kind }: { kind: TenantFinancialPageKind })
     { label: meta.title },
   ], `/properties/${tenantId}`, tenantDetailsHref)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     if (!canView) {
       router.replace('/unauthorized')
       return
     }
-    setLoading(true)
-    setError(null)
+    if (!silent) {
+      setLoading(true)
+      setError(null)
+    }
     try {
       const tenantRecord = await tenantsAPI.getById(tenantId)
       setTenant(tenantRecord)
@@ -138,7 +141,7 @@ export function TenantFinancialPage({ kind }: { kind: TenantFinancialPageKind })
       setError(message)
       toast.error(message)
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [canView, kind, meta.title, router, tenantId])
 
@@ -146,6 +149,18 @@ export function TenantFinancialPage({ kind }: { kind: TenantFinancialPageKind })
     const timer = window.setTimeout(() => void load(), 0)
     return () => window.clearTimeout(timer)
   }, [load])
+
+  const hasPrepaidPayments = kind === 'payment-reports' && rows.some((row) => (row as PaymentReport).status === 'PREPAID')
+  useEffect(() => {
+    if (!hasPrepaidPayments) return
+    let polls = 0
+    const interval = window.setInterval(() => {
+      if (document.visibilityState !== 'visible' || polls >= 18) return
+      polls += 1
+      void load(true)
+    }, 5000)
+    return () => window.clearInterval(interval)
+  }, [hasPrepaidPayments, load])
 
   const filteredRows = useMemo(() => {
     const needle = query.trim().toLowerCase()
@@ -261,8 +276,7 @@ export function TenantFinancialPage({ kind }: { kind: TenantFinancialPageKind })
     if (!tenant) return
     try {
       setDownloadingAll(true)
-      const result = await downloadAllPaymentReports(tenant.id, tenant.fullName)
-      if (!result.success) throw new Error(result.message || 'Failed to download payment report')
+      saveBlob(await tenantReportsAPI.downloadPaymentReport(tenant.id), `Payment_Reports_${tenant.fullName.replace(/\s+/g, '_')}.pdf`)
       toast.success('Payment report downloaded')
     } catch (caught) {
       toast.error(caught instanceof Error ? caught.message : 'Failed to download payment report')
@@ -280,7 +294,8 @@ export function TenantFinancialPage({ kind }: { kind: TenantFinancialPageKind })
         description={meta.description}
         leading={<div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary"><ReceiptText className="size-5" /></div>}
         actions={<>
-          {kind === 'payment-reports' && canDownload && <Button disabled={downloadingAll || rows.length === 0} onClick={() => void downloadPaymentReport()}><Download className="size-4" />Download report</Button>}
+          {kind === 'payment-reports' && canDownloadAggregatePaymentReport && <Button disabled={downloadingAll || rows.length === 0} onClick={() => void downloadPaymentReport()}><Download className="size-4" />Download report</Button>}
+          <Button variant="outline" disabled={loading} onClick={() => void load()}><RefreshCw className="size-4" />Refresh</Button>
           {kind === 'payment-reports' && tenant && rows.length > 0 && <WhatsAppSendButton tenantId={tenant.id} documentType="All Payment Reports" tenantPhone={tenant.contact} size="sm" showLabel />}
           <Button variant="outline" onClick={() => router.push(tenantDetailsHref)}><ArrowLeft className="size-4" />Tenant details</Button>
         </>}
@@ -307,7 +322,7 @@ export function TenantFinancialPage({ kind }: { kind: TenantFinancialPageKind })
         <DialogContent>
           <DialogHeader><DialogTitle>Generate balance invoice</DialogTitle><DialogDescription>Create the remaining invoice for {partialReport?.paymentPeriod}.</DialogDescription></DialogHeader>
           <div className="space-y-4 py-2">
-            <div className="space-y-2"><Label htmlFor="partial-due-date">Due date</Label><Input id="partial-due-date" type="date" value={partialDueDate} onChange={(event) => setPartialDueDate(event.target.value)} /></div>
+            <FormDatePicker id="partial-due-date" label="Due date" required value={partialDueDate} onChange={setPartialDueDate} />
             <div className="space-y-2"><Label htmlFor="partial-notes">Notes</Label><Textarea id="partial-notes" value={partialNotes} onChange={(event) => setPartialNotes(event.target.value)} /></div>
           </div>
           <DialogFooter><Button variant="outline" onClick={() => setPartialReport(null)}>Cancel</Button><Button disabled={!partialDueDate || busyId === partialReport?.id} onClick={() => void generatePartialInvoice()}>Generate invoice</Button></DialogFooter>
@@ -360,7 +375,7 @@ function FinancialTable({ kind, rows, tenant, busyId, receiptByInvoiceId, canDel
               <TableCell>{display.period}</TableCell>
               <TableCell>{display.date ? new Date(display.date).toLocaleDateString() : '—'}</TableCell>
               <TableCell className="text-right font-medium" title={formatExactKes(display.amount)}>{formatExactKes(display.amount)}</TableCell>
-              <TableCell><Badge variant={statusAppearance(display.status)}>{display.status}</Badge></TableCell>
+              <TableCell><Badge variant={statusAppearance(display.status)} title={display.status === 'PREPAID' ? 'Recorded and awaiting scheduled allocation' : undefined}>{display.status}</Badge></TableCell>
               <TableCell>
                 <div className="flex justify-end gap-2">
                   {tenant && (kind === 'invoices' || kind === 'demand-letters') && (

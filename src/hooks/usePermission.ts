@@ -10,6 +10,12 @@ interface ActionPermissions {
   canExport: boolean;
 }
 
+interface PaymentPermissions extends ActionPermissions {
+  canDownloadPaymentReport: boolean;
+  canDownloadBillReport: boolean;
+  canDownloadComprehensiveReport: boolean;
+}
+
 interface ModulePermissions {
   employees: ActionPermissions;
   properties: ActionPermissions;
@@ -19,7 +25,7 @@ interface ModulePermissions {
   landlords: ActionPermissions;
   offers: ActionPermissions;
   invoices: ActionPermissions;
-  payments: ActionPermissions;
+  payments: PaymentPermissions;
   commissions: ActionPermissions;
   users: ActionPermissions;
   roles: ActionPermissions;
@@ -39,7 +45,7 @@ export function usePermissions() {
   // ALWAYS call hooks first — before any conditional logic
   const accessiblePropertyIds = useMemo(
     () => auth?.getAccessiblePropertyIds() ?? [],
-    [auth?.getAccessiblePropertyIds]
+    [auth]
   );
 
   // Build permissions with useMemo
@@ -55,7 +61,7 @@ export function usePermissions() {
         landlords: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
         offers: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
         invoices: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
-        payments: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
+        payments: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false, canDownloadPaymentReport: false, canDownloadBillReport: false, canDownloadComprehensiveReport: false },
         commissions: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
         users: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
         roles: { canView: false, canCreate: false, canEdit: false, canDelete: false, canExport: false },
@@ -151,13 +157,18 @@ export function usePermissions() {
         PermissionCode.DELETE_INVOICES,
         PermissionCode.DOWNLOAD_INVOICES
       ),
-      payments: makePerms(
-        PermissionCode.VIEW_PAYMENT_REPORTS,
-        PermissionCode.RECORD_PAYMENTS,
-        PermissionCode.EDIT_PAYMENT_RECORDS,
-        PermissionCode.DELETE_PAYMENT_RECORDS,
-        PermissionCode.DOWNLOAD_PAYMENT_RECEIPT
-      ),
+      payments: {
+        ...makePerms(
+          PermissionCode.VIEW_PAYMENT_REPORTS,
+          PermissionCode.RECORD_PAYMENTS,
+          PermissionCode.EDIT_PAYMENT_RECORDS,
+          PermissionCode.DELETE_PAYMENT_RECORDS,
+          PermissionCode.DOWNLOAD_PAYMENT_RECEIPT
+        ),
+        canDownloadPaymentReport: isAdmin || isManager || hasPermission(PermissionCode.DOWNLOAD_PAYMENT_REPORT),
+        canDownloadBillReport: isAdmin || isManager || hasPermission(PermissionCode.DOWNLOAD_BILL_REPORT),
+        canDownloadComprehensiveReport: isAdmin || isManager || hasPermission(PermissionCode.DOWNLOAD_COMPREHENSIVE_REPORT),
+      },
       commissions: makePerms(
         PermissionCode.VIEW_COMMISSIONS,
         PermissionCode.PROCESS_COMMISSIONS,
@@ -285,9 +296,6 @@ export function usePermissions() {
 
     return navigation;
   }, [permissions]);
-
-  // Get isLoading from auth context
-  const isLoading = auth?.isLoading ?? true;
 
   // If auth is loading or not ready, return defaults
   if (!auth || auth.isLoading) {

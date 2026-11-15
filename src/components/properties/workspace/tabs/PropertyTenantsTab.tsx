@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Eye, Pencil, Plus, UserRoundX, Users } from 'lucide-react'
+import { Eye, Pencil, Plus, Snowflake, UserRoundX, Users } from 'lucide-react'
 import type { Tenant, TenantLeftReason } from '@/types'
 import { tenantsAPI } from '@/lib/api'
 import TenantForm from '@/components/forms/TenantForm'
@@ -16,6 +16,8 @@ import { SectionHeader } from '@/components/ui/section-header'
 import { Skeleton } from '@/components/ui/skeleton'
 import { MarkTenantLeftDialog } from '../dialogs/MarkTenantLeftDialog'
 import { useBreadcrumbAction, useBreadcrumbTrail } from '@/components/layout/BreadcrumbContext'
+import { Badge } from '@/components/ui/badge'
+import { getEffectiveFreeze } from '@/lib/tenantFreeze'
 
 interface PropertyTenantsTabProps {
   propertyId: string
@@ -72,6 +74,10 @@ export function PropertyTenantsTab({ propertyId, canManageTenants, onPropertyCha
     await Promise.all([fetchTenants(), onPropertyChanged()])
   }
   const openMarkLeft = (tenant: Tenant) => {
+    if (getEffectiveFreeze(tenant).isFrozen) {
+      toast.error('Unfreeze this tenant before marking them as left')
+      return
+    }
     setMarkLeft({ open: true, tenantId: tenant.id, tenantName: tenant.fullName })
     setSelectedReason('')
     setMarkLeftError(null)
@@ -129,10 +135,12 @@ export function PropertyTenantsTab({ propertyId, canManageTenants, onPropertyCha
         <EmptyState icon={Users} title="No tenants yet" description="No tenants have been added to this property." action={canManageTenants ? <PermissionGuard module="tenants" action="create"><Button onClick={() => setShowTenantForm(true)}>Add Your First Tenant</Button></PermissionGuard> : undefined} />
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
-          {tenants.map((tenant) => (
+          {tenants.map((tenant) => {
+            const freeze = getEffectiveFreeze(tenant)
+            return (
             <Card key={tenant.id}>
               <CardHeader className="border-b border-border">
-                <h3 className="font-semibold text-foreground">
+                <div className="flex items-start justify-between gap-3"><h3 className="font-semibold text-foreground">
                   {tenant.id ? (
                     <Link
                       href={`/properties/${tenant.id}/tenant-details`}
@@ -141,7 +149,7 @@ export function PropertyTenantsTab({ propertyId, canManageTenants, onPropertyCha
                       {tenant.fullName}
                     </Link>
                   ) : tenant.fullName}
-                </h3>
+                </h3>{freeze.state !== 'none' && <Badge variant={freeze.state === 'active' ? 'destructive' : 'warning'}><Snowflake className="size-3" />{freeze.state === 'active' ? 'Frozen' : 'Scheduled'}</Badge>}</div>
               </CardHeader>
               <CardContent className="space-y-4 pt-5">
                 <div className="grid gap-3 text-sm sm:grid-cols-2">
@@ -154,11 +162,11 @@ export function PropertyTenantsTab({ propertyId, canManageTenants, onPropertyCha
                 <div className="flex flex-wrap gap-2 border-t border-border pt-4">
                   {canManageTenants && <PermissionGuard module="tenants" action="edit"><Button size="sm" variant="outline" onClick={() => { setEditingTenant(tenant); setShowTenantForm(true) }}><Pencil className="h-4 w-4" />Edit</Button></PermissionGuard>}
                   <Button size="sm" variant="outline" onClick={() => router.push(`/properties/${tenant.id}/tenant-details`)}><Eye className="h-4 w-4" />View Details</Button>
-                  {canManageTenants && <PermissionGuard module="tenants" action="delete"><Button size="sm" variant="outline" className="text-destructive" onClick={() => openMarkLeft(tenant)}><UserRoundX className="h-4 w-4" />Mark as Left</Button></PermissionGuard>}
+                  {canManageTenants && <PermissionGuard module="tenants" action="delete"><Button size="sm" variant="outline" className="text-destructive" disabled={freeze.isFrozen} title={freeze.isFrozen ? 'Unfreeze this tenant first' : undefined} onClick={() => openMarkLeft(tenant)}><UserRoundX className="h-4 w-4" />Mark as Left</Button></PermissionGuard>}
                 </div>
               </CardContent>
             </Card>
-          ))}
+          )})}
         </div>
       )}
     </div>

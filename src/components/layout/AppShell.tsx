@@ -15,6 +15,19 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const sidebarStorageKey = user?.id ? `interpark.sidebar.${user.id}.collapsed` : null
 
   useEffect(() => {
+    const previousHtmlOverflow = document.documentElement.style.overflow
+    const previousBodyOverflow = document.body.style.overflow
+
+    document.documentElement.style.overflow = 'hidden'
+    document.body.style.overflow = 'hidden'
+
+    return () => {
+      document.documentElement.style.overflow = previousHtmlOverflow
+      document.body.style.overflow = previousBodyOverflow
+    }
+  }, [])
+
+  useEffect(() => {
     if (!sidebarStorageKey) return
     const frame = window.requestAnimationFrame(() => {
       const legacyBaseKey = sidebarStorageKey.replace(/\.collapsed$/, '')
