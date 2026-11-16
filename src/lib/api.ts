@@ -96,6 +96,14 @@ import {
   ServiceProviderDeleteAttachmentResponse,
   UpdateServiceProviderAttachmentRequest,
   UpdateServiceProviderRequest,
+  CreatePersonnelScheduleRequest,
+  CreateServicePersonnelRequest,
+  PersonnelSchedule,
+  PropertyServiceAssignment,
+  ServiceAssignmentStatus,
+  ServiceCategory,
+  ServicePersonnel,
+  ServicePersonnelOptions,
   OtherIncome,
   OtherIncomeCategory,
   OtherIncomeAttachment,
@@ -3892,6 +3900,111 @@ export const cacheAPI = {
       throw new Error(error?.response?.data?.message || error?.message || 'Failed to clear cache');
     }
   },
+};
+
+// ======================================================
+// PROPERTY SERVICE PERSONNEL API FUNCTIONS
+// ======================================================
+
+export const servicePersonnelAPI = {
+  getByProperty: async (
+    propertyId: string,
+    params?: { status?: ServiceAssignmentStatus; serviceCategory?: ServiceCategory; personnelType?: string }
+  ): Promise<ServicePersonnel[]> => {
+    try {
+      const response = await api.get(`/service-personnel/property/${propertyId}`, { params });
+      return response.data.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  getOptions: async (propertyId: string): Promise<ServicePersonnelOptions> => {
+    try {
+      const response = await api.get(`/service-personnel/property/${propertyId}/options`);
+      return response.data.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  getById: async (id: string): Promise<ServicePersonnel> => {
+    try {
+      const response = await api.get(`/service-personnel/${id}`);
+      return response.data.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  create: async (data: CreateServicePersonnelRequest): Promise<ServicePersonnel> => {
+    try {
+      const response = await api.post('/service-personnel', data);
+      return response.data.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  update: async (
+    id: string,
+    data: Partial<Pick<ServicePersonnel, 'name' | 'phoneNumber' | 'email' | 'jobRole' | 'status'>>
+  ): Promise<ServicePersonnel> => {
+    try {
+      const response = await api.patch(`/service-personnel/${id}`, data);
+      return response.data.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  createAssignment: async (
+    personnelId: string,
+    data: CreateServicePersonnelRequest['assignment']
+  ): Promise<PropertyServiceAssignment> => {
+    try {
+      const response = await api.post(`/service-personnel/${personnelId}/assignments`, data);
+      return response.data.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  updateAssignment: async (
+    assignmentId: string,
+    data: Partial<Pick<PropertyServiceAssignment, 'serviceCategory' | 'jobRole' | 'startDate' | 'endDate' | 'status' | 'notes'>>
+  ): Promise<PropertyServiceAssignment> => {
+    try {
+      const response = await api.patch(`/service-personnel/assignments/${assignmentId}`, data);
+      return response.data.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  createSchedule: async (
+    assignmentId: string,
+    data: CreatePersonnelScheduleRequest
+  ): Promise<PersonnelSchedule> => {
+    try {
+      const response = await api.post(`/service-personnel/assignments/${assignmentId}/schedules`, data);
+      return response.data.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  updateSchedule: async (
+    scheduleId: string,
+    data: Partial<CreatePersonnelScheduleRequest & Pick<PersonnelSchedule, 'isActive'>>
+  ): Promise<PersonnelSchedule> => {
+    try {
+      const response = await api.patch(`/service-personnel/schedules/${scheduleId}`, data);
+      return response.data.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  }
 };
 
 // ======================================================

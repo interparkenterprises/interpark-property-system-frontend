@@ -2429,24 +2429,32 @@ export default function PropertyDetailPage() {
               <div className="space-y-6">
                 <div className="flex justify-between items-center flex-wrap gap-4">
                   <h2 className="text-2xl font-bold text-heading-color">Service Providers</h2>
-                  <PermissionGuard permission={PermissionCode.CREATE_SERVICE_PROVIDER}>
+                  <div className="flex flex-wrap gap-3">
                     <Button
-                      onClick={() => setShowProviderForm(true)}
-                      className="group px-6 py-3 bg-primary text-white hover:bg-primary/90 transition-all duration-300 shadow-md hover:shadow-lg rounded-lg"
+                      onClick={() => router.push(`/properties/${propertyId}/service-personnel`)}
+                      className="px-6 py-3 bg-sky-700 text-white hover:bg-sky-800 transition-all duration-300 shadow-md hover:shadow-lg rounded-lg"
                     >
-                      <motion.span className="flex items-center gap-2" whileHover={{ scale: 1.05 }}>
-                        <svg
-                          className="w-5 h-5 transition-transform duration-300 group-hover:rotate-90"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                        </svg>
-                        Add Provider
-                      </motion.span>
+                      Manage Personnel
                     </Button>
-                  </PermissionGuard>
+                    <PermissionGuard permission={PermissionCode.CREATE_SERVICE_PROVIDER}>
+                      <Button
+                        onClick={() => setShowProviderForm(true)}
+                        className="group px-6 py-3 bg-primary text-white hover:bg-primary/90 transition-all duration-300 shadow-md hover:shadow-lg rounded-lg"
+                      >
+                        <motion.span className="flex items-center gap-2" whileHover={{ scale: 1.05 }}>
+                          <svg
+                            className="w-5 h-5 transition-transform duration-300 group-hover:rotate-90"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                          </svg>
+                          Add Provider
+                        </motion.span>
+                      </Button>
+                    </PermissionGuard>
+                  </div>
                 </div>
 
                 {/* Search bar for service providers */}
