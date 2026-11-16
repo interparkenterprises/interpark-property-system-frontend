@@ -2,6 +2,11 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   /* config options here */
+  // The parent workspace also has a lockfile. Pin Turbopack to this app so it
+  // resolves Next.js and writes HMR chunks from the frontend installation.
+  turbopack: {
+    root: process.cwd(),
+  },
   env: {
     API_URL: process.env.NEXT_PUBLIC_API_URL,
   },
