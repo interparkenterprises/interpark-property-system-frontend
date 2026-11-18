@@ -1421,6 +1421,124 @@ export interface UpdateServiceProviderRequest {
 }
 
 // =============================================
+// PROPERTY SERVICE PERSONNEL TYPES
+// =============================================
+
+export type ServiceCategory =
+  | 'CLEANING'
+  | 'SECURITY'
+  | 'CARETAKING'
+  | 'LANDSCAPING'
+  | 'PLUMBING'
+  | 'ELECTRICAL'
+  | 'MAINTENANCE'
+  | 'WASTE_MANAGEMENT'
+  | 'OTHER';
+
+export type PersonnelType = 'INTERNAL' | 'EXTERNAL';
+export type PersonnelStatus = 'ACTIVE' | 'INACTIVE';
+export type ServiceAssignmentStatus = 'ACTIVE' | 'INACTIVE';
+export type ServiceShiftType = 'DAY' | 'NIGHT' | 'CUSTOM';
+export type WeekDay =
+  | 'MONDAY'
+  | 'TUESDAY'
+  | 'WEDNESDAY'
+  | 'THURSDAY'
+  | 'FRIDAY'
+  | 'SATURDAY'
+  | 'SUNDAY';
+
+export interface PersonnelSchedule {
+  id: string;
+  assignmentId: string;
+  dayOfWeek: WeekDay;
+  shiftType: ServiceShiftType;
+  startTime?: string | null;
+  endTime?: string | null;
+  effectiveFrom: string;
+  effectiveTo?: string | null;
+  isActive: boolean;
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PropertyServiceAssignment {
+  id: string;
+  personnelId: string;
+  propertyId: string;
+  serviceCategory: ServiceCategory;
+  jobRole: string;
+  startDate: string;
+  endDate?: string | null;
+  status: ServiceAssignmentStatus;
+  assignmentTiming?: 'CURRENT' | 'UPCOMING' | 'ENDED';
+  notes?: string | null;
+  property?: Pick<Property, 'id' | 'name' | 'address'>;
+  schedules: PersonnelSchedule[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ServicePersonnel {
+  id: string;
+  personnelType: PersonnelType;
+  employeeId?: string | null;
+  serviceProviderId?: string | null;
+  name: string;
+  phoneNumber?: string | null;
+  email?: string | null;
+  jobRole: string;
+  status: PersonnelStatus;
+  portalAccessStatus?: 'PENDING_ACTIVATION' | 'ACTIVE' | 'DISABLED';
+  employee?: Pick<Employee, 'id' | 'name' | 'email' | 'phoneNumber' | 'jobTitle' | 'status'> | null;
+  serviceProvider?: Pick<ServiceProvider, 'id' | 'name' | 'contact' | 'propertyId'> | null;
+  assignments: PropertyServiceAssignment[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ServicePersonnelOptions {
+  employees: Array<Pick<Employee, 'id' | 'name' | 'email' | 'phoneNumber' | 'jobTitle'>>;
+  serviceProviders: Array<Pick<ServiceProvider, 'id' | 'name' | 'contact' | 'propertyId'>>;
+  existingPersonnel: Array<Pick<ServicePersonnel, 'id' | 'name' | 'jobRole' | 'personnelType'> & {
+    serviceProvider?: Pick<ServiceProvider, 'id' | 'name'> | null;
+    employee?: Pick<Employee, 'id' | 'name' | 'jobTitle'> | null;
+  }>;
+  categories: ServiceCategory[];
+}
+
+export interface CreateServicePersonnelRequest {
+  personnelType: PersonnelType;
+  employeeId?: string;
+  serviceProviderId?: string;
+  name?: string;
+  phoneNumber?: string;
+  email?: string;
+  jobRole: string;
+  status?: PersonnelStatus;
+  assignment: {
+    propertyId: string;
+    serviceCategory: ServiceCategory;
+    jobRole: string;
+    startDate?: string;
+    endDate?: string;
+    status?: ServiceAssignmentStatus;
+    notes?: string;
+  };
+}
+
+export interface CreatePersonnelScheduleRequest {
+  dayOfWeek: WeekDay;
+  shiftType: ServiceShiftType;
+  startTime?: string;
+  endTime?: string;
+  effectiveFrom?: string;
+  effectiveTo?: string;
+  notes?: string;
+}
+
+// =============================================
 // SERVICE PROVIDER ATTACHMENT TYPES
 // =============================================
 
