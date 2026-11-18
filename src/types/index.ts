@@ -1472,6 +1472,7 @@ export interface PropertyServiceAssignment {
   startDate: string;
   endDate?: string | null;
   status: ServiceAssignmentStatus;
+  assignmentTiming?: 'CURRENT' | 'UPCOMING' | 'ENDED';
   notes?: string | null;
   property?: Pick<Property, 'id' | 'name' | 'address'>;
   schedules: PersonnelSchedule[];
@@ -1489,6 +1490,7 @@ export interface ServicePersonnel {
   email?: string | null;
   jobRole: string;
   status: PersonnelStatus;
+  portalAccessStatus?: 'PENDING_ACTIVATION' | 'ACTIVE' | 'DISABLED';
   employee?: Pick<Employee, 'id' | 'name' | 'email' | 'phoneNumber' | 'jobTitle' | 'status'> | null;
   serviceProvider?: Pick<ServiceProvider, 'id' | 'name' | 'contact' | 'propertyId'> | null;
   assignments: PropertyServiceAssignment[];

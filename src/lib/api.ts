@@ -129,6 +129,7 @@ import {
   UnfreezeTenantRequest,
   UnfreezeTenantResponse,
 } from '@/types';
+import type { PersonnelPortalAccess } from '@/types/personnelPortal';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ;
 
@@ -225,7 +226,8 @@ api.interceptors.response.use(
       const isLoginPage = window.location.pathname === '/login';
       const isAuthRoute = window.location.pathname === '/register' || 
                          window.location.pathname === '/forgot-password' ||
-                         window.location.pathname === '/change-password';
+                         window.location.pathname === '/change-password' ||
+                         window.location.pathname.startsWith('/personnel');
       
       // Only clear token and redirect if not already on auth page and not already redirecting
       if (!isLoginPage && !isAuthRoute && !isRedirecting) {
@@ -469,32 +471,39 @@ export const propertiesAPI = {
       return handleApiError(error);
     }
   },
-  getPropertyImage: async (id: string): Promise<Blob> => {
+  getPropertyImage: async (id: string): Promise<Blob | null> => {
     try {
       const response = await api.get(`/properties/${id}/image`, {
         responseType: 'blob',
       });
       return response.data;
-    } catch (error: any) {
-      // Special handling for blob error responses
-      if (error.response && error.response.data instanceof Blob) {
-        try {
-          const errorText = await error.response.data.text();
-          const errorData = JSON.parse(errorText);
-          throw new Error(errorData.message || 'Failed to fetch property image');
-        } catch {
-          throw new Error('Failed to fetch property image');
+    } catch (error: unknown) {
+      if (axios.isAxiosError(error)) {
+        // A property without an uploaded file is a normal, displayable state.
+        if (error.response?.status === 404) return null;
+
+        let serverMessage: string | undefined;
+        const responseData = error.response?.data;
+        if (responseData instanceof Blob) {
+          const errorText = await responseData.text();
+          try {
+            serverMessage = (JSON.parse(errorText) as { message?: string }).message;
+          } catch {
+            serverMessage = errorText || undefined;
+          }
+        } else if (responseData && typeof responseData === 'object' && 'message' in responseData) {
+          serverMessage = String(responseData.message);
+        }
+
+        if (error.response) {
+          throw new Error(serverMessage || `Unable to load property image (HTTP ${error.response.status}).`);
+        }
+        if (error.request) {
+          throw new Error('The property image service is unavailable. Please try again.');
         }
       }
-      
-      // For non-blob errors
-      if (error.response) {
-        throw new Error(error.response.data.message || 'API request failed');
-      } else if (error.request) {
-        throw new Error('No response from server. Please check your connection.');
-      } else {
-        throw new Error('An unexpected error occurred');
-      }
+
+      throw error instanceof Error ? error : new Error('Unable to load property image.');
     }
   },
 
@@ -4000,6 +4009,51 @@ export const servicePersonnelAPI = {
   ): Promise<PersonnelSchedule> => {
     try {
       const response = await api.patch(`/service-personnel/schedules/${scheduleId}`, data);
+      return response.data.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  getPortalAccess: async (personnelId: string): Promise<PersonnelPortalAccess> => {
+    try {
+      const response = await api.get(`/service-personnel/${personnelId}/portal-access`);
+      return response.data.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  invitePortalAccess: async (personnelId: string): Promise<PersonnelPortalAccess> => {
+    try {
+      const response = await api.post(`/service-personnel/${personnelId}/portal-access/invite`);
+      return response.data.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  resendPortalInvitation: async (personnelId: string): Promise<PersonnelPortalAccess> => {
+    try {
+      const response = await api.post(`/service-personnel/${personnelId}/portal-access/resend`);
+      return response.data.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  disablePortalAccess: async (personnelId: string): Promise<PersonnelPortalAccess> => {
+    try {
+      const response = await api.post(`/service-personnel/${personnelId}/portal-access/disable`);
+      return response.data.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  enablePortalAccess: async (personnelId: string): Promise<PersonnelPortalAccess> => {
+    try {
+      const response = await api.post(`/service-personnel/${personnelId}/portal-access/enable`);
       return response.data.data;
     } catch (error) {
       return handleApiError(error);

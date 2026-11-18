@@ -63,6 +63,7 @@ export default function PropertyDetailPage() {
   const [deleteTenantModalError, setDeleteTenantModalError] = useState<string | null>(null);
   const [propertyTenants, setPropertyTenants] = useState<Tenant[]>([]);
   const [propertyImageUrl, setPropertyImageUrl] = useState<string | null>(null);
+  const [propertyImageError, setPropertyImageError] = useState<string | null>(null);
   const [showImageModal, setShowImageModal] = useState(false);
   const [imageLoading, setImageLoading] = useState(false);
   
@@ -226,12 +227,15 @@ export default function PropertyDetailPage() {
   const fetchPropertyImage = async () => {
     try {
       setImageLoading(true);
+      setPropertyImageError(null);
       const imageBlob = await propertiesAPI.getPropertyImage(propertyId);
-      const imageUrl = URL.createObjectURL(imageBlob);
-      setPropertyImageUrl(imageUrl);
+      setPropertyImageUrl(currentUrl => {
+        if (currentUrl) URL.revokeObjectURL(currentUrl);
+        return imageBlob ? URL.createObjectURL(imageBlob) : null;
+      });
     } catch (error) {
-      console.error('Error fetching property image:', error);
       setPropertyImageUrl(null);
+      setPropertyImageError(error instanceof Error ? error.message : 'Unable to load property image.');
     } finally {
       setImageLoading(false);
     }
@@ -1123,7 +1127,11 @@ export default function PropertyDetailPage() {
                 </div>
               </div>
             ) : (
-              <div className="w-24 h-24 md:w-32 md:h-32 bg-linear-to-br from-primary/20 to-primary/10 rounded-2xl flex items-center justify-center shadow-lg border-4 border-white ring-2 ring-primary/20">
+              <div
+                className="flex h-24 w-24 flex-col items-center justify-center rounded-2xl border-4 border-white bg-linear-to-br from-primary/20 to-primary/10 text-center shadow-lg ring-2 ring-primary/20 md:h-32 md:w-32"
+                title={propertyImageError || 'No property image uploaded'}
+                aria-label={propertyImageError || 'No property image uploaded'}
+              >
                 <svg className="w-12 h-12 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
                     strokeLinecap="round"
@@ -1132,6 +1140,9 @@ export default function PropertyDetailPage() {
                     d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
                   />
                 </svg>
+                <span className="mt-1 px-2 text-[10px] font-semibold leading-tight text-primary/80 md:text-xs">
+                  {propertyImageError ? 'Image unavailable' : 'No image'}
+                </span>
               </div>
             )}
           </motion.div>
