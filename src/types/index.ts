@@ -1,9 +1,51 @@
-// Update your User interface in types/index.ts
+export type UserRole =
+  | 'ADMIN'
+  | 'MANAGER'
+  | 'USER'
+  | 'LANDLORD'
+  | 'TENANT'
+  | 'SERVICE_PROVIDER';
+
+// Portal envelope returned by login / profile / accept-invitation.
+export interface PortalEnvelope {
+  portal: 'LANDLORD' | 'TENANT' | 'SERVICE_PROVIDER' | null;
+  profileId: string | null;
+}
+
+export const PORTAL_DASHBOARD_ROUTES: Record<
+  NonNullable<PortalEnvelope['portal']>,
+  string
+> = {
+  LANDLORD: '/landlord/dashboard',
+  TENANT: '/tenant/dashboard',
+  SERVICE_PROVIDER: '/service-provider/dashboard',
+};
+
+/** Resolve the landing route for any authenticated user. */
+export function resolveLandingRoute(user: {
+  role?: string | null;
+  portal?: PortalEnvelope | null;
+  requiresPasswordChange?: boolean;
+  isManagedUser?: boolean;
+} | null): string {
+  if (!user) return '/login';
+  if (user.requiresPasswordChange) return '/change-password';
+
+  // Portal users get their portal dashboard, regardless of the staff `role`
+  const portalKind = user.portal?.portal ?? null;
+  if (portalKind) return PORTAL_DASHBOARD_ROUTES[portalKind];
+
+  // Staff
+  if (user.role === 'ADMIN' || user.role === 'MANAGER') return '/dashboard';
+  if (user.isManagedUser) return '/dashboard'; // managed staff default
+  return '/dashboard';
+}
+
 export interface User {
   id: string;
   name: string;
   email: string;
-  role: 'ADMIN' | 'MANAGER' | 'USER';
+  role: UserRole;
   isApproved?: boolean;
   isManagedUser?: boolean;
   createdByManagerId?: string;
@@ -17,6 +59,63 @@ export interface User {
   todos?: ToDo[];
   commissions?: ManagerCommission[];
   requiresPasswordChange?: boolean;
+
+  // Portal fields (populated for LANDLORD / TENANT / SERVICE_PROVIDER)
+  accountStatus?: 'ACTIVE' | 'PENDING_INVITATION' | 'SUSPENDED' | 'DISABLED';
+  landlordProfileId?: string | null;
+  tenantProfileId?: string | null;
+  serviceProviderProfileId?: string | null;
+  portal?: PortalEnvelope; 
+}
+
+export interface AuthResponse {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  isApproved?: boolean;
+  isManagedUser?: boolean;
+  managedBy?: {
+    id: string;
+    name: string;
+  } | null;
+  accessibleProperties?: string[] | PropertyAccess[];
+  permissions?: string[];
+  requiresPasswordChange?: boolean;
+  portal?: PortalEnvelope;          // NEW — returned by login
+  token: string;
+  message?: string;
+}
+
+export interface AcceptInvitationResponse {
+  success: boolean;
+  message: string;
+  user: User;
+  portal: PortalEnvelope;
+  token: string;
+}
+
+export interface InvitePortalUserResponse {
+  success: boolean;
+  message: string;
+  user: User;
+  emailSent: boolean;
+  invitation: {
+    link: string;
+    expiresAt: string;
+    token?: string; // only present in non-production
+  };
+}
+
+export interface ResendInvitationResponse {
+  success: boolean;
+  message: string;
+  emailSent: boolean;
+  invitation: {
+    link: string;
+    expiresAt: string;
+    token?: string; // only present in non-production
+  };
 }
 
 export interface Landlord {
@@ -1714,23 +1813,7 @@ export interface News {
   publishedAt: string;
 }
 
-export interface AuthResponse {
-  id: string;
-  name: string;
-  email: string;
-  role: 'ADMIN' | 'MANAGER' | 'USER';
-  isApproved?: boolean;
-  isManagedUser?: boolean;
-  managedBy?: {
-    id: string;
-    name: string;
-  } | null;
-  accessibleProperties?: string[] | PropertyAccess[];
-  permissions?: string[];
-  requiresPasswordChange?: boolean;
-  token: string;
-  message?: string; // For registration response
-}
+
 
 // Commission Types
 export type CommissionStatus = 'PENDING' | 'PAID' | 'PROCESSING' | 'CANCELLED';
@@ -3287,6 +3370,644 @@ export interface UploadOtherIncomeAttachmentRequest {
   file: File;
   description?: string;
 }
+
+// ==============================================================
+// PORTAL TYPES (NEW) — LANDLORD / TENANT / SERVICE_PROVIDER PORTALS
+// + SERVICE-PROVIDER ASSIGNMENT (staff)
+//
+// These mirror the SAFE projections in the uploaded backend
+// controllers 1:1. Do NOT reuse the staff-side interfaces
+// (PaymentReport, Invoice, Bill, DailyReport, ...) for portal
+// responses: the portal endpoints return a strict subset of fields
+// (e.g. portal payments have NO tenantId, portal daily reports are
+// FLAT scalars, unlike the staff DailyReport's nested objects).
+// ==============================================================
+
+// ---------- Shared ----------
+export interface PortalManagerSummary {
+  id: string;
+  name: string;
+  email?: string;
+}
+
+export interface PortalPagination {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
+
+// ---------- LANDLORD PORTAL ----------
+// GET /api/portal/landlord/profile -> { success, data: { landlord, stats } }
+export interface LandlordPortalProfile {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string | null;
+  address?: string | null;
+  idNumber?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LandlordPortalProfileStats {
+  propertyCount: number;
+  unitCount: number;
+}
+
+export interface LandlordPortalProfileResponse {
+  success: boolean;
+  data: {
+    landlord: LandlordPortalProfile;
+    stats: LandlordPortalProfileStats;
+  };
+}
+
+// GET /api/portal/landlord/properties (SAFE_PROPERTY_SUMMARY + manager + _count.units)
+export interface LandlordPortalPropertySummary {
+  id: string;
+  name: string;
+  address: string;
+  lrNumber?: string | null;
+  form?: string | null;
+  usage?: string | null;
+  commissionFee?: number | null;
+  image?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  manager?: { id: string; name: string } | null;
+  _count?: { units: number };
+}
+
+export interface LandlordPortalPropertiesResponse {
+  success: boolean;
+  count: number;
+  data: LandlordPortalPropertySummary[];
+}
+
+// SAFE_UNIT projection (subset of staff Unit — no propertyId/tenant relations)
+export interface LandlordPortalUnit {
+  id: string;
+  unitNo?: string | null;
+  type?: string | null;
+  unitType?: string | null;
+  floor?: string | null;
+  sizeSqFt?: number | null;
+  bedrooms?: number | null;
+  bathrooms?: number | null;
+  status?: string | null;
+  rentType?: string | null;
+  rentAmount?: number | null;
+  usage?: string | null;
+}
+
+export interface LandlordPortalUnitsResponse {
+  success: boolean;
+  count: number;
+  data: LandlordPortalUnit[];
+}
+
+// GET /api/portal/landlord/properties/:propertyId (SAFE_PROPERTY_DETAIL + units)
+export interface LandlordPortalPropertyDetail {
+  id: string;
+  name: string;
+  address: string;
+  lrNumber?: string | null;
+  form?: string | null;
+  usage?: string | null;
+  commissionFee?: number | null;
+  image?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  landlordId: string;
+  managerId: string;
+  manager?: { id: string; name: string; email: string } | null;
+  units: LandlordPortalUnit[];
+  _count?: { units: number };
+}
+
+export interface LandlordPortalPropertyDetailResponse {
+  success: boolean;
+  data: LandlordPortalPropertyDetail;
+}
+
+// GET /api/portal/landlord/properties/:propertyId/tenants (SAFE_TENANT — REDACTED:
+// no KRAPin, email, contact, POBox, rent, deposit, financial fields)
+export interface LandlordPortalTenant {
+  id: string;
+  fullName: string;
+  leaseTerm: string;
+  termStart: string;
+  rentStart: string;
+  status: TenantStatus; // 'ACTIVE' | 'LEFT'
+  leftAt?: string | null;
+  leftReason?: string | null;
+  isFrozen?: boolean;
+  unit?: {
+    id: string;
+    unitNo?: string | null;
+    floor?: string | null;
+    type?: string | null;
+  } | null;
+}
+
+export type LandlordPortalTenantsStatusFilter = 'ACTIVE' | 'LEFT' | 'ALL';
+
+export interface LandlordPortalTenantsMetadata {
+  activeTenantsCount: number;
+  leftTenantsCount: number;
+  frozenTenantsCount: number;
+  filter: string;
+}
+
+export interface LandlordPortalTenantsResponse {
+  success: boolean;
+  count: number;
+  metadata: LandlordPortalTenantsMetadata;
+  data: LandlordPortalTenant[];
+}
+
+// GET /api/portal/landlord/properties/:propertyId/demand-letters (SAFE_DEMAND_LETTER)
+export interface LandlordPortalDemandLetter {
+  id: string;
+  letterNumber: string;
+  issueDate: string;
+  dueDate: string;
+  rentalPeriod: string;
+  outstandingAmount: number;
+  partialPayment?: number | null;
+  partialPaymentDate?: string | null;
+  status: DemandLetterStatus;
+  documentUrl?: string | null;
+  notes?: string | null;
+  tenant?: { id: string; fullName: string } | null;
+  unit?: { id: string; unitNo?: string | null } | null;
+}
+
+export interface LandlordPortalDemandLettersResponse {
+  success: boolean;
+  count: number;
+  data: LandlordPortalDemandLetter[];
+}
+
+// GET /api/portal/landlord/properties/:propertyId/daily-reports (SAFE_DAILY_REPORT —
+// FLAT scalar fields, only SUBMITTED/REVIEWED. NOTE: 'REVIEWED' is not part of the
+// staff-side ReportStatus union, hence a dedicated status type here.)
+export type LandlordPortalDailyReportStatus = 'SUBMITTED' | 'REVIEWED';
+
+export interface LandlordPortalDailyReport {
+  id: string;
+  reportDate: string;
+  day?: string | null;
+  timeSubmitted?: string | null;
+  preparedBy?: string | null;
+  status: LandlordPortalDailyReportStatus;
+  securityProvider?: string | null;
+  securityIncidents?: string | null;
+  cleaningContractor?: string | null;
+  cleanlinessStandard?: string | null;
+  tenantComplaints?: string | null;
+  landlordInstructions?: string | null;
+  landlordStatus?: string | null;
+  occupancyLevel?: string | null;
+  waterStatus?: string | null;
+  electricityStatus?: string | null;
+  otherServicesStatus?: string | null;
+  operationalChallenges?: string | null;
+  healthSafetyIssues?: string | null;
+}
+
+export interface LandlordPortalDailyReportsResponse {
+  success: boolean;
+  count: number;
+  data: LandlordPortalDailyReport[];
+}
+
+// GET /api/portal/landlord/commissions (SAFE_COMMISSION, paginated)
+export interface LandlordPortalCommission {
+  id: string;
+  propertyId: string;
+  commissionFee?: number | null;
+  incomeAmount?: number | null;
+  commissionAmount?: number | null;
+  periodStart: string;
+  periodEnd: string;
+  status: CommissionStatus; // 'PENDING' | 'PAID' | 'PROCESSING' | 'CANCELLED'
+  paidDate?: string | null;
+  notes?: string | null;
+  createdAt: string;
+  property?: {
+    id: string;
+    name: string;
+    address: string;
+    lrNumber?: string | null;
+  } | null;
+}
+
+export interface LandlordPortalCommissionsQuery {
+  propertyId?: string;
+  status?: CommissionStatus;
+  page?: number;
+  limit?: number;
+}
+
+export interface LandlordPortalCommissionsResponse {
+  success: boolean;
+  pagination: PortalPagination;
+  data: LandlordPortalCommission[];
+}
+
+// ---------- TENANT PORTAL ----------
+// GET /api/portal/tenant/profile -> { success, data: { tenant, unit, property, lifecycle } }
+export interface TenantPortalTenant {
+  id: string;
+  fullName: string;
+  email?: string | null;
+  contact?: string | null;
+  KRAPin?: string | null;
+  POBox?: string | null;
+  leaseTerm: string;
+  rent: number;
+  deposit: number;
+  termStart: string;
+  rentStart: string;
+  paymentPolicy: PaymentPolicy;
+  escalationRate?: number | null;
+  escalationFrequency?: EscalationFrequency | null;
+  vatRate?: number | null;
+  vatType: VATType;
+  withholdingTaxRate?: number | null;
+  withholdingVatRate?: number | null;
+  isWithholdingTaxExempt?: boolean;
+  status: TenantStatus;
+  leftAt?: string | null;
+  leftReason?: string | null;
+  isFrozen?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TenantPortalUnit {
+  id: string;
+  unitNo?: string | null;
+  type?: string | null;
+  unitType?: string | null;
+  floor?: string | null;
+  sizeSqFt?: number | null;
+  bedrooms?: number | null;
+  bathrooms?: number | null;
+}
+
+export interface TenantPortalProperty {
+  id: string;
+  name: string;
+  address: string;
+  form?: string | null;
+  usage?: string | null;
+  lrNumber?: string | null;
+  image?: string | null;
+}
+
+export interface TenantPortalLifecycleFreezePeriod {
+  id: string;
+  startDate: string;
+  endDate?: string | null;
+  reason?: string | null;
+  durationDays?: number | null;
+}
+
+// Mirrors buildLifecycleMetadata in tenantPortal.controller.js
+export interface TenantPortalLifecycle {
+  status: TenantStatus;
+  isActive: boolean;
+  leftAt: string | null;
+  leftReason: string | null;
+  tenureDays: number | null;
+  isFrozen: boolean;
+  frozenAt: string | null;
+  freezeReason: string | null;
+  freezeEndDate: string | null;
+  freezePeriodsCount: number;
+  frozenPeriods: TenantPortalLifecycleFreezePeriod[];
+}
+
+export interface TenantPortalProfileResponse {
+  success: boolean;
+  data: {
+    tenant: TenantPortalTenant;
+    unit: TenantPortalUnit | null;
+    property: TenantPortalProperty | null;
+    lifecycle: TenantPortalLifecycle;
+  };
+}
+
+// GET /api/portal/tenant/statement
+export interface TenantPortalStatementServiceCharge {
+  monthly: number;
+  byPolicy: number;
+  vatType: VATType;
+  vatRate: number;
+  vatAmount: number;
+  totalByPolicy: number;
+}
+
+export interface TenantPortalStatementRentInfo {
+  currentRent: number;
+  nextEscalationDate?: string | null;
+  escalationsApplied?: number;
+  monthlyRent: number;
+  paymentAmount: number;
+  serviceCharge: TenantPortalStatementServiceCharge;
+  vatOnRent: number;
+  totalPayment: number;
+  paymentPolicy: PaymentPolicy;
+  // paymentBreakdown comes from calculateTotalPayment() in the backend's
+  // rentCalculation.js, which was NOT uploaded — shape unconfirmed, kept loose.
+  paymentBreakdown?: Record<string, unknown>;
+}
+
+export interface TenantPortalStatementResponse {
+  success: boolean;
+  data: {
+    rentInfo: TenantPortalStatementRentInfo;
+    paymentSummary: PaymentSummary;
+    lifecycle: TenantPortalLifecycle;
+    freezeWarning: string | null;
+  };
+}
+
+// GET /api/portal/tenant/payments — portal subset (NO tenantId field)
+export interface TenantPortalPayment {
+  id: string;
+  datePaid: string;
+  paymentPeriod: string;
+  amountPaid: number;
+  totalDue: number;
+  arrears: number;
+  rent: number;
+  serviceCharge?: number | null;
+  vat?: number | null;
+  status: PaymentStatus;
+  notes?: string | null;
+  receiptUrl?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TenantPortalPaymentsResponse {
+  success: boolean;
+  count: number;
+  data: TenantPortalPayment[];
+}
+
+// GET /api/portal/tenant/invoices — portal subset (NO tenantId field)
+export interface TenantPortalInvoice {
+  id: string;
+  invoiceNumber: string;
+  issueDate: string;
+  dueDate: string;
+  paymentPeriod: string;
+  rent: number;
+  serviceCharge?: number | null;
+  vat?: number | null;
+  totalDue: number;
+  amountPaid: number;
+  balance: number;
+  status: InvoiceStatus;
+  pdfUrl?: string | null;
+  notes?: string | null;
+  paymentPolicy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TenantPortalInvoicesResponse {
+  success: boolean;
+  count: number;
+  data: TenantPortalInvoice[];
+}
+
+// GET /api/portal/tenant/bills — returns TWO lists in one payload
+export interface TenantPortalBill {
+  id: string;
+  type: BillType;
+  description?: string | null;
+  previousReading: number;
+  currentReading: number;
+  units: number;
+  chargePerUnit: number;
+  totalAmount: number;
+  vatRate?: number | null;
+  vatAmount?: number | null;
+  grandTotal: number;
+  amountPaid: number;
+  status: BillStatus;
+  issuedAt: string;
+  dueDate?: string | null;
+  paidAt?: string | null;
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TenantPortalBillInvoice {
+  id: string;
+  invoiceNumber: string;
+  billReferenceNumber: string;
+  billReferenceDate: string;
+  issueDate: string;
+  dueDate: string;
+  billType: BillType;
+  previousReading: number;
+  currentReading: number;
+  units: number;
+  chargePerUnit: number;
+  totalAmount: number;
+  vatRate?: number | null;
+  vatAmount?: number | null;
+  grandTotal: number;
+  amountPaid: number;
+  balance: number;
+  status: InvoiceStatus;
+  pdfUrl?: string | null;
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TenantPortalBillsResponse {
+  success: boolean;
+  bills: { count: number; data: TenantPortalBill[] };
+  billInvoices: { count: number; data: TenantPortalBillInvoice[] };
+}
+
+// GET /api/portal/tenant/demand-letters
+export interface TenantPortalDemandLetter {
+  id: string;
+  letterNumber: string;
+  issueDate: string;
+  dueDate: string;
+  rentalPeriod: string;
+  outstandingAmount: number;
+  partialPayment?: number | null;
+  partialPaymentDate?: string | null;
+  demandPeriod?: string | null;
+  referenceNumber?: string | null;
+  previousInvoiceRef?: string | null;
+  status: DemandLetterStatus;
+  documentUrl?: string | null;
+  notes?: string | null;
+  property?: { id: string; name: string; address: string } | null;
+  unit?: { id: string; unitNo?: string | null } | null;
+}
+
+export interface TenantPortalDemandLettersResponse {
+  success: boolean;
+  count: number;
+  data: TenantPortalDemandLetter[];
+}
+
+// GET /api/portal/tenant/attachments — no raw url; only preview/download paths
+export interface TenantPortalAttachment {
+  id: string;
+  name: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  uploadedAt: string;
+  updatedAt: string;
+  previewUrl: string;
+  downloadUrl: string;
+}
+
+export interface TenantPortalAttachmentsResponse {
+  success: boolean;
+  count: number;
+  data: TenantPortalAttachment[];
+}
+
+// ---------- SERVICE PROVIDER PORTAL ----------
+// GET /api/portal/provider/profile
+export interface ServiceProviderPortalProfile {
+  id: string;
+  name: string;
+  contact?: string | null;
+  contractPeriod?: string | null;
+  serviceContract?: string | null;
+  chargeAmount?: number | null;
+  chargeFrequency?: string | null;
+}
+
+export interface ServiceProviderPortalProfileResponse {
+  success: boolean;
+  data: {
+    provider: ServiceProviderPortalProfile;
+    stats: {
+      propertyCount: number;
+      attachmentCount: number;
+    };
+  };
+}
+
+// GET /api/portal/provider/properties (bank fields explicitly excluded)
+export interface ServiceProviderPortalProperty {
+  id: string;
+  name: string;
+  address: string;
+  lrNumber?: string | null;
+  form?: string | null;
+  usage?: string | null;
+  image?: string | null;
+}
+
+export interface ServiceProviderPortalPropertiesResponse {
+  success: boolean;
+  count: number;
+  data: ServiceProviderPortalProperty[];
+}
+
+export interface ServiceProviderPortalAttachment {
+  id: string;
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  description?: string | null;
+  category?: string | null;
+  version?: string | null;
+  expiryDate?: string | null;
+  uploadedAt: string;
+  isActive: boolean;
+  previewUrl: string;
+  downloadUrl: string;
+}
+
+export interface ServiceProviderPortalAttachmentsResponse {
+  success: boolean;
+  count: number;
+  data: ServiceProviderPortalAttachment[];
+}
+
+export interface UploadServiceProviderPortalAttachmentRequest {
+  file: File;
+  description?: string;
+  category?: string;
+  expiryDate?: string;
+  version?: string;
+}
+
+export interface UpdateServiceProviderPortalAttachmentRequest {
+  description?: string;
+  category?: string;
+  expiryDate?: string | null;
+  version?: string;
+}
+
+// POST /attachments (201) and PATCH /attachments/:id share this envelope
+export interface ServiceProviderPortalAttachmentMutationResponse {
+  success: boolean;
+  message: string;
+  data: ServiceProviderPortalAttachment;
+}
+
+// DELETE /attachments/:id
+export interface ServiceProviderPortalDeleteAttachmentResponse {
+  success: boolean;
+  message: string;
+}
+
+// ---------- SERVICE-PROVIDER ASSIGNMENTS (staff: ADMIN / MANAGER) ----------
+// Shared shape for GET list rows and POST/DELETE results —
+// serializeAssignment in serviceProviderAssignment.controller.js
+export interface ServiceProviderAssignment {
+  assignmentId: string;
+  isActive: boolean;
+  assignedAt: string;
+  assignedById: string;
+  propertyId: string;
+  provider: {
+    id: string;
+    name: string;
+    // Legacy primary property from the staff creation flow (read-only)
+    primaryPropertyId?: string | null;
+  } | null;
+}
+
+// GET /api/properties/:propertyId/service-providers
+export interface ServiceProviderAssignmentsResponse {
+  success: boolean;
+  property: { id: string; name: string };
+  active: ServiceProviderAssignment[];
+  inactive: ServiceProviderAssignment[];
+}
+
+// POST /:providerId/assign  |  DELETE /:providerId/unassign
+// (unassign returns assignment: null when nothing was assigned)
+export interface ServiceProviderAssignUnassignResponse {
+  success: boolean;
+  message: string;
+  assignment: ServiceProviderAssignment | null;
+}
+
 
 // Permission codes from your backend
 export enum PermissionCode {

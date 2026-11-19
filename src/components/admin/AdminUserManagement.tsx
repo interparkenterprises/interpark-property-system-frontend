@@ -3,17 +3,12 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { authAPI } from '@/lib/api';
+import type { User, UserRole } from '@/types';
 
-interface User {
-  id: string;
-  name: string;
-  email: string;
-  role: 'ADMIN' | 'MANAGER' | 'USER';
-  isApproved: boolean;
-  isManagedUser?: boolean;
-  createdAt: string;
-  lastLoginAt?: string;
-}
+// Only these roles can be assigned via this admin dropdown.
+// Portal roles (LANDLORD / TENANT / SERVICE_PROVIDER) are managed
+// through the invitation flow, not here.
+const ASSIGNABLE_STAFF_ROLES: UserRole[] = ['ADMIN', 'MANAGER', 'USER'];
 
 export default function AdminUserManagement() {
   const { user } = useAuth();
@@ -37,9 +32,9 @@ export default function AdminUserManagement() {
         authAPI.getAllUsers(),
         authAPI.getPendingUsers(),
       ]);
-      // Ensure isApproved is always a boolean to satisfy local User type
-      setAllUsers(allUsersData.map(u => ({ ...u, isApproved: !!u.isApproved })));
-      setPendingUsers(pendingUsersData.map(u => ({ ...u, isApproved: !!u.isApproved })));
+      // Normalize isApproved to a boolean (shared type has it optional).
+      setAllUsers(allUsersData.map((u) => ({ ...u, isApproved: !!u.isApproved })));
+      setPendingUsers(pendingUsersData.map((u) => ({ ...u, isApproved: !!u.isApproved })));
     } catch (error: any) {
       setMessage({ type: 'error', text: error.message || 'Failed to fetch users' });
     } finally {
@@ -52,7 +47,7 @@ export default function AdminUserManagement() {
       setProcessingUserId(userId);
       const result = await authAPI.approveUser(userId, isApproved);
       setMessage({ type: 'success', text: result.message });
-      await fetchUsers(); // Refresh the lists
+      await fetchUsers();
     } catch (error: any) {
       setMessage({ type: 'error', text: error.message || 'Failed to update user approval status' });
     } finally {
@@ -61,7 +56,7 @@ export default function AdminUserManagement() {
     }
   };
 
-  const handleUpdateRole = async (userId: string, newRole: 'ADMIN' | 'MANAGER' | 'USER') => {
+  const handleUpdateRole = async (userId: string, newRole: UserRole) => {
     if (userId === user?.id && newRole !== 'ADMIN') {
       setMessage({ type: 'error', text: 'You cannot demote yourself!' });
       setTimeout(() => setMessage(null), 3000);
@@ -70,9 +65,9 @@ export default function AdminUserManagement() {
 
     try {
       setProcessingUserId(userId);
-      const updatedUser = await authAPI.updateUserRole(userId, newRole);
+      await authAPI.updateUserRole(userId, newRole);
       setMessage({ type: 'success', text: `User role updated to ${newRole}` });
-      await fetchUsers(); // Refresh the lists
+      await fetchUsers();
     } catch (error: any) {
       setMessage({ type: 'error', text: error.message || 'Failed to update user role' });
     } finally {
@@ -81,13 +76,12 @@ export default function AdminUserManagement() {
     }
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-KE', {
+  const formatDate = (dateString: string) =>
+    new Date(dateString).toLocaleDateString('en-KE', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
     });
-  };
 
   if (user?.role !== 'ADMIN') {
     return null;
@@ -190,12 +184,7 @@ export default function AdminUserManagement() {
                         <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
                       ) : (
                         <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M5 13l4 4L19 7"
-                          />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                         </svg>
                       )}
                       Approve
@@ -209,12 +198,7 @@ export default function AdminUserManagement() {
                         <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
                       ) : (
                         <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M6 18L18 6M6 6l12 12"
-                          />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                         </svg>
                       )}
                       Reject
@@ -239,58 +223,70 @@ export default function AdminUserManagement() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
-              {allUsers.map((userItem) => (
-                <tr key={userItem.id} className="group hover:bg-slate-800/50">
-                  <td className="py-4 pl-0 pr-4">
-                    <div>
-                      <div className="font-semibold text-slate-100">{userItem.name}</div>
-                      <div className="text-xs text-slate-400">{userItem.email}</div>
-                    </div>
-                  </td>
-                  <td className="py-4 px-4">
-                    <select
-                      value={userItem.role}
-                      onChange={(e) =>
-                        handleUpdateRole(userItem.id, e.target.value as 'ADMIN' | 'MANAGER' | 'USER')
-                      }
-                      disabled={processingUserId === userItem.id || userItem.id === user?.id}
-                      className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-1 text-sm font-semibold text-slate-200 transition hover:border-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <option value="ADMIN">Admin</option>
-                      <option value="MANAGER">Manager</option>
-                      <option value="USER">User</option>
-                    </select>
-                  </td>
-                  <td className="py-4 px-4">
-                    {userItem.isApproved ? (
-                      <span className="inline-flex items-center rounded-full bg-green-500/15 px-2.5 py-0.5 text-xs font-semibold text-green-300 ring-1 ring-green-400/20">
-                        Approved
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center rounded-full bg-amber-500/15 px-2.5 py-0.5 text-xs font-semibold text-amber-300 ring-1 ring-amber-400/20">
-                        Pending
-                      </span>
-                    )}
-                  </td>
-                  <td className="py-4 px-4 text-sm text-slate-400">
-                    {formatDate(userItem.createdAt)}
-                  </td>
-                  <td className="py-4 px-4 text-sm text-slate-400">
-                    {userItem.lastLoginAt ? formatDate(userItem.lastLoginAt) : 'Never'}
-                  </td>
-                  <td className="py-4 pr-0 text-right">
-                    {!userItem.isApproved && userItem.role === 'MANAGER' && (
-                      <button
-                        onClick={() => handleApproveUser(userItem.id, true)}
-                        disabled={processingUserId === userItem.id}
-                        className="inline-flex items-center gap-1 rounded-lg bg-green-600/20 px-3 py-1 text-xs font-semibold text-green-400 transition hover:bg-green-600/30 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        Approve
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
+              {allUsers.map((userItem) => {
+                // Portal roles can't be changed here — they're tied to
+                // profile links created via the invitation flow.
+                const isPortalRole = !ASSIGNABLE_STAFF_ROLES.includes(userItem.role);
+
+                return (
+                  <tr key={userItem.id} className="group hover:bg-slate-800/50">
+                    <td className="py-4 pl-0 pr-4">
+                      <div>
+                        <div className="font-semibold text-slate-100">{userItem.name}</div>
+                        <div className="text-xs text-slate-400">{userItem.email}</div>
+                      </div>
+                    </td>
+                    <td className="py-4 px-4">
+                      {isPortalRole ? (
+                        <span className="inline-flex items-center rounded-full bg-indigo-500/15 px-2.5 py-0.5 text-xs font-semibold text-indigo-300 ring-1 ring-indigo-400/20">
+                          {userItem.role}
+                        </span>
+                      ) : (
+                        <select
+                          value={userItem.role}
+                          onChange={(e) =>
+                            handleUpdateRole(userItem.id, e.target.value as UserRole)
+                          }
+                          disabled={processingUserId === userItem.id || userItem.id === user?.id}
+                          className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-1 text-sm font-semibold text-slate-200 transition hover:border-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <option value="ADMIN">Admin</option>
+                          <option value="MANAGER">Manager</option>
+                          <option value="USER">User</option>
+                        </select>
+                      )}
+                    </td>
+                    <td className="py-4 px-4">
+                      {userItem.isApproved ? (
+                        <span className="inline-flex items-center rounded-full bg-green-500/15 px-2.5 py-0.5 text-xs font-semibold text-green-300 ring-1 ring-green-400/20">
+                          Approved
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center rounded-full bg-amber-500/15 px-2.5 py-0.5 text-xs font-semibold text-amber-300 ring-1 ring-amber-400/20">
+                          Pending
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-4 px-4 text-sm text-slate-400">
+                      {formatDate(userItem.createdAt)}
+                    </td>
+                    <td className="py-4 px-4 text-sm text-slate-400">
+                      {userItem.lastLoginAt ? formatDate(userItem.lastLoginAt) : 'Never'}
+                    </td>
+                    <td className="py-4 pr-0 text-right">
+                      {!userItem.isApproved && userItem.role === 'MANAGER' && (
+                        <button
+                          onClick={() => handleApproveUser(userItem.id, true)}
+                          disabled={processingUserId === userItem.id}
+                          className="inline-flex items-center gap-1 rounded-lg bg-green-600/20 px-3 py-1 text-xs font-semibold text-green-400 transition hover:bg-green-600/30 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Approve
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

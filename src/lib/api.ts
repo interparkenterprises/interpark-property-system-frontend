@@ -120,6 +120,37 @@ import {
   TenantFreezeHistoryResponse,
   UnfreezeTenantRequest,
   UnfreezeTenantResponse,
+  UserRole,
+  AcceptInvitationResponse,
+  InvitePortalUserResponse,
+  ResendInvitationResponse,
+  // Portal types (NEW)
+  LandlordPortalProfileResponse,
+  LandlordPortalPropertiesResponse,
+  LandlordPortalPropertyDetailResponse,
+  LandlordPortalUnitsResponse,
+  LandlordPortalTenantsResponse,
+  LandlordPortalTenantsStatusFilter,
+  LandlordPortalDemandLettersResponse,
+  LandlordPortalDailyReportsResponse,
+  LandlordPortalCommissionsQuery,
+  LandlordPortalCommissionsResponse,
+  TenantPortalProfileResponse,
+  TenantPortalStatementResponse,
+  TenantPortalPaymentsResponse,
+  TenantPortalInvoicesResponse,
+  TenantPortalBillsResponse,
+  TenantPortalDemandLettersResponse,
+  TenantPortalAttachmentsResponse,
+  ServiceProviderPortalProfileResponse,
+  ServiceProviderPortalPropertiesResponse,
+  ServiceProviderPortalAttachmentsResponse,
+  UploadServiceProviderPortalAttachmentRequest,
+  UpdateServiceProviderPortalAttachmentRequest,
+  ServiceProviderPortalAttachmentMutationResponse,
+  ServiceProviderPortalDeleteAttachmentResponse,
+  ServiceProviderAssignmentsResponse,
+  ServiceProviderAssignUnassignResponse,
 } from '@/types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ;
@@ -270,16 +301,26 @@ export const authAPI = {
       return handleApiError(error);
     }
   },
-  
-  register: async (name: string, email: string, password: string, role?: string): Promise<AuthResponse> => {
+
+  register: async (
+    name: string,
+    email: string,
+    password: string,
+    role?: string
+  ): Promise<AuthResponse> => {
     try {
-      const response = await api.post('/auth/register', { name, email, password, role });
+      const response = await api.post('/auth/register', {
+        name,
+        email,
+        password,
+        role,
+      });
       return response.data;
     } catch (error) {
       return handleApiError(error);
     }
   },
-  
+
   getProfile: async (): Promise<User> => {
     try {
       const response = await api.get('/auth/profile');
@@ -289,27 +330,38 @@ export const authAPI = {
     }
   },
 
-  // NEW: Register Admin (First admin or by existing admin)
-  registerAdmin: async (name: string, email: string, password: string): Promise<AuthResponse> => {
+  registerAdmin: async (
+    name: string,
+    email: string,
+    password: string
+  ): Promise<AuthResponse> => {
     try {
-      const response = await api.post('/auth/register-admin', { name, email, password });
+      const response = await api.post('/auth/register-admin', {
+        name,
+        email,
+        password,
+      });
       return response.data;
     } catch (error) {
       return handleApiError(error);
     }
   },
 
-  // NEW: Change Password
-  changePassword: async (currentPassword: string, newPassword: string): Promise<{ message: string }> => {
+  changePassword: async (
+    currentPassword: string,
+    newPassword: string
+  ): Promise<{ message: string }> => {
     try {
-      const response = await api.post('/auth/change-password', { currentPassword, newPassword });
+      const response = await api.post('/auth/change-password', {
+        currentPassword,
+        newPassword,
+      });
       return response.data;
     } catch (error) {
       return handleApiError(error);
     }
   },
 
-  // NEW: Get All Users (Admin only)
   getAllUsers: async (): Promise<User[]> => {
     try {
       const response = await api.get('/auth/users');
@@ -319,7 +371,6 @@ export const authAPI = {
     }
   },
 
-  // NEW: Get Pending Users (Admin only)
   getPendingUsers: async (): Promise<User[]> => {
     try {
       const response = await api.get('/auth/users/pending');
@@ -329,8 +380,10 @@ export const authAPI = {
     }
   },
 
-  // NEW: Update User Role (Admin only)
-  updateUserRole: async (userId: string, role: 'ADMIN' | 'MANAGER' | 'USER'): Promise<User> => {
+  updateUserRole: async (
+    userId: string,
+    role: UserRole
+  ): Promise<User> => {
     try {
       const response = await api.put(`/auth/users/${userId}/role`, { role });
       return response.data;
@@ -339,17 +392,129 @@ export const authAPI = {
     }
   },
 
-  // NEW: Approve/Reject User (Admin only)
-  approveUser: async (userId: string, isApproved: boolean): Promise<{ message: string; user: User }> => {
+  approveUser: async (
+    userId: string,
+    isApproved: boolean
+  ): Promise<{ message: string; user: User }> => {
     try {
-      const response = await api.put(`/auth/users/${userId}/approve`, { isApproved });
+      const response = await api.put(`/auth/users/${userId}/approve`, {
+        isApproved,
+      });
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  // ─────────────────────────────────────────────────────────────
+  // PORTAL ONBOARDING / ACCOUNT MANAGEMENT (new)
+  // ─────────────────────────────────────────────────────────────
+
+  // Accept invitation — public, token-gated. Sets password, activates
+  // the account, and returns a JWT ready to use.
+  acceptInvitation: async (
+    userId: string,
+    token: string,
+    newPassword: string
+  ): Promise<AcceptInvitationResponse> => {
+    try {
+      const response = await api.post('/auth/accept-invitation', {
+        userId,
+        token,
+        newPassword,
+      });
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  // Invite a portal user. ADMIN globally; MANAGER for profiles tied to
+  // properties they manage.
+  invitePortalUser: async (payload: {
+    role: 'LANDLORD' | 'TENANT' | 'SERVICE_PROVIDER';
+    profileId: string;
+    email: string;
+    name?: string;
+  }): Promise<InvitePortalUserResponse> => {
+    try {
+      const response = await api.post('/auth/invite-portal-user', payload);
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  // Resend an invitation — regenerates token and re-sends the email.
+  resendInvitation: async (
+    userId: string
+  ): Promise<ResendInvitationResponse> => {
+    try {
+      const response = await api.post('/auth/resend-invitation', { userId });
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  // Suspend a portal user.
+  suspendPortalUser: async (
+    userId: string
+  ): Promise<{ success: boolean; message: string; user: User }> => {
+    try {
+      const response = await api.post(`/auth/users/${userId}/suspend`);
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  // Reactivate a suspended portal user.
+  reactivatePortalUser: async (
+    userId: string
+  ): Promise<{ success: boolean; message: string; user: User }> => {
+    try {
+      const response = await api.post(`/auth/users/${userId}/reactivate`);
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  // Request a password reset — always 200 to avoid enumeration.
+  requestPasswordReset: async (
+    email: string
+  ): Promise<{
+    success: boolean;
+    message: string;
+    reset?: { link: string; expiresAt: string; token?: string };
+  }> => {
+    try {
+      const response = await api.post('/auth/forgot-password', { email });
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  // Reset password using a valid reset token.
+  resetPassword: async (
+    userId: string,
+    token: string,
+    newPassword: string
+  ): Promise<{ success: boolean; message: string }> => {
+    try {
+      const response = await api.post('/auth/reset-password', {
+        userId,
+        token,
+        newPassword,
+      });
       return response.data;
     } catch (error) {
       return handleApiError(error);
     }
   },
 };
-
 export const landlordsAPI = {
   getAll: async (): Promise<Landlord[]> => {
     try {
@@ -4608,6 +4773,349 @@ export const otherIncomeAPI = {
       valid: errors.length === 0,
       errors,
     };
+  },
+};
+
+// ==============================================================
+// PORTAL APIs 
+// landlordPortalAPI / tenantPortalAPI / providerPortalAPI
+// service-provider assignment endpoints (added to propertiesAPI style)
+//
+// Reuses the module-level `api` axios client (token interceptor +
+// 401 handling) and `handleApiError` already defined above.
+// ==============================================================
+
+// ---------- LANDLORD PORTAL (mounted at /api/portal/landlord) ----------
+export const landlordPortalAPI = {
+  getProfile: async (): Promise<LandlordPortalProfileResponse> => {
+    try {
+      const response = await api.get('/portal/landlord/profile');
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  getProperties: async (): Promise<LandlordPortalPropertiesResponse> => {
+    try {
+      const response = await api.get('/portal/landlord/properties');
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  getProperty: async (propertyId: string): Promise<LandlordPortalPropertyDetailResponse> => {
+    try {
+      const response = await api.get(`/portal/landlord/properties/${propertyId}`);
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  getPropertyUnits: async (
+    propertyId: string
+  ): Promise<LandlordPortalUnitsResponse> => {
+    try {
+      const response = await api.get(`/portal/landlord/properties/${propertyId}/units`);
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  getPropertyTenants: async (
+    propertyId: string,
+    status: LandlordPortalTenantsStatusFilter = 'ACTIVE'
+  ): Promise<LandlordPortalTenantsResponse> => {
+    try {
+      const response = await api.get(
+        `/portal/landlord/properties/${propertyId}/tenants`,
+        { params: { status } }
+      );
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  getPropertyDemandLetters: async (
+    propertyId: string
+  ): Promise<LandlordPortalDemandLettersResponse> => {
+    try {
+      const response = await api.get(
+        `/portal/landlord/properties/${propertyId}/demand-letters`
+      );
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  getPropertyDailyReports: async (
+    propertyId: string
+  ): Promise<LandlordPortalDailyReportsResponse> => {
+    try {
+      const response = await api.get(
+        `/portal/landlord/properties/${propertyId}/daily-reports`
+      );
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  getCommissions: async (
+    params: LandlordPortalCommissionsQuery = {}
+  ): Promise<LandlordPortalCommissionsResponse> => {
+    try {
+      const response = await api.get('/portal/landlord/commissions', { params });
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+};
+
+// ---------- TENANT PORTAL (mounted at /api/portal/tenant) ----------
+export const tenantPortalAPI = {
+  getProfile: async (): Promise<TenantPortalProfileResponse> => {
+    try {
+      const response = await api.get('/portal/tenant/profile');
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  getStatement: async (): Promise<TenantPortalStatementResponse> => {
+    try {
+      const response = await api.get('/portal/tenant/statement');
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  getPayments: async (): Promise<TenantPortalPaymentsResponse> => {
+    try {
+      const response = await api.get('/portal/tenant/payments');
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  getInvoices: async (): Promise<TenantPortalInvoicesResponse> => {
+    try {
+      const response = await api.get('/portal/tenant/invoices');
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  getBills: async (): Promise<TenantPortalBillsResponse> => {
+    try {
+      const response = await api.get('/portal/tenant/bills');
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  getDemandLetters: async (): Promise<TenantPortalDemandLettersResponse> => {
+    try {
+      const response = await api.get('/portal/tenant/demand-letters');
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  getAttachments: async (): Promise<TenantPortalAttachmentsResponse> => {
+    try {
+      const response = await api.get('/portal/tenant/attachments');
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  // Inline preview (browser handles auth via token query is NOT supported
+  // by this endpoint — use fetchBlob so the Bearer header is attached).
+  previewAttachment: async (attachmentId: string): Promise<Blob> => {
+    try {
+      const response = await api.get(
+        `/portal/tenant/attachments/${attachmentId}/preview`,
+        { responseType: 'blob' }
+      );
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  downloadAttachment: async (attachmentId: string): Promise<Blob> => {
+    try {
+      const response = await api.get(
+        `/portal/tenant/attachments/${attachmentId}/download`,
+        { responseType: 'blob' }
+      );
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+};
+
+// ---------- SERVICE PROVIDER PORTAL (mounted at /api/portal/provider) ----------
+export const providerPortalAPI = {
+  getProfile: async (): Promise<ServiceProviderPortalProfileResponse> => {
+    try {
+      const response = await api.get('/portal/provider/profile');
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  getProperties: async (): Promise<ServiceProviderPortalPropertiesResponse> => {
+    try {
+      const response = await api.get('/portal/provider/properties');
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  getAttachments: async (): Promise<ServiceProviderPortalAttachmentsResponse> => {
+    try {
+      const response = await api.get('/portal/provider/attachments');
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  uploadAttachment: async (
+    data: UploadServiceProviderPortalAttachmentRequest
+  ): Promise<ServiceProviderPortalAttachmentMutationResponse> => {
+    try {
+      const formData = new FormData();
+      formData.append('file', data.file); // backend: uploadSingle('file')
+      if (data.description !== undefined) formData.append('description', data.description);
+      if (data.category !== undefined) formData.append('category', data.category);
+      if (data.expiryDate !== undefined) formData.append('expiryDate', data.expiryDate);
+      if (data.version !== undefined) formData.append('version', data.version);
+
+      const response = await api.post('/portal/provider/attachments', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  updateAttachment: async (
+    attachmentId: string,
+    data: UpdateServiceProviderPortalAttachmentRequest
+  ): Promise<ServiceProviderPortalAttachmentMutationResponse> => {
+    try {
+      const response = await api.patch(
+        `/portal/provider/attachments/${attachmentId}`,
+        data
+      );
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  deleteAttachment: async (
+    attachmentId: string
+  ): Promise<ServiceProviderPortalDeleteAttachmentResponse> => {
+    try {
+      const response = await api.delete(
+        `/portal/provider/attachments/${attachmentId}`
+      );
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  previewAttachment: async (attachmentId: string): Promise<Blob> => {
+    try {
+      const response = await api.get(
+        `/portal/provider/attachments/${attachmentId}/preview`,
+        { responseType: 'blob' }
+      );
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  downloadAttachment: async (attachmentId: string): Promise<Blob> => {
+    try {
+      const response = await api.get(
+        `/portal/provider/attachments/${attachmentId}/download`,
+        { responseType: 'blob' }
+      );
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+};
+
+// ---------- SERVICE-PROVIDER ASSIGNMENTS (ADMIN / MANAGER) ----------
+// Mounted at /api/properties/:propertyId/service-providers (see app.js).
+// NOTE: this is a STAFF endpoint, kept separate from the provider's own
+// portal API above.
+export const serviceProviderAssignmentsAPI = {
+  list: async (
+    propertyId: string
+  ): Promise<ServiceProviderAssignmentsResponse> => {
+    try {
+      const response = await api.get(
+        `/properties/${propertyId}/service-providers`
+      );
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  assign: async (
+    propertyId: string,
+    providerId: string
+  ): Promise<ServiceProviderAssignUnassignResponse> => {
+    try {
+      const response = await api.post(
+        `/properties/${propertyId}/service-providers/${providerId}/assign`
+      );
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+
+  unassign: async (
+    propertyId: string,
+    providerId: string
+  ): Promise<ServiceProviderAssignUnassignResponse> => {
+    try {
+      const response = await api.delete(
+        `/properties/${propertyId}/service-providers/${providerId}/unassign`
+      );
+      return response.data;
+    } catch (error) {
+      return handleApiError(error);
+    }
   },
 };
 export default api;

@@ -197,10 +197,26 @@ export default function TenantDetailPage() {
   const [freezeHistory, setFreezeHistory] = useState<TenantFreezeHistoryResponse['data'] | null>(null);
 
   // Whether the tenant is currently frozen (rent accrual paused).
-  // Falls back to deriving it from the freeze periods if the flag is missing.
+// ==============================================
+  // TENANT FREEZE STATE
+  // ==============================================
   const isTenantFrozen = useMemo(() => {
     if (!tenant) return false;
+    
+    // 1. Check root level (Prisma model field)
     if (typeof tenant.isFrozen === 'boolean') return tenant.isFrozen;
+    
+    // 2. Check statusInfo (from getTenant backend response)
+    if (typeof (tenant as any).statusInfo?.isFrozen === 'boolean') {
+      return (tenant as any).statusInfo.isFrozen;
+    }
+    
+    // 3. Check lifecycle (from backend response)
+   /* if (typeof tenant.lifecycle?.isFrozen === 'boolean') {
+      return tenant.lifecycle.isFrozen;
+    }*/
+    
+    // 4. Fallback: Check freeze periods for any active/open freeze
     const periods = tenant.freezePeriods || [];
     const now = new Date();
     return periods.some(
@@ -483,16 +499,15 @@ export default function TenantDetailPage() {
 
   const handleFreezeSubmit = async () => {
     if (!tenant) return;
-
     try {
       setFreezeSubmitting(true);
-
+      
       if (freezeAction === 'freeze') {
         const payload: FreezeTenantRequest = {};
         if (freezeStartDate) payload.freezeStartDate = freezeStartDate;
         if (freezeEndDate) payload.freezeEndDate = freezeEndDate;
         if (freezeReason.trim()) payload.reason = freezeReason.trim();
-
+        
         const response = await tenantsAPI.freeze(tenantId, payload);
         toast.success(response.message || 'Tenant frozen successfully. Rent accrual paused.');
         setTenant(response.data.tenant);
@@ -500,15 +515,21 @@ export default function TenantDetailPage() {
         const payload: UnfreezeTenantRequest = {};
         if (unfreezeDate) payload.unfreezeDate = unfreezeDate;
         if (freezeReason.trim()) payload.reason = freezeReason.trim();
-
+        
         const response = await tenantsAPI.unfreeze(tenantId, payload);
         toast.success(response.message || 'Tenant unfrozen successfully. Rent accrual resumed.');
         setTenant(response.data.tenant);
       }
-
+      
       setFreezeDialogOpen(false);
+      
+      // 🚨 CRITICAL FIX: Refetch the tenant to ensure all derived states 
+      // (like paymentSummary.status, lifecycle, and isFrozen) are perfectly in sync.
+      await fetchTenant();
       fetchInvoices();
       fetchOutstandingInvoices();
+      fetchPaymentReports(); // Refresh payment reports to update "FROZEN" status to "UP_TO_DATE"
+      
     } catch (error: any) {
       console.error('Error toggling tenant freeze:', error);
       toast.error(error.message || 'Failed to update tenant freeze status');
